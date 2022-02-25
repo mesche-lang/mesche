@@ -1,3 +1,4 @@
 compiler/
 bin/
+musl/
 .ccls-cache/

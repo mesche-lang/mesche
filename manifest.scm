@@ -5,4 +5,7 @@
    "pkg-config"
    "gdb"
    "git"
-   "bash"))
+   "bash"
+   "wget"
+   "tar"
+   "gzip"))

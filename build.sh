@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-CC=gcc
+CC="musl/bin/x86_64-linux-musl-gcc -static"
 SOURCE_DIR=src
 OUTPUT_DIR=bin
 CFLAGS="-I ./compiler/include"
@@ -13,9 +13,27 @@ if [ ! -d "./compiler" ]; then
   git clone https://github.com/mesche-lang/compiler compiler
 fi
 
+# Also pull down musl-c
+if [ ! -d "./musl" ]; then
+  echo -e "Installing musl-c locally...\n"
+  # Clean up anything that's still sitting around
+  rm -f musl.tar.gz
+  rm -rf tmp
+
+  # Download the latest package into a tmp folder and unpack it
+  mkdir -p tmp
+  wget https://musl.cc/x86_64-linux-musl-native.tgz -O tmp/musl.tar.gz
+  tar -zxvf tmp/musl.tar.gz -C tmp
+
+  # Move the files into a predictable location
+  mv tmp/x86_64* ./musl
+  rm -rf tmp
+fi
+
 # Build the compiler
+LCC="$(pwd)/$CC"
 cd ./compiler
-./build.sh
+CC=$LCC ./build.sh
 cd ..
 
 # Build the CLI
@@ -44,8 +62,9 @@ do
     fi
 done
 
-# Build the static library
+# Build the CLI program
 echo -e "\nCreating Mesche CLI bin/mesche..."
-gcc -o bin/mesche "${object_files[@]}" ./compiler/bin/libmesche.a
+$CC -o bin/mesche "${object_files[@]}" ./compiler/bin/libmesche.a
+chmod +x bin/mesche
 
 echo -e "\nDone!\n"
