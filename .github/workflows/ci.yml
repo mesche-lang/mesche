@@ -1,0 +1,32 @@
+name: Build Mesche
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get --no-install-recommends -y install pkg-config
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Test
+        run: echo "No tests yet!"
+
+      # - name: Test Mesche Examples
+      #   run: find lib/mesche/samples -type f -print -exec ./build/flux-compose "{}" \;
+
+      - name: Archive workflow results
+        uses: actions/upload-artifact@v2
+        with:
+          name: libmesche
+          path: |
+            bin/libmesche.a
