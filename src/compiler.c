@@ -15,7 +15,7 @@
 #define UINT8_COUNT (UINT8_MAX + 1)
 
 // NOTE: Enable this for diagnostic purposes
-#define DEBUG_PRINT_CODE
+/* #define DEBUG_PRINT_CODE */
 
 // Contains context for parsing tokens irrespective of the current compilation
 // scope
