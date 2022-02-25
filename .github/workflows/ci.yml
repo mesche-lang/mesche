@@ -19,7 +19,7 @@ jobs:
         run: ./build.sh
 
       - name: Test
-        run: echo "No tests yet!"
+        run: bin/mesche
 
       - name: Archive workflow results
         uses: actions/upload-artifact@v2
