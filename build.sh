@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # Yes, I know I could just use a Makefile.  This script is for bootstrapping purposes.
 
