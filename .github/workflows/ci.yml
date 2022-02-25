@@ -16,7 +16,7 @@ jobs:
           sudo apt-get --no-install-recommends -y install pkg-config
 
       - name: Build
-        run: ./build.sh
+        run: bash ./build.sh
 
       - name: Test
         run: echo "No tests yet!"
