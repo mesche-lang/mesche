@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 CC=gcc
 SOURCE_DIR=src

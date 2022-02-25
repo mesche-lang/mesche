@@ -4,4 +4,5 @@
    "make"
    "pkg-config"
    "gdb"
-   "git"))
+   "git"
+   "bash"))
