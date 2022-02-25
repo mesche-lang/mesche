@@ -1,0 +1,29 @@
+name: Build Mesche CLI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get --no-install-recommends -y install pkg-config
+
+      - name: Build
+        run: bash ./build.sh
+
+      - name: Test
+        run: echo "No tests yet!"
+
+      - name: Archive workflow results
+        uses: actions/upload-artifact@v2
+        with:
+          name: mesche
+          path: |
+            bin/mesche
