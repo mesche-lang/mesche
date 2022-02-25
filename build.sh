@@ -10,14 +10,13 @@ CFLAGS="-I ./compiler/include"
 # Ensure that the compiler library is cloned
 if [ ! -d "./compiler" ]; then
   echo -e "Cloning Mesche Compiler repo...\n"
-  # Control will enter here if $DIRECTORY exists.
-  git clone git@github.com:mesche-lang/compiler compiler
+  git clone https://github.com/mesche-lang/compiler compiler
 fi
 
 # Build the compiler
-pushd ./compiler
+cd ./compiler
 ./build.sh
-popd
+cd ..
 
 # Build the CLI
 source_files=(
