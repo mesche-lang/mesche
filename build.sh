@@ -2,7 +2,7 @@
 
 # Yes, I know I could just use a Makefile.  This script is for bootstrapping purposes.
 
-CC=gcc
+CC=${CC:-gcc}
 SOURCE_DIR=src
 OUTPUT_DIR=bin
 
@@ -39,6 +39,7 @@ do
     if [[ $input_file -nt $output_file ]]; then
         echo "Compiling $i..."
         $CC -c "$SOURCE_DIR/$i" -o "$OUTPUT_DIR/${i%.c}.o"
+        [ $? -eq 1 ] && exit 1
     else
         echo "Skipping $i, it is up to date."
     fi
