@@ -3,6 +3,6 @@
 
 #include "vm.h"
 
-Value mesche_process_arguments(VM *vm);
+Value mesche_process_arguments_msc(MescheMemory *mem, int arg_count, Value *args);
 
 #endif

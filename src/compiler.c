@@ -517,7 +517,7 @@ static void compiler_parse_define_attributes(CompilerContext *ctx,
         // TODO: Warn on unknown keywords?
       }
 
-      mesche_object_free(ctx->vm, keyword);
+      mesche_object_free(ctx->vm, (Object *)keyword);
     } else {
       break;
     }
