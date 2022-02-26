@@ -12,6 +12,7 @@
 #include "module.h"
 #include "object.h"
 #include "op.h"
+#include "process.h"
 #include "util.h"
 #include "value.h"
 #include "vm.h"
@@ -244,7 +245,14 @@ static void mem_collect_garbage(MescheMemory *mem) {
   mem_sweep_objects(vm);
 }
 
-void mesche_vm_init(VM *vm) {
+static void vm_register_core_modules(VM *vm) {
+  mesche_module_enter_by_name(vm, "mesche process");
+  mesche_vm_define_native(vm, "process-arguments", mesche_process_arguments, true);
+
+  mesche_module_enter_by_name(vm, "mesche-user");
+}
+
+void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   // initialize the memory manager
   mesche_mem_init(&vm->mem, mem_collect_garbage);
 
@@ -263,10 +271,17 @@ void mesche_vm_init(VM *vm) {
   mesche_table_set((MescheMemory *)vm, &vm->modules, vm->root_module->name,
                    OBJECT_VAL(vm->root_module));
 
+  // Set the program argument variables
+  vm->arg_count = arg_count;
+  vm->arg_array = arg_array;
+
   // Initialize the gray stack
   vm->gray_count = 0;
   vm->gray_capacity = 0;
   vm->gray_stack = NULL;
+
+  // Register the core language modules
+  vm_register_core_modules(vm);
 }
 
 void mesche_vm_free(VM *vm) {

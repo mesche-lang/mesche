@@ -48,6 +48,10 @@ typedef struct {
   // An application-specific context object
   void *app_context;
 
+  // Process startup details
+  int arg_count;
+  char **arg_array;
+
   // Specifies whether the VM is currently running
   bool is_running;
 } VM;
@@ -58,7 +62,7 @@ typedef enum {
   INTERPRET_RUNTIME_ERROR,
 } InterpretResult;
 
-void mesche_vm_init(VM *vm);
+void mesche_vm_init(VM *vm, int arg_count, char **arg_array);
 void mesche_vm_free(VM *vm);
 InterpretResult mesche_vm_run(VM *vm);
 InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string);

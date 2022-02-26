@@ -15,6 +15,7 @@ source_files=(
     "mem.c"
     "module.c"
     "object.c"
+    "process.c"
     "repl.c"
     "scanner.c"
     "string.c"
