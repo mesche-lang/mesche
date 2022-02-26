@@ -3,7 +3,7 @@
 
 int main(int argc, char **argv) {
   VM vm;
-  mesche_vm_init(&vm);
+  mesche_vm_init(&vm, argc, argv);
 
   // Set up load paths
   mesche_vm_load_path_add(&vm, "./compiler/modules/");
