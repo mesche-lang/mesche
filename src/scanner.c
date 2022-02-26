@@ -7,6 +7,7 @@
 static Token scanner_make_token(Scanner *scanner, TokenKind kind) {
   Token token;
   token.kind = kind;
+  token.sub_kind = TokenKindNone;
   token.start = scanner->start;
   token.length = (int)(scanner->current - scanner->start);
   token.line = scanner->line;
@@ -109,9 +110,11 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
   case 'e':  {
     switch(scanner->start[1]) {
     case 'q': {
-      switch(scanner->start[2]) {
-        case 'v': return scanner_check_keyword(scanner, 3, 1, "?", TokenKindEqv);
-        case 'u': return scanner_check_keyword(scanner, 3, 4, "ual?", TokenKindEqual);
+      switch (scanner->start[2]) {
+      case 'v':
+        return scanner_check_keyword(scanner, 3, 1, "?", TokenKindEqv);
+      case 'u':
+        return scanner_check_keyword(scanner, 3, 3, "al?", TokenKindEqual);
       }
     }
     }
@@ -209,7 +212,13 @@ static Token scanner_read_identifier(Scanner *scanner) {
     scanner_next_char(scanner);
   }
 
-  return scanner_make_token(scanner, scanner_identifier_type(scanner));
+  TokenKind kind = scanner_identifier_type(scanner);
+  Token token = scanner_make_token(scanner, TokenKindSymbol);
+  if (kind != TokenKindSymbol) {
+    token.sub_kind = kind;
+  }
+
+  return token;
 }
 
 static void scanner_skip_whitespace(Scanner *scanner) {

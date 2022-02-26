@@ -49,6 +49,7 @@ typedef struct {
 
 typedef struct {
   TokenKind kind;
+  TokenKind sub_kind;
   const char *start;
   int length;
   int line;

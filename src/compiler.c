@@ -196,6 +196,16 @@ static void compiler_consume(CompilerContext *ctx, TokenKind kind, const char *m
   compiler_error_at_current(ctx, message);
 }
 
+static void compiler_consume_sub(CompilerContext *ctx, TokenKind sub_kind, const char *message) {
+  if (ctx->parser->current.sub_kind == sub_kind) {
+    compiler_advance(ctx);
+    return;
+  }
+
+  // If we didn't reach the expected token time, return an error
+  compiler_error_at_current(ctx, message);
+}
+
 // Predefine the main parser function
 static void compiler_parse_expr(CompilerContext *ctx);
 
@@ -670,7 +680,7 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
   // Check for a possible 'import' expression
   if (ctx->parser->current.kind == TokenKindLeftParen) {
     compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'define-module'");
-    compiler_consume(ctx, TokenKindImport, "Expected 'import' inside of 'define-module'.");
+    compiler_consume_sub(ctx, TokenKindImport, "Expected 'import' inside of 'define-module'.");
 
     // There can be multiple import specifications
     for (;;) {
@@ -744,7 +754,7 @@ static void compiler_parse_if(CompilerContext *ctx) {
 
 static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token,
                                          uint8_t operand_count) {
-  TokenKind operator= call_token->kind;
+  TokenKind operator= call_token->sub_kind;
   switch (operator) {
   case TokenKindPlus:
     compiler_emit_byte(ctx, OP_ADD);
@@ -802,7 +812,7 @@ static void compiler_parse_module_enter(CompilerContext *ctx) {
 }
 
 static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token) {
-  TokenKind operator= call_token->kind;
+  TokenKind operator= call_token->sub_kind;
   switch (operator) {
   case TokenKindBegin:
     compiler_parse_block(ctx, true);
@@ -914,7 +924,8 @@ static void compiler_parse_list(CompilerContext *ctx) {
   // In the latter 3 cases, compiler the callee before the arguments
 
   // Evaluate the first expression if it's not an operator
-  if (call_token.kind == TokenKindSymbol || call_token.kind == TokenKindLeftParen) {
+  if ((call_token.kind == TokenKindSymbol && call_token.sub_kind == TokenKindNone) ||
+      call_token.kind == TokenKindLeftParen) {
     compiler_parse_expr(ctx);
     is_call = true;
   } else {
