@@ -249,6 +249,9 @@ static void vm_register_core_modules(VM *vm) {
   mesche_module_enter_by_name(vm, "mesche process");
   mesche_vm_define_native(vm, "process-arguments", mesche_process_arguments, true);
 
+  mesche_module_enter_by_name(vm, "mesche list");
+  mesche_vm_define_native(vm, "list-nth", mesche_list_nth_msc, true);
+
   mesche_module_enter_by_name(vm, "mesche-user");
 }
 
