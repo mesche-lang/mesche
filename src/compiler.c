@@ -494,8 +494,8 @@ static void compiler_parse_let(CompilerContext *ctx) {
     // compiler_parse_symbol expects the symbol token to be in parser->previous
     compiler_advance(ctx);
     compiler_parse_symbol(ctx, false);
-    compiler_parse_expr(ctx);
     compiler_define_variable(ctx, 0 /* Irrelevant, this is local */);
+    compiler_parse_expr(ctx);
 
     compiler_consume(ctx, TokenKindRightParen, "Expected right paren to end binding pair");
   }
