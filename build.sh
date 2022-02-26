@@ -34,6 +34,7 @@ fi
 LCC="$(pwd)/$CC"
 cd ./compiler
 CC=$LCC ./build.sh
+[ $? -eq 1 ] && exit 1
 cd ..
 
 # Build the CLI
@@ -57,6 +58,7 @@ do
     if [[ $input_file -nt $output_file ]]; then
         echo "Compiling $i..."
         $CC -c "$SOURCE_DIR/$i" -o "$OUTPUT_DIR/${i%.c}.o" $CFLAGS
+        [ $? -eq 1 ] && exit 1
     else
         echo "Skipping $i, it is up to date."
     fi
@@ -65,6 +67,7 @@ done
 # Build the CLI program
 echo -e "\nCreating Mesche CLI bin/mesche..."
 $CC -o bin/mesche "${object_files[@]}" ./compiler/bin/libmesche.a
+[ $? -eq 1 ] && exit 1
 chmod +x bin/mesche
 
 echo -e "\nDone!\n"
