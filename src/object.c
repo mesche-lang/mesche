@@ -260,14 +260,14 @@ void mesche_object_free(VM *vm, Object *object) {
 static void print_function(ObjectFunction *function) {
   if (function->name == NULL) {
     if (function->type == TYPE_SCRIPT) {
-      printf("<script 0x%x>", function);
+      printf("<script 0x%p>", function);
     } else {
-      printf("<lambda 0x%x>", function);
+      printf("<lambda 0x%p>", function);
     }
     return;
   }
 
-  printf("<fn %s 0x%x>", function->name->chars, function);
+  printf("<fn %s 0x%p>", function->name->chars, function);
 }
 
 void mesche_object_print(Value value) {

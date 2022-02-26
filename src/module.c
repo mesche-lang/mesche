@@ -89,7 +89,7 @@ static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_
       free(module_path);
 
       if (!mesche_table_get(&vm->modules, module_name, &module_val)) {
-        PANIC("Could not resolve module (%s) after loading its file.", module_name);
+        PANIC("Could not resolve module (%s) after loading its file.", module_name->chars);
       }
 
       module = AS_MODULE(module_val);
