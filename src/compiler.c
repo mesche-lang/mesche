@@ -811,6 +811,12 @@ static void compiler_parse_module_enter(CompilerContext *ctx) {
   compiler_consume(ctx, TokenKindRightParen, "Expected right paren to complete 'module-enter'");
 }
 
+static void compiler_parse_load_file(CompilerContext *ctx) {
+  compiler_parse_expr(ctx);
+  compiler_emit_byte(ctx, OP_LOAD_FILE);
+  compiler_consume(ctx, TokenKindRightParen, "Expected right paren to complete 'load-file'");
+}
+
 static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token) {
   TokenKind operator= call_token->sub_kind;
   switch (operator) {
@@ -828,6 +834,9 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
     break;
   case TokenKindModuleEnter:
     compiler_parse_module_enter(ctx);
+    break;
+  case TokenKindLoadFile:
+    compiler_parse_load_file(ctx);
     break;
   case TokenKindSet:
     compiler_parse_set(ctx);

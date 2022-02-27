@@ -619,6 +619,24 @@ InterpretResult mesche_vm_run(VM *vm) {
       // Peek at the value on the stack
       mesche_value_print(vm_stack_peek(vm, 0));
       break;
+    case OP_LOAD_FILE: {
+      ObjectString *path = READ_STRING();
+      printf("LOADING PATH: %s\n", path->chars);
+      mesche_vm_load_file(vm, path->chars);
+
+      // Execute the file's closure
+      Value *stack_top = vm->stack_top;
+      if (vm->stack_top > stack_top && IS_CLOSURE(vm_stack_peek(vm, 0))) {
+        ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
+        if (closure->function->type == TYPE_SCRIPT) {
+          // Call the script
+          vm_call(vm, closure, 0);
+          frame = &vm->frames[vm->frame_count - 1];
+        }
+      }
+
+      break;
+    }
     case OP_DEFINE_MODULE: {
       ObjectCons *list = AS_CONS(mesche_vm_stack_pop(vm));
       mesche_module_enter_path(vm, list);
