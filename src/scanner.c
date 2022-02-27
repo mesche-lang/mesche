@@ -134,7 +134,13 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
             switch(scanner->start[5]) {
             case 'e': {
               if (scanner->start[6] == '-') {
-                return scanner_check_keyword(scanner, 6, 7, "-module", TokenKindDefineModule);
+                switch (scanner->start[7]) {
+                case 'm':
+                  return scanner_check_keyword(scanner, 8, 5, "odule", TokenKindDefineModule);
+                case 'r':
+                  return scanner_check_keyword(scanner, 8, 10, "ecord-type",
+                                               TokenKindDefineRecordType);
+                }
               } else {
                 return scanner_check_keyword(scanner, 6, 0, "", TokenKindDefine);
               }
@@ -218,10 +224,15 @@ static Token scanner_read_identifier(Scanner *scanner) {
   }
 
   TokenKind kind = scanner_identifier_type(scanner);
-  Token token = scanner_make_token(scanner, TokenKindSymbol);
-  if (kind != TokenKindSymbol) {
-    token.sub_kind = kind;
+  TokenKind sub_kind = TokenKindNone;
+  if (kind != TokenKindSymbol && kind != TokenKindKeyword && kind != TokenKindTrue &&
+      kind != TokenKindNil) {
+    sub_kind = kind;
+    kind = TokenKindSymbol;
   }
+
+  Token token = scanner_make_token(scanner, kind);
+  token.sub_kind = sub_kind;
 
   return token;
 }
@@ -229,7 +240,7 @@ static Token scanner_read_identifier(Scanner *scanner) {
 static void scanner_skip_whitespace(Scanner *scanner) {
   for (;;) {
     char c = scanner_peek(scanner);
-    switch(c) {
+    switch (c) {
     case ';':
       while (scanner_peek(scanner) != '\n' && !scanner_at_end(scanner))
         scanner_next_char(scanner);

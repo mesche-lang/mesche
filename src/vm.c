@@ -13,6 +13,7 @@
 #include "object.h"
 #include "op.h"
 #include "process.h"
+#include "string.h"
 #include "util.h"
 #include "value.h"
 #include "vm.h"
@@ -259,6 +260,7 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   // initialize the memory manager
   mesche_mem_init(&vm->mem, mem_collect_garbage);
 
+  vm->is_running = false;
   vm->objects = NULL;
   vm->current_compiler = NULL;
   vm_reset_stack(vm);
@@ -371,7 +373,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count) {
   return true;
 }
 
-static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count) {
+static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keyword_count) {
   if (IS_OBJECT(callee)) {
     switch (OBJECT_KIND(callee)) {
     case ObjectKindClosure:
@@ -387,6 +389,61 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count) {
 
       // Push the result to store it
       mesche_vm_stack_push(vm, result);
+      return true;
+    }
+    case ObjectKindRecord: {
+      ObjectRecord *record_type = AS_RECORD_TYPE(callee);
+      ObjectRecordInstance *instance = mesche_object_make_record_instance(vm, record_type);
+
+      // Initialize the value array using keyword values or the default for each field
+      for (int i = 0; i < record_type->fields.count; i++) {
+        bool found_value = false;
+        ObjectRecordField *record_field = AS_RECORD_FIELD(record_type->fields.values[i]);
+
+        // Look for the field's value in the keyword parameters
+        for (int i = (keyword_count * 2) - 1; i >= 0; i -= 2) {
+          ObjectKeyword *keyword_arg = AS_KEYWORD(vm_stack_peek(vm, i));
+          if (mesche_object_string_equalsp((Object *)record_field->name, (Object *)keyword_arg)) {
+            mesche_value_array_write((MescheMemory *)vm, &instance->field_values,
+                                     vm_stack_peek(vm, i - 1));
+            found_value = true;
+            break;
+          }
+        }
+
+        // If the value wasn't found, use the default
+        if (!found_value) {
+          mesche_value_array_write((MescheMemory *)vm, &instance->field_values,
+                                   record_field->default_value);
+        }
+      }
+
+      // Pop the record and key/value pairs off the stack
+      for (int i = 0; i < (keyword_count * 2) + 1; i++) {
+        mesche_vm_stack_pop(vm);
+      }
+
+      // Push the record instance in its place
+      mesche_vm_stack_push(vm, OBJECT_VAL(instance));
+      return true;
+    };
+    case ObjectKindRecordFieldAccessor: {
+      ObjectRecordFieldAccessor *accessor = AS_RECORD_FIELD_ACCESSOR(callee);
+      ObjectRecordInstance *instance = AS_RECORD_INSTANCE(mesche_vm_stack_pop(vm));
+
+      // TODO: Be somewhat tolerant to record type version?
+      if (instance->record_type != accessor->record_type) {
+        vm_runtime_error(vm, "Passed record of type %s to accessor that expects %s.",
+                         instance->record_type->name->chars, accessor->record_type->name->chars);
+        return false;
+      }
+
+      // Pop the record and accessor off the stack;
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
+
+      // Return the value on the stack
+      mesche_vm_stack_push(vm, instance->field_values.values[accessor->field_index]);
       return true;
     }
     default:
@@ -490,7 +547,6 @@ InterpretResult mesche_vm_run(VM *vm) {
     Value value;
     ObjectString *name;
     uint8_t slot = 0;
-    uint8_t arg_count;
     Value *prev_stack_top = vm->stack_top;
 
     switch (instr = READ_BYTE()) {
@@ -619,12 +675,11 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     case OP_LOAD_FILE: {
       ObjectString *path = READ_STRING();
-      printf("LOADING PATH: %s\n", path->chars);
       mesche_vm_load_file(vm, path->chars);
 
       // Execute the file's closure
       Value *stack_top = vm->stack_top;
-      if (vm->stack_top > stack_top && IS_CLOSURE(vm_stack_peek(vm, 0))) {
+      if (vm->stack_top >= stack_top && IS_CLOSURE(vm_stack_peek(vm, 0))) {
         ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
         if (closure->function->type == TYPE_SCRIPT) {
           // Call the script
@@ -632,6 +687,64 @@ InterpretResult mesche_vm_run(VM *vm) {
           frame = &vm->frames[vm->frame_count - 1];
         }
       }
+
+      // Pop the file path and closure off the stack
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
+
+      break;
+    }
+    case OP_DEFINE_RECORD: {
+      // Skip all the fields to find the name
+      uint8_t field_count = READ_BYTE();
+      ObjectSymbol *record_name = AS_SYMBOL(vm_stack_peek(vm, field_count * 2));
+      ObjectRecord *record = mesche_object_make_record(vm, &record_name->string);
+      Table *module_scope = &vm->current_module->locals;
+
+      // Create a binding for the maker function
+      char *maker_name = mesche_cstring_join("make-", 5, record_name->string.chars,
+                                             record_name->string.length, "");
+      ObjectString *maker_name_string =
+          mesche_object_make_string(vm, maker_name, strlen(maker_name));
+      free(maker_name);
+      if (!mesche_table_set((MescheMemory *)vm, module_scope, maker_name_string,
+                            OBJECT_VAL(record))) {
+        printf("Might be shadowing another variable!\n");
+      }
+      mesche_value_array_write((MescheMemory *)vm, &vm->current_module->exports,
+                               OBJECT_VAL(maker_name_string));
+
+      for (int i = 0; i < field_count; i++) {
+        // Build the record field from name and default value
+        int stack_pos = ((field_count - i) * 2) - 1;
+        ObjectSymbol *name = AS_SYMBOL(vm_stack_peek(vm, stack_pos));
+        Value value = vm_stack_peek(vm, stack_pos - 1);
+        ObjectRecordField *field = mesche_object_make_record_field(vm, &name->string, value);
+        mesche_value_array_write((MescheMemory *)vm, &record->fields, OBJECT_VAL(field));
+
+        // Create a binding for the field accessor "function"
+        char *accessor_name =
+            mesche_cstring_join(record_name->string.chars, record_name->string.length,
+                                name->string.chars, name->string.length, "-");
+        ObjectString *accessor_name_string =
+            mesche_object_make_string(vm, accessor_name, strlen(accessor_name));
+        free(accessor_name);
+        ObjectRecordFieldAccessor *accessor = mesche_object_make_record_accessor(vm, record, i);
+        if (!mesche_table_set((MescheMemory *)vm, module_scope, accessor_name_string,
+                              OBJECT_VAL(accessor))) {
+          printf("Might be shadowing another variable!\n");
+        }
+        mesche_value_array_write((MescheMemory *)vm, &vm->current_module->exports,
+                                 OBJECT_VAL(accessor_name_string));
+      }
+
+      // Pop all of the fields and record name off of the stack
+      for (int i = 0; i < (field_count * 2) + 1; i++) {
+        mesche_vm_stack_pop(vm);
+      }
+
+      // Push the record type onto the stack
+      mesche_vm_stack_push(vm, OBJECT_VAL(record));
 
       break;
     }
@@ -715,16 +828,19 @@ InterpretResult mesche_vm_run(VM *vm) {
       slot = READ_BYTE();
       frame->slots[slot] = vm_stack_peek(vm, 0);
       break;
-    case OP_CALL:
+    case OP_CALL: {
       // Call the function with the specified number of arguments
-      arg_count = READ_BYTE();
-      if (!vm_call_value(vm, vm_stack_peek(vm, arg_count), arg_count)) {
+      uint8_t arg_count = READ_BYTE();
+      uint8_t keyword_count = READ_BYTE();
+      if (!vm_call_value(vm, vm_stack_peek(vm, arg_count + (keyword_count * 2)), arg_count,
+                         keyword_count)) {
         return INTERPRET_COMPILE_ERROR;
       }
 
       // Set the current frame to the new call frame
       frame = &vm->frames[vm->frame_count - 1];
       break;
+    }
     case OP_CLOSURE: {
       ObjectFunction *function = AS_FUNCTION(READ_CONSTANT());
       ObjectClosure *closure = mesche_object_make_closure(vm, function, vm->current_module);

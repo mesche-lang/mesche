@@ -196,6 +196,36 @@ ObjectModule *mesche_object_make_module(VM *vm, ObjectString *name) {
   return module;
 }
 
+ObjectRecord *mesche_object_make_record(VM *vm, ObjectString *name) {
+  ObjectRecord *record = ALLOC_OBJECT(vm, ObjectRecord, ObjectKindRecord);
+  record->name = name;
+  mesche_value_array_init(&record->fields);
+  return record;
+}
+
+ObjectRecordField *mesche_object_make_record_field(VM *vm, ObjectString *name,
+                                                   Value default_value) {
+  ObjectRecordField *field = ALLOC_OBJECT(vm, ObjectRecordField, ObjectKindRecordField);
+  field->name = name;
+  field->default_value = default_value;
+  return field;
+}
+
+ObjectRecordFieldAccessor *mesche_object_make_record_accessor(VM *vm, ObjectRecord *record_type,
+                                                              int field_index) {
+  ObjectRecordFieldAccessor *accessor =
+      ALLOC_OBJECT(vm, ObjectRecordFieldAccessor, ObjectKindRecordFieldAccessor);
+  accessor->record_type = record_type;
+  accessor->field_index = field_index;
+  return accessor;
+}
+
+ObjectRecordInstance *mesche_object_make_record_instance(VM *vm, ObjectRecord *record_type) {
+  ObjectRecordInstance *instance = ALLOC_OBJECT(vm, ObjectRecordInstance, ObjectKindRecordInstance);
+  instance->record_type = record_type;
+  return instance;
+}
+
 void mesche_object_free(VM *vm, Object *object) {
 #ifdef DEBUG_LOG_GC
   printf("%p    free   ", (void *)object);
@@ -210,7 +240,7 @@ void mesche_object_free(VM *vm, Object *object) {
     break;
   }
   case ObjectKindSymbol: {
-    ObjectSymbol *symbol= (ObjectSymbol *)object;
+    ObjectSymbol *symbol = (ObjectSymbol *)object;
     FREE_SIZE(vm, symbol, (sizeof(ObjectSymbol) + symbol->string.length + 1));
     break;
   }
@@ -252,6 +282,19 @@ void mesche_object_free(VM *vm, Object *object) {
     FREE(vm, ObjectModule, object);
     break;
   }
+  case ObjectKindRecord:
+    FREE(vm, ObjectRecord, object);
+    break;
+  case ObjectKindRecordInstance:
+    // TODO: Should I free the value array?
+    FREE(vm, ObjectRecordInstance, object);
+    break;
+  case ObjectKindRecordField:
+    FREE(vm, ObjectRecordField, object);
+    break;
+  case ObjectKindRecordFieldAccessor:
+    FREE(vm, ObjectRecordFieldAccessor, object);
+    break;
   default:
     PANIC("Don't know how to free object kind %d!", object->kind);
   }
@@ -321,6 +364,23 @@ void mesche_object_print(Value value) {
   case ObjectKindModule: {
     ObjectModule *module = (ObjectModule *)AS_OBJECT(value);
     printf("<module (%s) %p>", module->name->chars, module);
+    break;
+  }
+  case ObjectKindRecord: {
+    ObjectRecord *record = (ObjectRecord *)AS_OBJECT(value);
+    printf("<record type '%s' %p>", record->name->chars, record);
+    break;
+  }
+  case ObjectKindRecordFieldAccessor: {
+    ObjectRecordFieldAccessor *accessor = (ObjectRecordFieldAccessor *)AS_OBJECT(value);
+    ObjectRecordField *field =
+        AS_RECORD_FIELD(accessor->record_type->fields.values[accessor->field_index]);
+    printf("<record field '%s' %p>", field->name->chars, accessor);
+    break;
+  }
+  case ObjectKindRecordInstance: {
+    ObjectRecordInstance *record = (ObjectRecordInstance *)AS_OBJECT(value);
+    printf("<record '%s' %p>", record->record_type->name->chars, record);
     break;
   }
   default:

@@ -701,6 +701,39 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
                    "Expected right paren to complete 'define-module' expression.");
 }
 
+static void compiler_parse_define_record_type(CompilerContext *ctx) {
+  compiler_consume(ctx, TokenKindSymbol, "Expected symbol for record name.");
+  compiler_parse_symbol_literal(ctx);
+
+  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'define-record-type'");
+  compiler_consume(ctx, TokenKindSymbol, "Expected 'fields' after 'define-record-type'.");
+
+  uint8_t field_count = 0;
+  if (memcmp(ctx->parser->previous.start, "fields", 6) == 0) {
+    // Read the key-value pairs inside of the form
+    for (;;) {
+      // Exit if we've reached the end of fields
+      if (ctx->parser->current.kind == TokenKindRightParen) {
+        compiler_advance(ctx);
+        break;
+      }
+
+      if (ctx->parser->current.kind == TokenKindSymbol) {
+        compiler_advance(ctx);
+        compiler_parse_symbol_literal(ctx);
+        compiler_emit_constant(ctx, NIL_VAL);
+        field_count++;
+      }
+    }
+  } else {
+    compiler_error(ctx, "Expected 'fields' after 'define-record-type'.");
+  }
+
+  compiler_consume(ctx, TokenKindRightParen, "Expected right paren to end 'define-record-type'.");
+
+  compiler_emit_bytes(ctx, OP_DEFINE_RECORD, field_count);
+}
+
 static int compiler_emit_jump(CompilerContext *ctx, uint8_t instruction) {
   // Write out the two bytes that will be patched once the jump target location
   // is determined
@@ -835,6 +868,9 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
   case TokenKindModuleEnter:
     compiler_parse_module_enter(ctx);
     break;
+  case TokenKindDefineRecordType:
+    compiler_parse_define_record_type(ctx);
+    break;
   case TokenKindLoadFile:
     compiler_parse_load_file(ctx);
     break;
@@ -947,6 +983,7 @@ static void compiler_parse_list(CompilerContext *ctx) {
 
   // Parse argument expressions until we reach a right paren
   uint8_t arg_count = 0;
+  uint8_t keyword_count = 0;
   bool in_keyword_args = false;
   for (;;) {
     // Bail out when we hit the closing parentheses
@@ -957,6 +994,7 @@ static void compiler_parse_list(CompilerContext *ctx) {
       } else {
         // Emit the call operation
         compiler_emit_bytes(ctx, OP_CALL, arg_count);
+        compiler_emit_byte(ctx, keyword_count);
       }
 
       // Consume the right paren and exit
@@ -975,17 +1013,19 @@ static void compiler_parse_list(CompilerContext *ctx) {
       compiler_consume(ctx, TokenKindKeyword, "Expected keyword.");
       compiler_parse_keyword(ctx);
       compiler_parse_expr(ctx);
-      arg_count++; // Add one more argument for the value we just parsed
+      keyword_count++; // Add one more argument for the value we just parsed
     } else {
       // Compile next positional parameter
       compiler_parse_expr(ctx);
+      arg_count++;
     }
 
     if (arg_count == 255) {
       compiler_error(ctx, "Cannot pass more than 255 arguments in a function call.");
     }
-
-    arg_count++;
+    if (arg_count == 15) {
+      compiler_error(ctx, "Cannot pass more than 15 keyword arguments in a function call.");
+    }
   }
 }
 

@@ -32,6 +32,18 @@
 #define IS_CLOSURE(value) mesche_object_is_kind(value, ObjectKindClosure)
 #define AS_CLOSURE(value) ((ObjectClosure *)AS_OBJECT(value))
 
+#define IS_RECORD_TYPE(value) mesche_object_is_kind(value, ObjectKindRecord)
+#define AS_RECORD_TYPE(value) ((ObjectRecord *)AS_OBJECT(value))
+
+#define IS_RECORD_FIELD(value) mesche_object_is_kind(value, ObjectKindRecordField)
+#define AS_RECORD_FIELD(value) ((ObjectRecordField *)AS_OBJECT(value))
+
+#define IS_RECORD_FIELD_ACCESSOR(value) mesche_object_is_kind(value, ObjectKindRecordFieldAccessor)
+#define AS_RECORD_FIELD_ACCESSOR(value) ((ObjectRecordFieldAccessor *)AS_OBJECT(value))
+
+#define IS_RECORD_INSTANCE(value) mesche_object_is_kind(value, ObjectKindRecordInstance)
+#define AS_RECORD_INSTANCE(value) ((ObjectRecordInstance *)AS_OBJECT(value))
+
 #define IS_NATIVE_FUNC(value) mesche_object_is_kind(value, ObjectKindNativeFunction)
 #define AS_NATIVE_FUNC(value) (((ObjectNativeFunction *)AS_OBJECT(value))->function)
 
@@ -48,7 +60,11 @@ typedef enum {
   ObjectKindClosure,
   ObjectKindNativeFunction,
   ObjectKindPointer,
-  ObjectKindModule
+  ObjectKindModule,
+  ObjectKindRecord,
+  ObjectKindRecordInstance,
+  ObjectKindRecordField,
+  ObjectKindRecordFieldAccessor
 } ObjectKind;
 
 struct Object {
@@ -125,6 +141,31 @@ struct ObjectModule {
   ObjectString *name;
 };
 
+struct ObjectRecordFieldAccessor {
+  Object object;
+  int field_index;
+  ObjectRecord *record_type;
+};
+
+struct ObjectRecordField {
+  Object object;
+  Value default_value;
+  int field_index;
+  ObjectString *name;
+};
+
+struct ObjectRecord {
+  Object object;
+  ValueArray fields;
+  ObjectString *name;
+};
+
+struct ObjectRecordInstance {
+  Object object;
+  ValueArray field_values;
+  ObjectRecord *record_type;
+};
+
 typedef struct {
   Object object;
   FunctionPtr function;
@@ -148,6 +189,11 @@ ObjectClosure *mesche_object_make_closure(VM *vm, ObjectFunction *function, Obje
 ObjectNativeFunction *mesche_object_make_native_function(VM *vm, FunctionPtr function);
 ObjectPointer *mesche_object_make_pointer(VM *vm, void *ptr, bool is_managed);
 ObjectModule *mesche_object_make_module(VM *vm, ObjectString *name);
+ObjectRecord *mesche_object_make_record(VM *vm, ObjectString *name);
+ObjectRecordField *mesche_object_make_record_field(VM *vm, ObjectString *name, Value default_value);
+ObjectRecordFieldAccessor *mesche_object_make_record_accessor(VM *vm, ObjectRecord *record_type,
+                                                              int field_index);
+ObjectRecordInstance *mesche_object_make_record_instance(VM *vm, ObjectRecord *record_type);
 
 void mesche_object_free(VM *vm, struct Object *object);
 void mesche_object_print(Value value);

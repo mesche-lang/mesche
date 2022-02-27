@@ -26,6 +26,13 @@ int mesche_disasm_byte_instr(const char *name, Chunk *chunk, int offset) {
   return offset + 2;
 }
 
+int mesche_disasm_bytes_instr(const char *name, Chunk *chunk, int offset) {
+  uint8_t slot = chunk->code[offset + 1];
+  uint8_t slot2 = chunk->code[offset + 2];
+  printf("%-16s %4d %4d\n", name, slot, slot2);
+  return offset + 3;
+}
+
 int mesche_disasm_jump_instr(const char *name, int sign, Chunk *chunk, int offset) {
   uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
   jump |= chunk->code[offset + 2];
@@ -79,6 +86,10 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_simple_instr("OP_RETURN", offset);
   case OP_DISPLAY:
     return mesche_disasm_simple_instr("OP_DISPLAY", offset);
+  case OP_LOAD_FILE:
+    return mesche_disasm_simple_instr("OP_LOAD_FILE", offset);
+  case OP_DEFINE_RECORD:
+    return mesche_disasm_byte_instr("OP_DEFINE_RECORD", chunk, offset);
   case OP_DEFINE_MODULE:
     return mesche_disasm_simple_instr("OP_DEFINE_MODULE", offset);
   case OP_IMPORT_MODULE:
@@ -106,7 +117,7 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
   case OP_JUMP_IF_FALSE:
     return mesche_disasm_jump_instr("OP_JUMP_IF_FALSE", 1, chunk, offset);
   case OP_CALL:
-    return mesche_disasm_byte_instr("OP_CALL", chunk, offset);
+    return mesche_disasm_bytes_instr("OP_CALL", chunk, offset);
   case OP_CLOSURE: {
     offset++;
     uint8_t constant = chunk->code[offset++];
