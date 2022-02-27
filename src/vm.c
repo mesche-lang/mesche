@@ -245,7 +245,7 @@ static void mem_collect_garbage(MescheMemory *mem) {
   mem_sweep_objects(vm);
 }
 
-static void vm_register_core_modules(VM *vm) {
+void mesche_vm_register_core_modules(VM *vm) {
   mesche_module_enter_by_name(vm, "mesche process");
   mesche_vm_define_native(vm, "process-arguments", mesche_process_arguments_msc, true);
 
@@ -282,9 +282,6 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->gray_count = 0;
   vm->gray_capacity = 0;
   vm->gray_stack = NULL;
-
-  // Register the core language modules
-  vm_register_core_modules(vm);
 }
 
 void mesche_vm_free(VM *vm) {
@@ -600,6 +597,7 @@ InterpretResult mesche_vm_run(VM *vm) {
         // Push the value back on so that it can be read by the REPL
         mesche_vm_stack_pop(vm);
         mesche_vm_stack_push(vm, value);
+        vm->is_running = false;
         return INTERPRET_OK;
       }
 
@@ -829,11 +827,12 @@ InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string) {
   mesche_vm_stack_pop(vm);
   mesche_vm_stack_push(vm, OBJECT_VAL(closure));
 
-  // Call the initial closure
-  vm_call(vm, closure, 0);
-
-  // Run the VM starting at the first call frame
-  return mesche_vm_run(vm);
+  // Only run the VM if it isn't already running
+  if (!vm->is_running) {
+    // Call the initial closure and run the VM
+    vm_call(vm, closure, 0);
+    return mesche_vm_run(vm);
+  }
 }
 
 InterpretResult mesche_vm_load_module(VM *vm, const char *module_path) {

@@ -73,5 +73,6 @@ Value mesche_vm_stack_pop(VM *vm);
 void mesche_vm_define_native(VM *vm, const char *name, FunctionPtr function, bool exported);
 void mesche_mem_mark_object(VM *vm, Object *object);
 void mesche_vm_load_path_add(VM *vm, const char *load_path);
+void mesche_vm_register_core_modules(VM *vm);
 
 #endif
