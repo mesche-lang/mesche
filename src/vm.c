@@ -287,10 +287,17 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
 }
 
 void mesche_vm_free(VM *vm) {
-  mesche_table_free((MescheMemory *)vm, &vm->strings);
-  mesche_table_free((MescheMemory *)vm, &vm->symbols);
-  mesche_table_free((MescheMemory *)vm, &vm->modules);
+  // Reset stacks to lose references to things allocated there
   vm_reset_stack(vm);
+  vm->open_upvalues = NULL;
+
+  // Do one final GC pass
+  mesche_mem_collect_garbage((MescheMemory *)vm);
+
+  // Free remaining roots
+  mesche_table_free((MescheMemory *)vm, &vm->modules);
+  mesche_table_free((MescheMemory *)vm, &vm->symbols);
+  mesche_table_free((MescheMemory *)vm, &vm->strings);
   vm_free_objects(vm);
 }
 
@@ -986,6 +993,9 @@ InterpretResult mesche_vm_load_module(VM *vm, const char *module_path) {
   ObjectClosure *closure = mesche_object_make_closure(vm, function, NULL);
   mesche_vm_stack_pop(vm);
   mesche_vm_stack_push(vm, OBJECT_VAL(closure));
+
+  // Free the module source
+  free(source);
 
   if (!vm->is_running) {
     // Call the initial closure and run the VM

@@ -256,9 +256,12 @@ void mesche_object_free(VM *vm, Object *object) {
   case ObjectKindUpvalue:
     FREE(vm, ObjectUpvalue, object);
     break;
-  case ObjectKindFunction:
+  case ObjectKindFunction: {
+    ObjectFunction *function = (ObjectFunction *)object;
+    mesche_chunk_free((MescheMemory *)vm, &function->chunk);
     FREE(vm, ObjectFunction, object);
     break;
+  }
   case ObjectKindClosure: {
     ObjectClosure *closure = (ObjectClosure *)object;
     FREE_ARRAY(vm, ObjectUpvalue *, closure->upvalues, closure->upvalue_count);
@@ -278,18 +281,23 @@ void mesche_object_free(VM *vm, Object *object) {
   }
   case ObjectKindModule: {
     ObjectModule *module = (ObjectModule *)object;
-    mesche_table_free((MescheMemory*)vm, &module->locals);
-    mesche_value_array_free((MescheMemory*)vm, &module->exports);
+    mesche_table_free((MescheMemory *)vm, &module->locals);
+    mesche_value_array_free((MescheMemory *)vm, &module->exports);
     FREE(vm, ObjectModule, object);
     break;
   }
-  case ObjectKindRecord:
+  case ObjectKindRecord: {
+    ObjectRecord *record = (ObjectRecord *)object;
+    mesche_value_array_free((MescheMemory *)vm, &record->fields);
     FREE(vm, ObjectRecord, object);
     break;
-  case ObjectKindRecordInstance:
-    // TODO: Should I free the value array?
+  }
+  case ObjectKindRecordInstance: {
+    ObjectRecordInstance *instance = (ObjectRecordInstance *)object;
+    mesche_value_array_free((MescheMemory *)vm, &instance->field_values);
     FREE(vm, ObjectRecordInstance, object);
     break;
+  }
   case ObjectKindRecordField:
     FREE(vm, ObjectRecordField, object);
     break;
