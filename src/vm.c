@@ -945,8 +945,7 @@ void mesche_vm_define_native(VM *vm, ObjectModule *module, const char *name, Fun
 void mesche_vm_load_path_add(VM *vm, const char *load_path) {
   char *resolved_path = mesche_fs_resolve_path(load_path);
   if (resolved_path) {
-    ObjectString *path_str =
-        mesche_object_make_string(vm, resolved_path, strlen(resolved_path));
+    ObjectString *path_str = mesche_object_make_string(vm, resolved_path, strlen(resolved_path));
     vm->load_paths = mesche_list_push(vm, vm->load_paths, OBJECT_VAL(path_str));
     free(resolved_path);
   } else {

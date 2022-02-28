@@ -69,7 +69,8 @@ ObjectString *mesche_object_make_string(VM *vm, const char *chars, int length) {
 ObjectSymbol *mesche_object_make_symbol(VM *vm, const char *chars, int length) {
   // Is the string already interned?
   uint32_t hash = object_string_hash(chars, length);
-  ObjectSymbol *interned_symbol = (ObjectSymbol*)mesche_table_find_key(&vm->symbols, chars, length, hash);
+  ObjectSymbol *interned_symbol =
+      (ObjectSymbol *)mesche_table_find_key(&vm->symbols, chars, length, hash);
   if (interned_symbol != NULL)
     return interned_symbol;
 
@@ -337,11 +338,11 @@ void mesche_object_print(Value value) {
     ObjectCons *cons = AS_CONS(value);
     printf("(");
 
-    for(;;) {
+    for (;;) {
       mesche_value_print(cons->car);
       if (IS_EMPTY(cons->cdr)) {
         break;
-      } else if(IS_CONS(cons->cdr)) {
+      } else if (IS_CONS(cons->cdr)) {
         cons = AS_CONS(cons->cdr);
       } else {
         printf(" . ");

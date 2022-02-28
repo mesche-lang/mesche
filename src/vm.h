@@ -36,8 +36,8 @@ typedef struct {
   ObjectUpvalue *open_upvalues;
   Object *objects;
 
-  // An opaque pointer to the current compiler to avoid cyclic type dependencies.
-  // Used for calling the compiler's root marking function
+  // An opaque pointer to the current compiler to avoid cyclic type
+  // dependencies. Used for calling the compiler's root marking function
   void *current_compiler;
 
   // Memory management

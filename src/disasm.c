@@ -1,9 +1,9 @@
 #include <stdio.h>
 
+#include "chunk.h"
+#include "object.h"
 #include "op.h"
 #include "value.h"
-#include "object.h"
-#include "chunk.h"
 
 int mesche_disasm_simple_instr(const char *name, int offset) {
   printf("%s\n", name);

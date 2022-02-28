@@ -8,9 +8,7 @@
 #include "table.h"
 #include "util.h"
 
-void mesche_module_print_name(ObjectModule *module) {
-  printf("(%s)", module->name->chars);
-}
+void mesche_module_print_name(ObjectModule *module) { printf("(%s)", module->name->chars); }
 
 // (mesche io) -> modules/mesche/io.msc
 // (substratic graphics texture) -> deps/substratic/graphics/texture.msc

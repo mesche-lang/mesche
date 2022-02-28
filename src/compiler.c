@@ -109,9 +109,7 @@ static void compiler_emit_bytes(CompilerContext *ctx, uint8_t byte1, uint8_t byt
   compiler_emit_byte(ctx, byte2);
 }
 
-static void compiler_emit_return(CompilerContext *ctx) {
-  compiler_emit_byte(ctx, OP_RETURN);
-}
+static void compiler_emit_return(CompilerContext *ctx) { compiler_emit_byte(ctx, OP_RETURN); }
 
 static ObjectFunction *compiler_end(CompilerContext *ctx) {
   ObjectFunction *function = ctx->function;
@@ -455,9 +453,7 @@ static void compiler_parse_set(CompilerContext *ctx) {
   compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
 }
 
-static void compiler_begin_scope(CompilerContext *ctx) {
-  ctx->scope_depth++;
-}
+static void compiler_begin_scope(CompilerContext *ctx) { ctx->scope_depth++; }
 
 static void compiler_end_scope(CompilerContext *ctx) {
   // Pop all local variables from the previous scope while closing any upvalues
@@ -474,7 +470,8 @@ static void compiler_end_scope(CompilerContext *ctx) {
     ctx->local_count--;
   }
 
-  // Pop all of the locals off of the scope, retaining the final expression result
+  // Pop all of the locals off of the scope, retaining the final expression
+  // result
   compiler_emit_bytes(ctx, OP_POP_SCOPE, local_count);
 }
 
@@ -629,7 +626,8 @@ static void compiler_parse_define(CompilerContext *ctx) {
   define_attributes.is_export = false;
   define_attributes.doc_string = NULL;
 
-  // The next symbol should either be a symbol or an open paren to define a function
+  // The next symbol should either be a symbol or an open paren to define a
+  // function
   bool is_func = false;
   if (ctx->parser->current.kind == TokenKindLeftParen) {
     compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'define'");
@@ -679,7 +677,7 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
 
   // Check for a possible 'import' expression
   if (ctx->parser->current.kind == TokenKindLeftParen) {
-    compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'define-module'");
+    compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to start inner expression.");
     compiler_consume_sub(ctx, TokenKindImport, "Expected 'import' inside of 'define-module'.");
 
     // There can be multiple import specifications
@@ -763,7 +761,8 @@ static void compiler_parse_if(CompilerContext *ctx) {
   compiler_parse_expr(ctx);
   int jump_origin = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
 
-  // Include a pop so that the expression value gets removed from the stack in the truth path
+  // Include a pop so that the expression value gets removed from the stack in
+  // the truth path
   compiler_emit_byte(ctx, OP_POP);
 
   // Parse truth expr
@@ -1036,8 +1035,10 @@ void (*ParserFunc)(CompilerContext *ctx);
 static void compiler_parse_expr(CompilerContext *ctx) {
   /* static const ParserFunc[TokenKindEOF] = [NULL, */
   /*                                          NULL, // TokenKindParen */
-  /*                                          compiler_parse_list, // TokenKindLeftParen, */
-  /*                                          NULL,              // TokenKindRightParen, */
+  /*                                          compiler_parse_list, //
+   * TokenKindLeftParen, */
+  /*                                          NULL,              //
+   * TokenKindRightParen, */
   /* ]; */
 
   if (ctx->parser->current.kind == TokenKindEOF) {
