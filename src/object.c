@@ -76,7 +76,7 @@ ObjectSymbol *mesche_object_make_symbol(VM *vm, const char *chars, int length) {
   // Allocate and initialize the string object
   ObjectSymbol *symbol = ALLOC_OBJECT_EX(vm, ObjectSymbol, length + 1, ObjectKindSymbol);
   memcpy(symbol->string.chars, chars, length);
-  symbol->string.chars[length + 1] = '\0';
+  symbol->string.chars[length] = '\0';
   symbol->string.length = length;
   symbol->string.hash = hash;
 
@@ -223,6 +223,7 @@ ObjectRecordFieldAccessor *mesche_object_make_record_accessor(VM *vm, ObjectReco
 ObjectRecordInstance *mesche_object_make_record_instance(VM *vm, ObjectRecord *record_type) {
   ObjectRecordInstance *instance = ALLOC_OBJECT(vm, ObjectRecordInstance, ObjectKindRecordInstance);
   instance->record_type = record_type;
+  mesche_value_array_init(&instance->field_values);
   return instance;
 }
 

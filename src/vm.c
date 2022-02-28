@@ -28,12 +28,14 @@ void mesche_vm_stack_push(VM *vm, Value value) {
 
 Value mesche_vm_stack_pop(VM *vm) {
   vm->stack_top--;
+  if (vm->stack_top < vm->stack) {
+    PANIC("Value stack has been popped below initial address!");
+  }
+
   return *vm->stack_top;
 }
 
-static Value vm_stack_peek(VM *vm, int distance) {
-  return vm->stack_top[-1 - distance];
-}
+static Value vm_stack_peek(VM *vm, int distance) { return vm->stack_top[-1 - distance]; }
 
 static void vm_reset_stack(VM *vm) {
   vm->stack_top = vm->stack;
@@ -247,13 +249,11 @@ static void mem_collect_garbage(MescheMemory *mem) {
 }
 
 void mesche_vm_register_core_modules(VM *vm) {
-  mesche_module_enter_by_name(vm, "mesche process");
-  mesche_vm_define_native(vm, "process-arguments", mesche_process_arguments_msc, true);
+  ObjectModule *module = mesche_module_resolve_by_name_string(vm, "mesche process");
+  mesche_vm_define_native(vm, module, "process-arguments", mesche_process_arguments_msc, true);
 
-  mesche_module_enter_by_name(vm, "mesche list");
-  mesche_vm_define_native(vm, "list-nth", mesche_list_nth_msc, true);
-
-  mesche_module_enter_by_name(vm, "mesche-user");
+  module = mesche_module_resolve_by_name_string(vm, "mesche list");
+  mesche_vm_define_native(vm, module, "list-nth", mesche_list_nth_msc, true);
 }
 
 void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
@@ -505,6 +505,17 @@ static void vm_close_upvalues(VM *vm, Value *stack_slot) {
   }
 }
 
+static bool vm_create_module_binding(VM *vm, ObjectModule *module, ObjectString *binding_name,
+                                     Value value, bool exported) {
+  bool binding_exists = !mesche_table_set((MescheMemory *)vm, &module->locals, binding_name, value);
+
+  if (exported) {
+    mesche_value_array_write((MescheMemory *)vm, &module->exports, OBJECT_VAL(binding_name));
+  }
+
+  return binding_exists;
+}
+
 InterpretResult mesche_vm_run(VM *vm) {
   CallFrame *frame = &vm->frames[vm->frame_count - 1];
   ObjectModule *prev_module = NULL;
@@ -513,6 +524,7 @@ InterpretResult mesche_vm_run(VM *vm) {
 #define READ_SHORT() (frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
 #define READ_CONSTANT() (frame->closure->function->chunk.constants.values[READ_BYTE()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
+#define CURRENT_MODULE() (frame->closure->module ? frame->closure->module : vm->current_module)
 
 // TODO: Don't pop 'a', manipulate top of stack
 #define BINARY_OP(value_type, pred, cast, op)                                                      \
@@ -547,7 +559,6 @@ InterpretResult mesche_vm_run(VM *vm) {
     Value value;
     ObjectString *name;
     uint8_t slot = 0;
-    Value *prev_stack_top = vm->stack_top;
 
     switch (instr = READ_BYTE()) {
     case OP_CONSTANT:
@@ -642,30 +653,31 @@ InterpretResult mesche_vm_run(VM *vm) {
     case OP_RETURN:
       // Hold on to the function result value before we manipulate the stack
       value = mesche_vm_stack_pop(vm);
-      vm->frame_count--;
 
       // Close out upvalues for any function locals that have been captured by
       // closures
       vm_close_upvalues(vm, frame->slots);
 
       // If we're out of call frames, end execution
+      vm->frame_count--;
       if (vm->frame_count == 0) {
         // Push the value back on so that it can be read by the REPL
         mesche_vm_stack_pop(vm);
         mesche_vm_stack_push(vm, value);
+
+        // Finish execution
         vm->is_running = false;
         return INTERPRET_OK;
       }
 
-      // Restore the previous module if there is one
-      if (prev_module) {
-        vm->current_module = prev_module;
-        prev_module = NULL;
-      }
+
+      // TODO: Consider adding this back if we figure out the right approach.
+      // It will allow us to clear out any intermediate stack values on return.
+      /* vm->stack_top = frame->slots; */
 
       // Restore the previous result value, call frame, and value stack pointer
       // before continuing execution
-      vm->stack_top = frame->slots;
+      mesche_vm_stack_pop(vm); // Pop the closure before restoring result
       mesche_vm_stack_push(vm, value);
       frame = &vm->frames[vm->frame_count - 1];
       break;
@@ -706,13 +718,8 @@ InterpretResult mesche_vm_run(VM *vm) {
                                              record_name->string.length, "");
       ObjectString *maker_name_string =
           mesche_object_make_string(vm, maker_name, strlen(maker_name));
+      vm_create_module_binding(vm, CURRENT_MODULE(), maker_name_string, OBJECT_VAL(record), true);
       free(maker_name);
-      if (!mesche_table_set((MescheMemory *)vm, module_scope, maker_name_string,
-                            OBJECT_VAL(record))) {
-        printf("Might be shadowing another variable!\n");
-      }
-      mesche_value_array_write((MescheMemory *)vm, &vm->current_module->exports,
-                               OBJECT_VAL(maker_name_string));
 
       for (int i = 0; i < field_count; i++) {
         // Build the record field from name and default value
@@ -730,12 +737,8 @@ InterpretResult mesche_vm_run(VM *vm) {
             mesche_object_make_string(vm, accessor_name, strlen(accessor_name));
         free(accessor_name);
         ObjectRecordFieldAccessor *accessor = mesche_object_make_record_accessor(vm, record, i);
-        if (!mesche_table_set((MescheMemory *)vm, module_scope, accessor_name_string,
-                              OBJECT_VAL(accessor))) {
-          printf("Might be shadowing another variable!\n");
-        }
-        mesche_value_array_write((MescheMemory *)vm, &vm->current_module->exports,
-                                 OBJECT_VAL(accessor_name_string));
+        vm_create_module_binding(vm, CURRENT_MODULE(), accessor_name_string, OBJECT_VAL(accessor),
+                                 true);
       }
 
       // Pop all of the fields and record name off of the stack
@@ -749,50 +752,80 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     }
     case OP_DEFINE_MODULE: {
+      // Resolve the module and set the current closure's module.
+      // This works because scripts are compiled into functions with
+      // their own closure, so a `define-module` will cause that to
+      // be set.
       ObjectCons *list = AS_CONS(mesche_vm_stack_pop(vm));
-      mesche_module_enter_path(vm, list);
-      mesche_vm_stack_push(vm, OBJECT_VAL(vm->current_module));
+      // TODO: Error if module is already set?
+      frame->closure->module = mesche_module_resolve_by_path(vm, list);
+
+      // Push the defined module onto the stack
+      mesche_vm_stack_push(vm, OBJECT_VAL(frame->closure->module));
       break;
     }
-    case OP_IMPORT_MODULE: {
-      // Hold on to the current module so that we can return to it later
-      prev_module = vm->current_module;
-
+    case OP_RESOLVE_MODULE: {
+      // Resolve the module based on the given path
       ObjectCons *list = AS_CONS(mesche_vm_stack_pop(vm));
-      Value *stack_top = vm->stack_top;
-      mesche_module_import_path(vm, list);
-      if (vm->stack_top > stack_top && IS_CLOSURE(vm_stack_peek(vm, 0))) {
-        ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
+      ObjectModule *resolved_module = mesche_module_resolve_by_path(vm, list);
+
+      // Compiling the module file will push its closure onto the stack
+      if (IS_CLOSURE(vm_stack_peek(vm, 0))) {
+        ObjectClosure *closure = AS_CLOSURE(mesche_vm_stack_pop(vm));
         if (closure->function->type == TYPE_SCRIPT) {
-          // Call the script
+          // Set up the module's closure for execution in the next VM loop
+          // TODO: This pattern needs to be made into a macro!
           vm_call(vm, closure, 0);
           frame = &vm->frames[vm->frame_count - 1];
         }
+
+        // Push the module onto the stack before pushing the closure back.  We
+        // leave the closure on the stack so that OP_RETURN semantics are not
+        // affected!
+        mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
+        mesche_vm_stack_push(vm, OBJECT_VAL(closure));
       } else {
-        // Reset the module now so we don't run into trouble later
-        prev_module = NULL;
+        // This case will happen when the module has previously been executed
+        // and was merely resolved this time.  We have to emulate the load of
+        // a module to keep the stack handling consistent, so push the resolved
+        // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
+        // stack first!
+        mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
+        mesche_vm_stack_push(vm, NIL_VAL);
       }
+      break;
+    }
+    case OP_IMPORT_MODULE: {
+      // First, pop the result of evaluating the module's body because we don't
+      // need it.
+      mesche_vm_stack_pop(vm);
+
+      // Grab the module that was resolved and pull in its exports
+      ObjectModule *imported_module = AS_MODULE(vm_stack_peek(vm, 0));
+      mesche_module_import(vm, imported_module, CURRENT_MODULE());
+
+      // Nothing new is pushed onto the stack
       break;
     }
     case OP_ENTER_MODULE: {
       ObjectCons *list = AS_CONS(mesche_vm_stack_pop(vm));
-      mesche_module_enter_path(vm, list);
-      mesche_vm_stack_push(vm, OBJECT_VAL(vm->current_module));
+      ObjectModule *module = mesche_module_resolve_by_path(vm, list);
+      vm->current_module = module;
+      mesche_vm_stack_push(vm, OBJECT_VAL(module));
       break;
     }
     case OP_EXPORT_SYMBOL:
       name = READ_STRING();
       // TODO: Convert the local value for this binding to an ObjectExport
-      mesche_value_array_write((MescheMemory *)vm, &vm->current_module->exports, OBJECT_VAL(name));
+      mesche_value_array_write((MescheMemory *)vm, &CURRENT_MODULE()->exports, OBJECT_VAL(name));
       break;
     case OP_DEFINE_GLOBAL:
       name = READ_STRING();
-      mesche_table_set((MescheMemory *)vm, &vm->current_module->locals, name, vm_stack_peek(vm, 0));
+      mesche_table_set((MescheMemory *)vm, &CURRENT_MODULE()->locals, name, vm_stack_peek(vm, 0));
       break;
     case OP_READ_GLOBAL:
       name = READ_STRING();
-      Table *globals =
-          frame->closure->module ? &frame->closure->module->locals : &vm->current_module->locals;
+      Table *globals = &CURRENT_MODULE()->locals;
       if (!mesche_table_get(globals, name, &value)) {
         vm_runtime_error(vm, "Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
@@ -800,9 +833,6 @@ InterpretResult mesche_vm_run(VM *vm) {
       mesche_vm_stack_push(vm, value);
       break;
     case OP_READ_UPVALUE:
-      // TODO: The problem here is that the local is no longer on the stack!
-      // I'm using POP_SCOPE to get rid of all the locals but maybe the pointer
-      // no longer works?  It's pointing to the location of the result of the function
       slot = READ_BYTE();
       mesche_vm_stack_push(vm, *frame->closure->upvalues[slot]->location);
       break;
@@ -812,8 +842,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     case OP_SET_GLOBAL: {
       name = READ_STRING();
-      Table *globals =
-          frame->closure->module ? &frame->closure->module->locals : &vm->current_module->locals;
+      Table *globals = &CURRENT_MODULE()->locals;
       if (mesche_table_set((MescheMemory *)vm, globals, name, vm_stack_peek(vm, 0))) {
         vm_runtime_error(vm, "Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
@@ -843,7 +872,7 @@ InterpretResult mesche_vm_run(VM *vm) {
     }
     case OP_CLOSURE: {
       ObjectFunction *function = AS_FUNCTION(READ_CONSTANT());
-      ObjectClosure *closure = mesche_object_make_closure(vm, function, vm->current_module);
+      ObjectClosure *closure = mesche_object_make_closure(vm, function, CURRENT_MODULE());
       mesche_vm_stack_push(vm, OBJECT_VAL(closure));
 
       for (int i = 0; i < closure->upvalue_count; i++) {
@@ -875,16 +904,6 @@ InterpretResult mesche_vm_run(VM *vm) {
 
       break;
     }
-
-    // For now, we enforce that all instructions except OP_POP should produce
-    // (or leave) a value on the stack so that we can be consistent with how
-    // expressions are popped in blocks when their values aren't consumed.
-    // TODO: Rethink this check, it doesn't work for binary operations which
-    // pop 2 values from the stack
-    /* if (instr != OP_POP && vm->stack_top < prev_stack_top) { */
-    /*   PANIC("Instruction \"%d\" consumed a stack value! (before: %x, after: %x)\n", instr,
-     * prev_stack_top, vm->stack_top); */
-    /* } */
   }
 
   vm->is_running = false;
@@ -900,19 +919,16 @@ static Value mesche_vm_clock_native(int arg_count, Value *args) {
   return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
 }
 
-void mesche_vm_define_native(VM *vm, const char *name, FunctionPtr function, bool exported) {
+void mesche_vm_define_native(VM *vm, ObjectModule *module, const char *name, FunctionPtr function,
+                             bool exported) {
   // Create objects for the name and the function
   ObjectString *func_name = mesche_object_make_string(vm, name, (int)strlen(name));
   mesche_vm_stack_push(vm, OBJECT_VAL(func_name));
   mesche_vm_stack_push(vm, OBJECT_VAL(mesche_object_make_native_function(vm, function)));
 
-  // Add the item to the table and possibly the export list
-  mesche_table_set((MescheMemory *)vm, &vm->current_module->locals, AS_STRING(*(vm->stack_top - 2)),
-                   *(vm->stack_top - 1));
-  if (exported) {
-    mesche_value_array_write((MescheMemory *)vm, &vm->current_module->exports,
-                             OBJECT_VAL(func_name));
-  }
+  // Create the binding to the function
+  vm_create_module_binding(vm, module, AS_STRING(*(vm->stack_top - 2)), *(vm->stack_top - 1),
+                           exported);
 
   // Pop the values we stored temporarily
   mesche_vm_stack_pop(vm);

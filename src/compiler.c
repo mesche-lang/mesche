@@ -693,6 +693,7 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
       compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'import'");
 
       compiler_parse_module_symbol_list(ctx);
+      compiler_emit_byte(ctx, OP_RESOLVE_MODULE);
       compiler_emit_byte(ctx, OP_IMPORT_MODULE);
     }
   }
@@ -833,6 +834,7 @@ static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token
 static void compiler_parse_module_import(CompilerContext *ctx) {
   compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'module-import'");
   compiler_parse_module_symbol_list(ctx);
+  compiler_emit_byte(ctx, OP_RESOLVE_MODULE);
   compiler_emit_byte(ctx, OP_IMPORT_MODULE);
   compiler_consume(ctx, TokenKindRightParen, "Expected right paren to complete 'module-import'");
 }

@@ -92,6 +92,8 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_byte_instr("OP_DEFINE_RECORD", chunk, offset);
   case OP_DEFINE_MODULE:
     return mesche_disasm_simple_instr("OP_DEFINE_MODULE", offset);
+  case OP_RESOLVE_MODULE:
+    return mesche_disasm_simple_instr("OP_RESOLVE_MODULE", offset);
   case OP_IMPORT_MODULE:
     return mesche_disasm_simple_instr("OP_IMPORT_MODULE", offset);
   case OP_ENTER_MODULE:

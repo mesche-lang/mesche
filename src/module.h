@@ -5,9 +5,8 @@
 #include "vm.h"
 
 void mesche_module_print_name(ObjectModule *module);
-void mesche_module_enter(VM *vm, ObjectModule *module);
-void mesche_module_enter_path(VM *vm, ObjectCons *list);
-void mesche_module_enter_by_name(VM *vm, const char *module_name);
-void mesche_module_import_path(VM *vm, ObjectCons *list);
+ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_name);
+ObjectModule *mesche_module_resolve_by_path(VM *vm, ObjectCons *list);
+void mesche_module_import(VM *vm, ObjectModule *from_module, ObjectModule *to_module);
 
 #endif
