@@ -1,0 +1,13 @@
+(define-module (mesche cli)
+  (import (mesche cli project)))
+
+(make-project :name "Mesche Command Line Interface"
+              :url "https://github.com/mesche-lang/cli"
+              :version "0.0.1"
+              :description "This is the command line interface for the Mesche language."
+              :dependencies '(mesche compiler)
+
+              :inputs (list "src/main.c"
+                            "src/init.msc")
+
+              :output "bin/mesche")

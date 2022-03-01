@@ -1,0 +1,10 @@
+(define-module (mesche cli project))
+
+(define-record-type project
+  (fields name
+          url
+          version
+          description
+          dependencies
+          inputs
+          output))

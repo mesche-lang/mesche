@@ -1,6 +1,7 @@
 (specifications->manifest
  '("coreutils"
    "gcc-toolchain"
+   "valgrind"
    "make"
    "pkg-config"
    "gdb"
