@@ -514,7 +514,7 @@ static void compiler_parse_define_attributes(CompilerContext *ctx,
         // TODO: Warn on unknown keywords?
       }
 
-      mesche_object_free(ctx->vm, (Object *)keyword);
+      // Don't explicitly free here, the GC will clean it up
     } else {
       break;
     }

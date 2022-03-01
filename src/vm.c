@@ -145,6 +145,9 @@ static void mem_mark_roots(void *target) {
     mesche_mem_mark_object(vm, (Object *)upvalue);
   }
 
+  // Mark the load path list
+  mem_mark_value(vm, OBJECT_VAL(vm->load_paths));
+
   // Mark roots in every module
   mem_mark_table(vm, &vm->modules);
 }
@@ -676,7 +679,6 @@ InterpretResult mesche_vm_run(VM *vm) {
         vm->is_running = false;
         return INTERPRET_OK;
       }
-
 
       // TODO: Consider adding this back if we figure out the right approach.
       // It will allow us to clear out any intermediate stack values on return.
