@@ -120,6 +120,8 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_jump_instr("OP_JUMP_IF_FALSE", 1, chunk, offset);
   case OP_CALL:
     return mesche_disasm_bytes_instr("OP_CALL", chunk, offset);
+  case OP_TAIL_CALL:
+    return mesche_disasm_bytes_instr("OP_TAIL_CALL", chunk, offset);
   case OP_CLOSURE: {
     offset++;
     uint8_t constant = chunk->code[offset++];

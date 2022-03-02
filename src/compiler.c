@@ -51,6 +51,9 @@ typedef struct CompilerContext {
   ObjectFunction *function;
   FunctionType function_type;
 
+  bool in_tail_context;
+  int last_call_offset;
+
   Local locals[UINT8_COUNT];
   int local_count;
   int scope_depth;
@@ -107,6 +110,22 @@ static void compiler_emit_byte(CompilerContext *ctx, uint8_t byte) {
 static void compiler_emit_bytes(CompilerContext *ctx, uint8_t byte1, uint8_t byte2) {
   compiler_emit_byte(ctx, byte1);
   compiler_emit_byte(ctx, byte2);
+}
+
+static void compiler_emit_call(CompilerContext *ctx, uint8_t instr, uint8_t arg_count,
+                               uint8_t keyword_count) {
+  ctx->last_call_offset = ctx->function->chunk.count;
+  compiler_emit_byte(ctx, instr);
+  compiler_emit_byte(ctx, arg_count);
+  compiler_emit_byte(ctx, keyword_count);
+}
+
+static void compiler_patch_tail_call(CompilerContext *ctx) {
+  // At this point, patch any call that in tail position to make
+  // it a tail call.
+  if (ctx->in_tail_context && ctx->last_call_offset == ctx->function->chunk.count - 3) {
+    ctx->function->chunk.code[ctx->last_call_offset] = OP_TAIL_CALL;
+  }
 }
 
 static void compiler_emit_return(CompilerContext *ctx) { compiler_emit_byte(ctx, OP_RETURN); }
@@ -250,12 +269,16 @@ static void compiler_parse_literal(CompilerContext *ctx) {
 }
 
 static void compiler_parse_block(CompilerContext *ctx, bool expect_end_paren) {
-  // TODO: Discard every value except for the last!
   for (;;) {
+    ctx->in_tail_context = true;
     compiler_parse_expr(ctx);
 
     if (expect_end_paren && ctx->parser->current.kind == TokenKindRightParen) {
       compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
+
+      // Patch the tail call if there should be one
+      compiler_patch_tail_call(ctx);
+
       break;
     } else if (ctx->parser->current.kind == TokenKindEOF) {
       break;
@@ -276,6 +299,7 @@ static void compiler_add_local(CompilerContext *ctx, Token name) {
   if (ctx->local_count == UINT8_COUNT) {
     compiler_error(ctx, "Too many local variables defined in function.");
   }
+
   Local *local = &ctx->locals[ctx->local_count++];
   local->name = name; // No need to copy, will only be used during compilation
   local->depth = -1;  // The variable is uninitialized until assigned
@@ -292,6 +316,13 @@ static int compiler_resolve_local(CompilerContext *ctx, Token *name) {
       }
       return i;
     }
+  }
+
+  // Is the name the same as the function name?
+  ObjectString *func_name = ctx->function->name;
+  if (func_name && memcmp(func_name->chars, name->start, func_name->length) == 0) {
+    // Slot 0 points to the function itself
+    return 0;
   }
 
   return -1;
@@ -375,9 +406,10 @@ static void compiler_declare_variable(CompilerContext *ctx) {
 
 static uint8_t compiler_parse_symbol(CompilerContext *ctx, bool is_global) {
   // Declare the variable and exit if we're in a local scope
-  compiler_declare_variable(ctx);
-  if (!is_global && ctx->scope_depth > 0)
+  if (!is_global && ctx->scope_depth > 0) {
+    compiler_declare_variable(ctx);
     return 0;
+  }
 
   Value new_string = OBJECT_VAL(mesche_object_make_string(ctx->vm, ctx->parser->previous.start,
                                                           ctx->parser->previous.length));
@@ -411,13 +443,12 @@ static void compiler_parse_identifier(CompilerContext *ctx) {
   }
 }
 
-static void compiler_define_variable_ex(CompilerContext *ctx, uint8_t variable_constant,
-                                        DefineAttributes *define_attributes) {
+static uint8_t compiler_define_variable_ex(CompilerContext *ctx, uint8_t variable_constant,
+                                           DefineAttributes *define_attributes) {
   // We don't define global variables in local scopes
   if (ctx->scope_depth > 0) {
-    // TODO: Is this necessary?
     compiler_local_mark_initialized(ctx);
-    return;
+    return ctx->local_count - 1;
   }
 
   compiler_emit_bytes(ctx, OP_DEFINE_GLOBAL, variable_constant);
@@ -427,10 +458,13 @@ static void compiler_define_variable_ex(CompilerContext *ctx, uint8_t variable_c
       compiler_emit_bytes(ctx, OP_EXPORT_SYMBOL, variable_constant);
     }
   }
+
+  // TODO: What does this really mean?
+  return 0;
 }
 
-static void compiler_define_variable(CompilerContext *ctx, uint8_t variable_constant) {
-  compiler_define_variable_ex(ctx, variable_constant, NULL);
+static uint8_t compiler_define_variable(CompilerContext *ctx, uint8_t variable_constant) {
+  return compiler_define_variable_ex(ctx, variable_constant, NULL);
 }
 
 static void compiler_parse_set(CompilerContext *ctx) {
@@ -469,36 +503,78 @@ static void compiler_end_scope(CompilerContext *ctx) {
     }
     ctx->local_count--;
   }
-
-  // Pop all of the locals off of the scope, retaining the final expression
-  // result
-  compiler_emit_bytes(ctx, OP_POP_SCOPE, local_count);
 }
 
 static void compiler_parse_let(CompilerContext *ctx) {
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'let'");
+  // Create a new compiler context for parsing the let body as an inline
+  // function
+  CompilerContext let_ctx;
+  compiler_init_context(&let_ctx, ctx, TYPE_FUNCTION);
+  compiler_begin_scope(&let_ctx);
 
-  compiler_begin_scope(ctx);
+  // Parse the name of the let
+  if (let_ctx.parser->current.kind == TokenKindSymbol) {
+    if (let_ctx.parser->current.sub_kind != TokenKindNone) {
+      compiler_error(&let_ctx, "Used an invalid symbol for named let.");
+    }
+
+    // Parse the let name and save it as the function name
+    compiler_advance(&let_ctx);
+    Token let_name_token = let_ctx.parser->previous;
+    ObjectString *let_name =
+        mesche_object_make_string(let_ctx.vm, let_name_token.start, let_name_token.length);
+    let_ctx.function->name = let_name;
+  }
+
+  compiler_consume(&let_ctx, TokenKindLeftParen, "Expected left paren after 'let'");
+
+  // Before parsing arguments, skip ahead to leave enough space to write out the
+  // OP_CLOSURE instruction with the right constant value before writing out the
+  // OP_CALL instruction.
+  int func_offset = ctx->function->chunk.count;
+  ctx->function->chunk.count += 2;
 
   for (;;) {
-    if (ctx->parser->current.kind == TokenKindRightParen) {
-      compiler_consume(ctx, TokenKindRightParen, "Expected right paren to end bindings");
+    if (let_ctx.parser->current.kind == TokenKindRightParen) {
+      compiler_consume(&let_ctx, TokenKindRightParen, "Expected right paren to end bindings");
       break;
     }
 
-    compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to start binding pair");
+    compiler_consume(&let_ctx, TokenKindLeftParen, "Expected left paren to start binding pair");
 
-    // compiler_parse_symbol expects the symbol token to be in parser->previous
-    compiler_advance(ctx);
-    compiler_parse_symbol(ctx, false);
-    compiler_define_variable(ctx, 0 /* Irrelevant, this is local */);
+    // Increase the binding (function argument) count
+    let_ctx.function->arity++;
+    if (let_ctx.function->arity > 255) {
+      compiler_error_at_current(&let_ctx, "Let cannot have more than 255 bindings.");
+    }
+
+    // Parse the symbol for the binding
+    compiler_advance(&let_ctx);
+    uint8_t constant = compiler_parse_symbol(&let_ctx, false);
+    compiler_define_variable(&let_ctx, constant);
+
+    // Parse the binding value into the *original context* where the let
+    // function will be called so that it gets passed as a parameter to the
+    // lambda.
     compiler_parse_expr(ctx);
 
-    compiler_consume(ctx, TokenKindRightParen, "Expected right paren to end binding pair");
+    compiler_consume(&let_ctx, TokenKindRightParen, "Expected right paren to end binding pair");
   }
 
-  compiler_parse_block(ctx, true);
-  compiler_end_scope(ctx);
+  // Parse the let body
+  compiler_parse_block(&let_ctx, true);
+  compiler_end_scope(&let_ctx);
+
+  // Finish the function and write out its constant and closure back where it
+  // needs to go
+  ObjectFunction *function = compiler_end(&let_ctx);
+  int call_offset = ctx->function->chunk.count;
+  ctx->function->chunk.count = func_offset;
+  compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
+
+  // Restore the offset where OP_CALL should be and write it
+  ctx->function->chunk.count = call_offset;
+  compiler_emit_call(ctx, OP_CALL, let_ctx.function->arity, 0);
 }
 
 static void compiler_parse_define_attributes(CompilerContext *ctx,
@@ -528,7 +604,8 @@ static void compiler_parse_define_attributes(CompilerContext *ctx,
   }
 }
 
-static void compiler_parse_lambda_inner(CompilerContext *ctx, DefineAttributes *define_attributes) {
+static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name,
+                                        DefineAttributes *define_attributes) {
   // Create a new compiler context for parsing the function body
   CompilerContext func_ctx;
   compiler_init_context(&func_ctx, ctx, TYPE_FUNCTION);
@@ -603,6 +680,7 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, DefineAttributes *
 
   // Get the parsed function and store it in a constant
   ObjectFunction *function = compiler_end(&func_ctx);
+  function->name = name;
   compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
 
   // Write out the references to each upvalue as arguments to OP_CLOSURE
@@ -618,7 +696,7 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, DefineAttributes *
 static void compiler_parse_lambda(CompilerContext *ctx) {
   // Consume the leading paren and let the shared lambda parser take over
   compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to begin argument list.");
-  compiler_parse_lambda_inner(ctx, NULL);
+  compiler_parse_lambda_inner(ctx, NULL, NULL);
 }
 
 static void compiler_parse_define(CompilerContext *ctx) {
@@ -636,10 +714,12 @@ static void compiler_parse_define(CompilerContext *ctx) {
 
   compiler_consume(ctx, TokenKindSymbol, "Expected symbol after 'define'");
 
-  uint8_t variable_constant = variable_constant = compiler_parse_symbol(ctx, true);
+  uint8_t variable_constant = compiler_parse_symbol(ctx, true);
   if (is_func) {
     // Let the lambda parser take over
-    compiler_parse_lambda_inner(ctx, &define_attributes);
+    compiler_parse_lambda_inner(ctx,
+                                AS_STRING(ctx->function->chunk.constants.values[variable_constant]),
+                                &define_attributes);
   } else {
     // Parse a normal expression
     compiler_parse_expr(ctx);
@@ -765,8 +845,10 @@ static void compiler_parse_if(CompilerContext *ctx) {
   // the truth path
   compiler_emit_byte(ctx, OP_POP);
 
-  // Parse truth expr
+  // Parse truth expr and patch the tail call if the expression was still in a
+  // tail context afterward
   compiler_parse_expr(ctx);
+  compiler_patch_tail_call(ctx);
 
   int else_jump = compiler_emit_jump(ctx, OP_JUMP);
 
@@ -778,6 +860,7 @@ static void compiler_parse_if(CompilerContext *ctx) {
 
   // Parse false expr
   compiler_parse_expr(ctx);
+  compiler_patch_tail_call(ctx);
 
   // Patch the jump instruction after the false path has been compiled
   compiler_patch_jump(ctx, else_jump);
@@ -787,6 +870,7 @@ static void compiler_parse_if(CompilerContext *ctx) {
 
 static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token,
                                          uint8_t operand_count) {
+  bool in_tail_context = false;
   TokenKind operator= call_token->sub_kind;
   switch (operator) {
   case TokenKindPlus:
@@ -828,6 +912,9 @@ static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token
   default:
     return; // We shouldn't hit this
   }
+
+  // Set the context when we return so that the caller can examine it
+  ctx->in_tail_context = in_tail_context;
 }
 
 static void compiler_parse_module_import(CompilerContext *ctx) {
@@ -852,9 +939,11 @@ static void compiler_parse_load_file(CompilerContext *ctx) {
 }
 
 static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token) {
+  bool in_tail_context = false;
   TokenKind operator= call_token->sub_kind;
   switch (operator) {
   case TokenKindBegin:
+    in_tail_context = true;
     compiler_parse_block(ctx, true);
     break;
   case TokenKindDefine:
@@ -882,6 +971,7 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
     compiler_parse_let(ctx);
     break;
   case TokenKindIf:
+    in_tail_context = true;
     compiler_parse_if(ctx);
     break;
   case TokenKindLambda:
@@ -890,6 +980,8 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
   default:
     return false; // No special form found
   }
+
+  ctx->in_tail_context = in_tail_context;
 
   return true;
 }
@@ -993,9 +1085,9 @@ static void compiler_parse_list(CompilerContext *ctx) {
         // Compile the primitive operator
         compiler_parse_operator_call(ctx, &call_token, arg_count);
       } else {
-        // Emit the call operation
-        compiler_emit_bytes(ctx, OP_CALL, arg_count);
-        compiler_emit_byte(ctx, keyword_count);
+        // If this is a legitimate call, it can be turned into a tail call
+        ctx->in_tail_context = true;
+        compiler_emit_call(ctx, OP_CALL, arg_count, keyword_count);
       }
 
       // Consume the right paren and exit
@@ -1040,6 +1132,10 @@ static void compiler_parse_expr(CompilerContext *ctx) {
   /*                                          NULL,              //
    * TokenKindRightParen, */
   /* ]; */
+
+  // Specific parser functions will change this value to 'true' if the parsed
+  // expression represents a tail context
+  ctx->in_tail_context = false;
 
   if (ctx->parser->current.kind == TokenKindEOF) {
     return;

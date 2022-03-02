@@ -26,7 +26,7 @@ static VM vm;
     FAIL("Expected interpret result %s, got %d", __stringify(expected_result), result);            \
   }
 
-static void vm_returns_basic_values() {
+static void returns_basic_values() {
   VM_INIT();
   Value value;
 
@@ -45,7 +45,7 @@ static void vm_returns_basic_values() {
   PASS();
 }
 
-static void vm_imports_modules() {
+static void imports_modules() {
   VM_INIT();
   Value value;
 
@@ -58,6 +58,62 @@ static void vm_imports_modules() {
   PASS();
 }
 
+static void evaluates_let() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(let ((x 3) (y 4))"
+          "  (+ x y))",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 7) {
+    FAIL("It wasn't 7!");
+  }
+
+  PASS();
+}
+
+static void evaluates_tail_calls() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(define (loop x)"
+          "  (if (not (equal? x 5))"
+          "      (loop (+ x 1))"
+          "      x))"
+          "(loop 1)",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 5) {
+    FAIL("It wasn't 5!");
+  }
+
+  PASS();
+}
+
+static void evaluates_tail_calls_named_let() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(let loop ((x 1))"
+          "  (if (not (equal? x 5))"
+          "      (loop (+ x 1))"
+          "      x))",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 5) {
+    FAIL("It wasn't 5!");
+  }
+
+  PASS();
+}
+
 static void vm_suite_cleanup() { mesche_vm_free(&vm); }
 
 void test_vm_suite() {
@@ -65,8 +121,11 @@ void test_vm_suite() {
 
   test_suite_cleanup_func = vm_suite_cleanup;
 
-  vm_returns_basic_values();
-  vm_imports_modules();
+  returns_basic_values();
+  imports_modules();
+  evaluates_let();
+  evaluates_tail_calls();
+  evaluates_tail_calls_named_let();
 
   END_SUITE();
 }

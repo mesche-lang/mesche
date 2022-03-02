@@ -304,7 +304,7 @@ void mesche_vm_free(VM *vm) {
   vm_free_objects(vm);
 }
 
-static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count) {
+static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, bool is_tail_call) {
   // Need to factor in:
   // - Required argument count (arity)
   // - Number of keywords (check the value stack to match them)
@@ -376,18 +376,37 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count) {
     }
   }
 
-  CallFrame *frame = &vm->frames[vm->frame_count++];
-  frame->closure = closure;
-  frame->ip = closure->function->chunk.code;
-  frame->slots = arg_start - 1;
-  return true;
+  if (is_tail_call) {
+    // Reuse the existing frame
+    CallFrame *frame = &vm->frames[vm->frame_count - 1];
+
+    // Copy the new arguments (and the closure value itself) on top of the old
+    // slots
+    // TODO: This is possibly inefficient, need to profile!
+    memcpy(frame->slots, arg_start - 1, sizeof(Value) * (arg_count + 1));
+
+    // Reset the top of the value stack to shrink it back to where it was before
+    vm->stack_top -= arg_count + 1;
+
+    // Set up the closure and instruction pointer to continue execution
+    frame->closure = closure;
+    frame->ip = closure->function->chunk.code;
+    return true;
+  } else {
+    CallFrame *frame = &vm->frames[vm->frame_count++];
+    frame->closure = closure;
+    frame->ip = closure->function->chunk.code;
+    frame->slots = arg_start - 1;
+    return true;
+  }
 }
 
-static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keyword_count) {
+static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keyword_count,
+                          bool is_tail_call) {
   if (IS_OBJECT(callee)) {
     switch (OBJECT_KIND(callee)) {
     case ObjectKindClosure:
-      return vm_call(vm, AS_CLOSURE(callee), arg_count);
+      return vm_call(vm, AS_CLOSURE(callee), arg_count, is_tail_call);
     case ObjectKindNativeFunction: {
       FunctionPtr func_ptr = AS_NATIVE_FUNC(callee);
       Value result = func_ptr((MescheMemory *)vm, arg_count, vm->stack_top - arg_count);
@@ -704,7 +723,7 @@ InterpretResult mesche_vm_run(VM *vm) {
         ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
         if (closure->function->type == TYPE_SCRIPT) {
           // Call the script
-          vm_call(vm, closure, 0);
+          vm_call(vm, closure, 0, false);
           frame = &vm->frames[vm->frame_count - 1];
         }
       }
@@ -784,7 +803,7 @@ InterpretResult mesche_vm_run(VM *vm) {
         if (closure->function->type == TYPE_SCRIPT) {
           // Set up the module's closure for execution in the next VM loop
           // TODO: This pattern needs to be made into a macro!
-          vm_call(vm, closure, 0);
+          vm_call(vm, closure, 0, false);
           frame = &vm->frames[vm->frame_count - 1];
         }
 
@@ -871,12 +890,25 @@ InterpretResult mesche_vm_run(VM *vm) {
       uint8_t arg_count = READ_BYTE();
       uint8_t keyword_count = READ_BYTE();
       if (!vm_call_value(vm, vm_stack_peek(vm, arg_count + (keyword_count * 2)), arg_count,
-                         keyword_count)) {
+                         keyword_count, false)) {
         return INTERPRET_COMPILE_ERROR;
       }
 
       // Set the current frame to the new call frame
       frame = &vm->frames[vm->frame_count - 1];
+      break;
+    }
+    case OP_TAIL_CALL: {
+      // TODO: Perhaps this can be a flag to OP_CALL?
+      // Call the function with the specified number of arguments
+      uint8_t arg_count = READ_BYTE();
+      uint8_t keyword_count = READ_BYTE();
+      if (!vm_call_value(vm, vm_stack_peek(vm, arg_count + (keyword_count * 2)), arg_count,
+                         keyword_count, true)) {
+        return INTERPRET_COMPILE_ERROR;
+      }
+
+      // Retain the current call frame, it has already been updated
       break;
     }
     case OP_CLOSURE: {
@@ -970,7 +1002,7 @@ InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string) {
   // Only run the VM if it isn't already running
   if (!vm->is_running) {
     // Call the initial closure and run the VM
-    vm_call(vm, closure, 0);
+    vm_call(vm, closure, 0, false);
     return mesche_vm_run(vm);
   }
 }
@@ -1000,7 +1032,7 @@ InterpretResult mesche_vm_load_module(VM *vm, const char *module_path) {
 
   if (!vm->is_running) {
     // Call the initial closure and run the VM
-    vm_call(vm, closure, 0);
+    vm_call(vm, closure, 0, false);
     return mesche_vm_run(vm);
   }
 }
