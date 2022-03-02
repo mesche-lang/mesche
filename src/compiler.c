@@ -252,6 +252,9 @@ static void compiler_parse_literal(CompilerContext *ctx) {
 static void compiler_parse_block(CompilerContext *ctx, bool expect_end_paren) {
   // TODO: Discard every value except for the last!
   for (;;) {
+    // TODO: Any call to the current function name here should have its
+    // parameters set back on the local slots
+
     compiler_parse_expr(ctx);
 
     if (expect_end_paren && ctx->parser->current.kind == TokenKindRightParen) {
@@ -411,13 +414,12 @@ static void compiler_parse_identifier(CompilerContext *ctx) {
   }
 }
 
-static void compiler_define_variable_ex(CompilerContext *ctx, uint8_t variable_constant,
-                                        DefineAttributes *define_attributes) {
+static uint8_t compiler_define_variable_ex(CompilerContext *ctx, uint8_t variable_constant,
+                                           DefineAttributes *define_attributes) {
   // We don't define global variables in local scopes
   if (ctx->scope_depth > 0) {
-    // TODO: Is this necessary?
     compiler_local_mark_initialized(ctx);
-    return;
+    return ctx->local_count - 1;
   }
 
   compiler_emit_bytes(ctx, OP_DEFINE_GLOBAL, variable_constant);
@@ -427,10 +429,13 @@ static void compiler_define_variable_ex(CompilerContext *ctx, uint8_t variable_c
       compiler_emit_bytes(ctx, OP_EXPORT_SYMBOL, variable_constant);
     }
   }
+
+  // TODO: What does this really mean?
+  return 0;
 }
 
-static void compiler_define_variable(CompilerContext *ctx, uint8_t variable_constant) {
-  compiler_define_variable_ex(ctx, variable_constant, NULL);
+static uint8_t compiler_define_variable(CompilerContext *ctx, uint8_t variable_constant) {
+  return compiler_define_variable_ex(ctx, variable_constant, NULL);
 }
 
 static void compiler_parse_set(CompilerContext *ctx) {
@@ -469,16 +474,33 @@ static void compiler_end_scope(CompilerContext *ctx) {
     }
     ctx->local_count--;
   }
-
-  // Pop all of the locals off of the scope, retaining the final expression
-  // result
-  compiler_emit_bytes(ctx, OP_POP_SCOPE, local_count);
 }
 
 static void compiler_parse_let(CompilerContext *ctx) {
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'let'");
+  // Create a new compiler context for parsing the let body
+  CompilerContext let_ctx;
+  compiler_init_context(&let_ctx, ctx, TYPE_FUNCTION);
+  compiler_begin_scope(&let_ctx);
 
+  // Start a new scope for capturing locals
   compiler_begin_scope(ctx);
+
+  // Parse the name of the let
+  uint8_t let_name_slot = 0;
+  if (ctx->parser->current.kind == TokenKindSymbol) {
+    if (ctx->parser->current.sub_kind != TokenKindNone) {
+      compiler_error(ctx, "Used an invalid symbol for named let.");
+    }
+
+    // Parse the let name and store its local slot
+    compiler_advance(ctx);
+    compiler_parse_symbol(ctx, false);
+    let_name_slot = compiler_define_variable(ctx, 0);
+
+    printf("FOUND NAMED LET: %d\n", let_name_slot);
+  }
+
+  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'let'");
 
   for (;;) {
     if (ctx->parser->current.kind == TokenKindRightParen) {
@@ -488,16 +510,48 @@ static void compiler_parse_let(CompilerContext *ctx) {
 
     compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to start binding pair");
 
-    // compiler_parse_symbol expects the symbol token to be in parser->previous
-    compiler_advance(ctx);
-    compiler_parse_symbol(ctx, false);
-    compiler_define_variable(ctx, 0 /* Irrelevant, this is local */);
+    // TODO: Before parsing arguments, skip ahead to enough space to put a
+    // call, but save a pointer to the offset so we can come back and insert
+    // the call after we have a constant for the function
+    int call_offset = ctx->function->chunk.count;
+
+    // Increase the binding (function argument) count
+    let_ctx.function->arity++;
+    if (let_ctx.function->arity > 255) {
+      compiler_error_at_current(&let_ctx, "Let cannot have more than 255 bindings.");
+    }
+
+    // Parse the argument
+    // TODO: Ensure a symbol comes next
+    compiler_advance(&let_ctx);
+    uint8_t constant = compiler_parse_symbol(&let_ctx, false);
+    compiler_define_variable(&let_ctx, constant);
+
+    // Parse the binding value into the original context where the let function
+    // will be called so that it gets passed as a parameter to the lambda.
     compiler_parse_expr(ctx);
+
+    compiler_emit_bytes(ctx, OP_SET_LOCAL, local_index);
 
     compiler_consume(ctx, TokenKindRightParen, "Expected right paren to end binding pair");
   }
 
+  // Store offset to beginning of body and the let name index
+  if (let_name_index > 0) {
+    int body_start = ctx->function->chunk.count;
+  }
+
+  // Parse body
+  compiler_parse_block(&let_ctx, true);
+
+  // Get the parsed function and store it in a constant
+  // TODO: Place the closure and constant writes at the call_offset
+  ObjectFunction *function = compiler_end(&let_ctx);
+  compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
+
+  printf("BEFORE PARSING BLOCK\n");
   compiler_parse_block(ctx, true);
+  printf("AFTER PARSING BLOCK\n");
   compiler_end_scope(ctx);
 }
 

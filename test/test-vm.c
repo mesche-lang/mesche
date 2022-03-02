@@ -58,6 +58,23 @@ static void vm_imports_modules() {
   PASS();
 }
 
+static void vm_evaluates_let() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(let ((x 3) (y 4))"
+          "  (+ x y))",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 7) {
+    FAIL("It wasn't 7!");
+  }
+
+  PASS();
+}
+
 static void vm_suite_cleanup() { mesche_vm_free(&vm); }
 
 void test_vm_suite() {
@@ -67,6 +84,7 @@ void test_vm_suite() {
 
   vm_returns_basic_values();
   vm_imports_modules();
+  vm_evaluates_let();
 
   END_SUITE();
 }

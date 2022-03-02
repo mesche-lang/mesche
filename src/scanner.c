@@ -7,7 +7,7 @@
 static Token scanner_make_token(Scanner *scanner, TokenKind kind) {
   Token token;
   token.kind = kind;
-  token.sub_kind = TokenKindNone;
+  token.sub_kind = kind;
   token.start = scanner->start;
   token.length = (int)(scanner->current - scanner->start);
   token.line = scanner->line;
