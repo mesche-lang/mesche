@@ -112,10 +112,9 @@ static void compiler_emit_bytes(CompilerContext *ctx, uint8_t byte1, uint8_t byt
   compiler_emit_byte(ctx, byte2);
 }
 
-static void compiler_emit_call(CompilerContext *ctx, uint8_t instr, uint8_t arg_count,
-                               uint8_t keyword_count) {
+static void compiler_emit_call(CompilerContext *ctx, uint8_t arg_count, uint8_t keyword_count) {
   ctx->last_call_offset = ctx->function->chunk.count;
-  compiler_emit_byte(ctx, instr);
+  compiler_emit_byte(ctx, OP_CALL);
   compiler_emit_byte(ctx, arg_count);
   compiler_emit_byte(ctx, keyword_count);
 }
@@ -574,7 +573,7 @@ static void compiler_parse_let(CompilerContext *ctx) {
 
   // Restore the offset where OP_CALL should be and write it
   ctx->function->chunk.count = call_offset;
-  compiler_emit_call(ctx, OP_CALL, let_ctx.function->arity, 0);
+  compiler_emit_call(ctx, let_ctx.function->arity, 0);
 }
 
 static void compiler_parse_define_attributes(CompilerContext *ctx,
@@ -1087,7 +1086,7 @@ static void compiler_parse_list(CompilerContext *ctx) {
       } else {
         // If this is a legitimate call, it can be turned into a tail call
         ctx->in_tail_context = true;
-        compiler_emit_call(ctx, OP_CALL, arg_count, keyword_count);
+        compiler_emit_call(ctx, arg_count, keyword_count);
       }
 
       // Consume the right paren and exit
