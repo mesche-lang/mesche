@@ -56,6 +56,12 @@ typedef struct {
   bool is_running;
 } VM;
 
+typedef struct {
+  const char *name;
+  FunctionPtr function;
+  bool exported;
+} MescheNativeFuncDetails;
+
 typedef enum {
   INTERPRET_OK,
   INTERPRET_COMPILE_ERROR,
@@ -72,6 +78,8 @@ void mesche_vm_stack_push(VM *vm, Value value);
 Value mesche_vm_stack_pop(VM *vm);
 void mesche_vm_define_native(VM *vm, ObjectModule *module, const char *name, FunctionPtr function,
                              bool exported);
+void mesche_vm_define_native_funcs(VM *vm, const char *module_name,
+                                   MescheNativeFuncDetails *func_array);
 void mesche_mem_mark_object(VM *vm, Object *object);
 void mesche_vm_load_path_add(VM *vm, const char *load_path);
 void mesche_vm_register_core_modules(VM *vm);
