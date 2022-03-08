@@ -41,16 +41,57 @@ static uint32_t object_string_hash(const char *key, int length) {
 }
 
 ObjectString *mesche_object_make_string(VM *vm, const char *chars, int length) {
-  // Is the string already interned?
-  uint32_t hash = object_string_hash(chars, length);
-  ObjectString *interned_string = mesche_table_find_key(&vm->strings, chars, length, hash);
-  if (interned_string != NULL)
-    return interned_string;
-
   // Allocate and initialize the string object
   ObjectString *string = ALLOC_OBJECT_EX(vm, ObjectString, length + 1, ObjectKindString);
-  memcpy(string->chars, chars, length);
+
+  // Copy each letter one at a time to convert escape sequences
+  int offset = 0;
+  bool escaped = false;
+  for (int i = 0; i < length; i++) {
+    if (escaped) {
+      // Assume we'll find a valid escaped character and increase the offset
+      // with which we will copy the remaining characters
+      escaped = false;
+      offset++;
+
+      // TODO: Error on unexpected escape sequence?
+      switch (chars[i]) {
+      case '\\':
+        string->chars[i - offset] = '\\';
+        continue;
+      case 'n':
+        string->chars[i - offset] = '\n';
+        continue;
+      case 't':
+        string->chars[i - offset] = '\t';
+        continue;
+      }
+    } else {
+      if (chars[i] == '\\') {
+        escaped = true;
+        continue;
+      }
+    }
+
+    // If we've reached this point, just copy the character
+    string->chars[i - offset] = chars[i];
+  }
+
+  // Compute the final length and finish the string
+  length = length - offset;
   string->chars[length] = '\0';
+
+  // Is the string already interned?
+  uint32_t hash = object_string_hash(string->chars, length);
+  ObjectString *interned_string = mesche_table_find_key(&vm->strings, chars, length, hash);
+  if (interned_string != NULL) {
+    // Return the interned string and don't explicitly free the one we allocated
+    // since it will get cleaned up by the GC
+    return interned_string;
+  }
+
+  // Finish initializing the string
+  // TODO: Resize the string buffer in memory to reduce waste
   string->length = length;
   string->hash = hash;
 

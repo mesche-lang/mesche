@@ -43,9 +43,34 @@ static uint16_t jump_val;
   CHECK_BYTE(arg_count);                                                                           \
   CHECK_BYTE(keyword_count);
 
+#define CHECK_STRING(expected_str, const_index)                                                    \
+  if (memcmp(AS_CSTRING(out_func->chunk.constants.values[const_index]), expected_str,              \
+             strlen(expected_str)) != 0) {                                                         \
+    FAIL("Expected string %s, got %s", expected_str,                                               \
+         AS_CSTRING(out_func->chunk.constants.values[const_index]));                               \
+  }
+
 /* jump_val = (uint16_t)(out_func->chunk.code[byte_idx + 1] << 8); \ */
 /* jump_val |= out_func->chunk.code[byte_idx + 2]; \ */
 /* ASSERT_INT(byte_idx, offset + 3 + sign * jump_val); */
+
+static void compiles_escaped_strings() {
+  COMPILER_INIT();
+
+  // Need to double-escape these because we're typing them as C string literals.
+  // In a real source file, they won't be escaped like this.
+  COMPILE("\"ab\" "
+          "\"a\\nb\" "
+          "\"a\\tb\" "
+          "\"a\\\\b\" ");
+
+  CHECK_STRING("ab", 0);
+  CHECK_STRING("a\nb", 1);
+  CHECK_STRING("a\tb", 2);
+  CHECK_STRING("a\\b", 3);
+
+  PASS();
+}
 
 static void compiles_module_import() {
   COMPILER_INIT();
@@ -245,6 +270,7 @@ void test_compiler_suite() {
 
   test_suite_cleanup_func = compiler_suite_cleanup;
 
+  compiles_escaped_strings();
   compiles_module_import();
   compiles_let();
   compiles_named_let();
