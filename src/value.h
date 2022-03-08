@@ -8,6 +8,7 @@ typedef struct ObjectString ObjectString;
 typedef struct ObjectSymbol ObjectSymbol;
 typedef struct ObjectKeyword ObjectKeyword;
 typedef struct ObjectCons ObjectCons;
+typedef struct ObjectArray ObjectArray;
 typedef struct ObjectFunction ObjectFunction;
 typedef struct ObjectClosure ObjectClosure;
 typedef struct ObjectUpvalue ObjectUpvalue;

@@ -155,6 +155,12 @@ ObjectCons *mesche_object_make_cons(VM *vm, Value car, Value cdr) {
   return cons;
 }
 
+ObjectArray *mesche_object_make_array(VM *vm) {
+  ObjectArray *array = ALLOC_OBJECT(vm, ObjectArray, ObjectKindArray);
+  mesche_value_array_init(&array->objects);
+  return array;
+}
+
 ObjectUpvalue *mesche_object_make_upvalue(VM *vm, Value *slot) {
   ObjectUpvalue *upvalue = ALLOC_OBJECT(vm, ObjectUpvalue, ObjectKindUpvalue);
   upvalue->location = slot;
@@ -295,6 +301,12 @@ void mesche_object_free(VM *vm, Object *object) {
   case ObjectKindCons:
     FREE(vm, ObjectCons, object);
     break;
+  case ObjectKindArray: {
+    ObjectArray *array = (ObjectArray *)object;
+    mesche_value_array_free((MescheMemory *)vm, array);
+    FREE(vm, ObjectArray, object);
+    break;
+  }
   case ObjectKindUpvalue:
     FREE(vm, ObjectUpvalue, object);
     break;
@@ -397,6 +409,9 @@ void mesche_object_print(Value value) {
     printf(")");
     break;
   }
+  case ObjectKindArray:
+    printf("<array %p>", AS_OBJECT(value));
+    break;
   case ObjectKindUpvalue:
     printf("upvalue");
     break;

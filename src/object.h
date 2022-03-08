@@ -14,6 +14,9 @@
 #define IS_CONS(value) mesche_object_is_kind(value, ObjectKindCons)
 #define AS_CONS(value) ((ObjectCons *)AS_OBJECT(value))
 
+#define IS_ARRAY(value) mesche_object_is_kind(value, ObjectKindArray)
+#define AS_ARRAY(value) ((ObjectArray *)AS_OBJECT(value))
+
 #define IS_FUNCTION(value) mesche_object_is_kind(value, ObjectKindFunction)
 #define AS_FUNCTION(value) ((ObjectFunction *)AS_OBJECT(value))
 
@@ -55,6 +58,7 @@ typedef enum {
   ObjectKindSymbol,
   ObjectKindKeyword,
   ObjectKindCons,
+  ObjectKindArray,
   ObjectKindUpvalue,
   ObjectKindFunction,
   ObjectKindClosure,
@@ -94,6 +98,11 @@ struct ObjectCons {
   struct Object object;
   Value car;
   Value cdr;
+};
+
+struct ObjectArray {
+  struct Object object;
+  ValueArray objects;
 };
 
 typedef enum { TYPE_FUNCTION, TYPE_SCRIPT } FunctionType;
@@ -181,6 +190,7 @@ ObjectString *mesche_object_make_string(VM *vm, const char *chars, int length);
 ObjectSymbol *mesche_object_make_symbol(VM *vm, const char *chars, int length);
 ObjectKeyword *mesche_object_make_keyword(VM *vm, const char *chars, int length);
 ObjectCons *mesche_object_make_cons(VM *vm, Value car, Value cdr);
+ObjectArray *mesche_object_make_array(VM *vm);
 ObjectUpvalue *mesche_object_make_upvalue(VM *vm, Value *slot);
 ObjectFunction *mesche_object_make_function(VM *vm, FunctionType type);
 void mesche_object_function_keyword_add(MescheMemory *mem, ObjectFunction *function,

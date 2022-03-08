@@ -13,6 +13,7 @@ source_files=(
     "disasm.c"
     "fs.c"
     "list.c"
+    "array.c"
     "mem.c"
     "module.c"
     "object.c"
