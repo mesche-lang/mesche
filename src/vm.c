@@ -454,7 +454,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
     };
     case ObjectKindRecordFieldAccessor: {
       ObjectRecordFieldAccessor *accessor = AS_RECORD_FIELD_ACCESSOR(callee);
-      ObjectRecordInstance *instance = AS_RECORD_INSTANCE(mesche_vm_stack_pop(vm));
+      ObjectRecordInstance *instance = AS_RECORD_INSTANCE(vm_stack_peek(vm, 0));
 
       // TODO: Be somewhat tolerant to record type version?
       if (instance->record_type != accessor->record_type) {
