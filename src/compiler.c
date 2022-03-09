@@ -567,9 +567,27 @@ static void compiler_parse_let(CompilerContext *ctx) {
   // Finish the function and write out its constant and closure back where it
   // needs to go
   ObjectFunction *function = compiler_end(&let_ctx);
+
+  // If the let body function has upvalues, we need to extend the size of the
+  // chunk to accomodate the upvalue opcodes
+  if (function->upvalue_count > 0) {
+    // Ensure the chunk is big enough to insert the upvalue opcodes
+    int upvalue_size = function->upvalue_count * 2;
+    mesche_chunk_insert_space(ctx->mem, &ctx->function->chunk, func_offset + 2, upvalue_size);
+  }
+
   int call_offset = ctx->function->chunk.count;
   ctx->function->chunk.count = func_offset;
   compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
+
+  // Write out the references to each upvalue as arguments to OP_CLOSURE
+  for (int i = 0; i < function->upvalue_count; i++) {
+    compiler_emit_byte(ctx, let_ctx.upvalues[i].is_local ? 1 : 0);
+    compiler_emit_byte(ctx, let_ctx.upvalues[i].index);
+  }
+
+  // Let the VM know we're back to the parent compiler
+  ctx->vm->current_compiler = ctx;
 
   // Restore the offset where OP_CALL should be and write it
   ctx->function->chunk.count = call_offset;
