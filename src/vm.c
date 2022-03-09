@@ -427,6 +427,12 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       ObjectRecord *record_type = AS_RECORD_TYPE(callee);
       ObjectRecordInstance *instance = mesche_object_make_record_instance(vm, record_type);
 
+      if (arg_count > 0) {
+        vm_runtime_error(vm, "Constructor for record type '%s' must be given keyword arguments.",
+                         instance->record_type->name->chars);
+        return false;
+      }
+
       // Initialize the value array using keyword values or the default for each field
       for (int i = 0; i < record_type->fields.count; i++) {
         bool found_value = false;
