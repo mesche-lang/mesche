@@ -319,7 +319,8 @@ static int compiler_resolve_local(CompilerContext *ctx, Token *name) {
 
   // Is the name the same as the function name?
   ObjectString *func_name = ctx->function->name;
-  if (func_name && memcmp(func_name->chars, name->start, func_name->length) == 0) {
+  if (func_name && func_name->length == name->length &&
+      memcmp(func_name->chars, name->start, func_name->length) == 0) {
     // Slot 0 points to the function itself
     return 0;
   }
