@@ -63,7 +63,8 @@ void mesche_mem_collect_garbage(MescheMemory *mem) {
 
 #ifdef DEBUG_LOG_GC
   printf("-- GC finished: freed %zu bytes (from %zu to %zu), next GC at %zu bytes\n",
-         before_size - mem->bytes_allocated, before_size, mem->bytes_allocated, mem->next_gc);
+         (int)before_size - (int)mem->bytes_allocated, before_size, mem->bytes_allocated,
+         mem->next_gc);
 #endif
 }
 

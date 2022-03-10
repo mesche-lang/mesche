@@ -678,13 +678,16 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name
       }
 
       // Add the keyword definition to the function
+      ObjectString *keyword_name = mesche_object_make_string(ctx->vm, ctx->parser->previous.start,
+                                                             ctx->parser->previous.length);
+      mesche_vm_stack_push(func_ctx.vm, OBJECT_VAL(keyword_name));
       KeywordArgument keyword_arg = {
-          .name = mesche_object_make_string(ctx->vm, ctx->parser->previous.start,
-                                            ctx->parser->previous.length),
+          .name = keyword_name,
           .default_index = default_constant,
       };
 
       mesche_object_function_keyword_add(ctx->mem, func_ctx.function, keyword_arg);
+      mesche_vm_stack_pop(func_ctx.vm);
     }
   }
 

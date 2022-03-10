@@ -41,5 +41,6 @@ Value mesche_array_nth_msc(MescheMemory *mem, int arg_count, Value *args) {
 
   ObjectArray *array = AS_ARRAY(args[0]);
   Value value = args[1];
+
   return array->objects.values[(int)AS_NUMBER(value)];
 }

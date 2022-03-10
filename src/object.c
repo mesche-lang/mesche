@@ -279,6 +279,7 @@ void mesche_object_free(VM *vm, Object *object) {
 #ifdef DEBUG_LOG_GC
   printf("%p    free   ", (void *)object);
   mesche_value_print(OBJECT_VAL(object));
+  printf(" - kind: %d", object->kind);
   printf("\n");
 #endif
 

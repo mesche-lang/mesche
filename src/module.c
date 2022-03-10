@@ -57,10 +57,24 @@ char *mesche_module_find_module_path(VM *vm, const char *module_name) {
 ObjectString *mesche_module_name_from_symbol_list(VM *vm, ObjectCons *list) {
   ObjectString *module_name = AS_STRING(list->car);
   ObjectString *current_name = module_name;
+  bool pushed_string = false;
+
   while (IS_CONS(list->cdr)) {
     list = AS_CONS(list->cdr);
     current_name = AS_STRING(list->car);
     module_name = mesche_string_join(vm, module_name, current_name, " ");
+
+    // Push the string to the stack to avoid GC
+    if (pushed_string) {
+      mesche_vm_stack_pop(vm);
+    }
+    mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
+    pushed_string = true;
+  }
+
+  // Pop the final name from the stack
+  if (pushed_string) {
+    mesche_vm_stack_pop(vm);
   }
 
   return module_name;
@@ -74,9 +88,11 @@ static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_
   Value module_val;
   ObjectModule *module = NULL;
   if (!mesche_table_get(&vm->modules, module_name, &module_val)) {
-    // Create an empty module
+    // Create an empty module and push it on the stack temporarily to avoid collection
     module = mesche_object_make_module(vm, module_name);
+    mesche_vm_stack_push(vm, OBJECT_VAL(module));
     mesche_table_set((MescheMemory *)vm, &vm->modules, module_name, OBJECT_VAL(module));
+    mesche_vm_stack_pop(vm);
 
     // Look up the module in the load path
     char *module_path = mesche_module_find_module_path(vm, module_name->chars);
@@ -100,13 +116,23 @@ static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_
 }
 
 ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_name) {
+  // Allocate the name string and push it to the stack temporarily to avoid GC
   ObjectString *module_name_str = mesche_object_make_string(vm, module_name, strlen(module_name));
-  return mesche_module_resolve_by_name(vm, module_name_str);
+  mesche_vm_stack_push(vm, OBJECT_VAL(module_name_str));
+  ObjectModule *module = mesche_module_resolve_by_name(vm, module_name_str);
+  mesche_vm_stack_pop(vm);
+
+  return module;
 }
 
 ObjectModule *mesche_module_resolve_by_path(VM *vm, ObjectCons *list) {
+  // Allocate the name string and push it to the stack temporarily to avoid GC
   ObjectString *module_name = mesche_module_name_from_symbol_list(vm, list);
-  return mesche_module_resolve_by_name(vm, module_name);
+  mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
+  ObjectModule *module = mesche_module_resolve_by_name(vm, module_name);
+  mesche_vm_stack_pop(vm);
+
+  return module;
 }
 
 void mesche_module_import(VM *vm, ObjectModule *from_module, ObjectModule *to_module) {

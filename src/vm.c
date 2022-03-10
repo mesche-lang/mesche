@@ -63,6 +63,7 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
 
 static void vm_free_objects(VM *vm) {
   Object *object = vm->objects;
+  vm->objects = NULL;
   while (object != NULL) {
     Object *next = object->next;
     mesche_object_free(vm, object);
@@ -72,6 +73,7 @@ static void vm_free_objects(VM *vm) {
   if (vm->gray_stack) {
     free(vm->gray_stack);
   }
+  vm->gray_stack = NULL;
 }
 
 void mesche_mem_mark_object(VM *vm, Object *object) {
@@ -128,6 +130,7 @@ static void mem_mark_table(VM *vm, Table *table) {
 }
 
 static void mem_mark_module(VM *vm, struct ObjectModule *module) {
+  mem_mark_value(vm, OBJECT_VAL(module->name));
   mem_mark_table(vm, &module->locals);
   mem_mark_array(vm, &module->exports);
 }
@@ -167,6 +170,11 @@ static void mem_darken_object(VM *vm, Object *object) {
     mem_mark_value(vm, cons->cdr);
     break;
   }
+  case ObjectKindArray: {
+    ObjectArray *array = (ObjectArray *)object;
+    mem_mark_array(vm, &array->objects);
+    break;
+  }
   case ObjectKindClosure: {
     ObjectClosure *closure = (ObjectClosure *)object;
     mesche_mem_mark_object(vm, (Object *)closure->function);
@@ -179,6 +187,12 @@ static void mem_darken_object(VM *vm, Object *object) {
     ObjectFunction *function = (ObjectFunction *)object;
     mesche_mem_mark_object(vm, (Object *)function->name);
     mem_mark_array(vm, &function->chunk.constants);
+
+    // Mark strings associated with keyword arguments
+    for (int i = 0; i < function->keyword_args.count; i++) {
+      mesche_mem_mark_object(vm, (Object *)function->keyword_args.args[i].name);
+    }
+
     break;
   }
   case ObjectKindUpvalue:
@@ -186,6 +200,30 @@ static void mem_darken_object(VM *vm, Object *object) {
     break;
   case ObjectKindModule:
     mem_mark_module(vm, ((ObjectModule *)object));
+    break;
+  case ObjectKindRecord: {
+    ObjectRecord *record = (ObjectRecord *)object;
+    mesche_mem_mark_object(vm, (Object *)record->name);
+    mem_mark_array(vm, &record->fields);
+    break;
+  }
+  case ObjectKindRecordField: {
+    ObjectRecordField *field = (ObjectRecordField *)object;
+    mesche_mem_mark_object(vm, (Object *)field->name);
+    mem_mark_value(vm, field->default_value);
+    break;
+  }
+  case ObjectKindRecordFieldAccessor: {
+    ObjectRecordFieldAccessor *accessor = (ObjectRecordFieldAccessor *)object;
+    mesche_mem_mark_object(vm, (Object *)accessor->record_type);
+    break;
+  }
+  case ObjectKindRecordInstance: {
+    ObjectRecordInstance *instance = (ObjectRecordInstance *)object;
+    mem_mark_array(vm, &instance->field_values);
+    mesche_mem_mark_object(vm, (Object *)instance->record_type);
+    break;
+  }
   default:
     break;
   }
@@ -267,8 +305,13 @@ void mesche_vm_register_core_modules(VM *vm) {
 }
 
 void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
-  // initialize the memory manager
+  // Initialize the memory manager
   mesche_mem_init(&vm->mem, mem_collect_garbage);
+
+  // Initialize the gray stack before allocating anything
+  vm->gray_count = 0;
+  vm->gray_capacity = 0;
+  vm->gray_stack = NULL;
 
   vm->is_running = false;
   vm->objects = NULL;
@@ -280,20 +323,21 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   // Initialize the module table root module
   mesche_table_init(&vm->modules);
   ObjectString *module_name = mesche_object_make_string(vm, "mesche-user", 11);
+  mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
   vm->root_module = mesche_object_make_module(vm, module_name);
+  mesche_vm_stack_push(vm, OBJECT_VAL(vm->root_module));
   vm->current_module = vm->root_module;
   vm->load_paths = NULL;
   mesche_table_set((MescheMemory *)vm, &vm->modules, vm->root_module->name,
                    OBJECT_VAL(vm->root_module));
 
+  // Pop the module and module name
+  mesche_vm_stack_pop(vm);
+  mesche_vm_stack_pop(vm);
+
   // Set the program argument variables
   vm->arg_count = arg_count;
   vm->arg_array = arg_array;
-
-  // Initialize the gray stack
-  vm->gray_count = 0;
-  vm->gray_capacity = 0;
-  vm->gray_stack = NULL;
 }
 
 void mesche_vm_free(VM *vm) {
@@ -426,6 +470,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
     case ObjectKindRecord: {
       ObjectRecord *record_type = AS_RECORD_TYPE(callee);
       ObjectRecordInstance *instance = mesche_object_make_record_instance(vm, record_type);
+      mesche_vm_stack_push(vm, OBJECT_VAL(instance));
 
       if (arg_count > 0) {
         vm_runtime_error(vm, "Constructor for record type '%s' must be given keyword arguments.",
@@ -439,7 +484,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
         ObjectRecordField *record_field = AS_RECORD_FIELD(record_type->fields.values[i]);
 
         // Look for the field's value in the keyword parameters
-        for (int i = (keyword_count * 2) - 1; i >= 0; i -= 2) {
+        for (int i = (keyword_count * 2); i >= 0; i -= 2) {
           ObjectKeyword *keyword_arg = AS_KEYWORD(vm_stack_peek(vm, i));
           if (mesche_object_string_equalsp((Object *)record_field->name, (Object *)keyword_arg)) {
             mesche_value_array_write((MescheMemory *)vm, &instance->field_values,
@@ -456,12 +501,15 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
         }
       }
 
+      // Pop the record instance off the stack first
+      mesche_vm_stack_pop(vm);
+
       // Pop the record and key/value pairs off the stack
       for (int i = 0; i < (keyword_count * 2) + 1; i++) {
         mesche_vm_stack_pop(vm);
       }
 
-      // Push the record instance in its place
+      // Push the record instance back on to the stack as the result
       mesche_vm_stack_push(vm, OBJECT_VAL(instance));
       return true;
     };
@@ -580,11 +628,11 @@ InterpretResult mesche_vm_run(VM *vm) {
 
   for (;;) {
 #ifdef DEBUG_TRACE_EXECUTION
-    printf(" ");
+    printf("\n");
     for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
-      printf("[ ");
+      printf("  %3d: ", abs(slot - vm->stack_top));
       mesche_value_print(*slot);
-      printf(" ]");
+      printf("\n");
     }
     printf("\n");
 
@@ -639,10 +687,25 @@ InterpretResult mesche_vm_run(VM *vm) {
         // List values will be popped in reverse order, build the
         // list back to front (great for cons pairs)
         Value list_value;
+        bool pushed_list = false;
         for (int i = 0; i < item_count; i++) {
-          list_value = mesche_vm_stack_pop(vm);
+          list_value = vm_stack_peek(vm, 0);
+
+          if (list) {
+            // Push the previous list on the value stack so that it doesn't get
+            // collected suddenly when allocating the next cons
+            mesche_vm_stack_push(vm, OBJECT_VAL(list));
+            pushed_list = true;
+          }
+
           list =
               mesche_object_make_cons(vm, list_value, list == NULL ? EMPTY_VAL : OBJECT_VAL(list));
+
+          // Pop the previous list if needed and then pop the value from the stack
+          if (pushed_list) {
+            mesche_vm_stack_pop(vm);
+          }
+          mesche_vm_stack_pop(vm);
         }
 
         mesche_vm_stack_push(vm, OBJECT_VAL(list));
@@ -746,44 +809,65 @@ InterpretResult mesche_vm_run(VM *vm) {
     case OP_DEFINE_RECORD: {
       // Skip all the fields to find the name
       uint8_t field_count = READ_BYTE();
-      ObjectSymbol *record_name = AS_SYMBOL(vm_stack_peek(vm, field_count * 2));
-      ObjectRecord *record = mesche_object_make_record(vm, &record_name->string);
-      Table *module_scope = &vm->current_module->locals;
+
+      // Duplicate the record type name's symbol as a string
+      ObjectSymbol *name_symbol = AS_SYMBOL(vm_stack_peek(vm, field_count * 2));
+      ObjectString *record_name =
+          mesche_object_make_string(vm, name_symbol->string.chars, name_symbol->string.length);
+      mesche_vm_stack_push(vm, OBJECT_VAL(record_name));
+
+      // Create the record type
+      ObjectRecord *record = mesche_object_make_record(vm, record_name);
+      mesche_vm_stack_push(vm, OBJECT_VAL(record));
 
       // Create a binding for the maker function
-      char *maker_name = mesche_cstring_join("make-", 5, record_name->string.chars,
-                                             record_name->string.length, "");
+      char *maker_name =
+          mesche_cstring_join("make-", 5, record_name->chars, record_name->length, "");
       ObjectString *maker_name_string =
           mesche_object_make_string(vm, maker_name, strlen(maker_name));
-      vm_create_module_binding(vm, CURRENT_MODULE(), maker_name_string, OBJECT_VAL(record), true);
+      mesche_vm_stack_push(vm, OBJECT_VAL(maker_name_string));
       free(maker_name);
+
+      // Create the binding for the maker and then pop off the record type and name string
+      vm_create_module_binding(vm, CURRENT_MODULE(), maker_name_string, OBJECT_VAL(record), true);
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
 
       for (int i = 0; i < field_count; i++) {
         // Build the record field from name and default value
         int stack_pos = ((field_count - i) * 2) - 1;
         ObjectSymbol *name = AS_SYMBOL(vm_stack_peek(vm, stack_pos));
-        Value value = vm_stack_peek(vm, stack_pos - 1);
+        Value value = vm_stack_peek(vm, stack_pos + 1);
         ObjectRecordField *field = mesche_object_make_record_field(vm, &name->string, value);
+        mesche_vm_stack_push(vm, OBJECT_VAL(field));
         mesche_value_array_write((MescheMemory *)vm, &record->fields, OBJECT_VAL(field));
+        mesche_vm_stack_pop(vm);
 
         // Create a binding for the field accessor "function"
-        char *accessor_name =
-            mesche_cstring_join(record_name->string.chars, record_name->string.length,
-                                name->string.chars, name->string.length, "-");
+        char *accessor_name = mesche_cstring_join(record_name->chars, record_name->length,
+                                                  name->string.chars, name->string.length, "-");
         ObjectString *accessor_name_string =
             mesche_object_make_string(vm, accessor_name, strlen(accessor_name));
+        mesche_vm_stack_push(vm, OBJECT_VAL(accessor_name_string));
         free(accessor_name);
         ObjectRecordFieldAccessor *accessor = mesche_object_make_record_accessor(vm, record, i);
+        mesche_vm_stack_push(vm, OBJECT_VAL(accessor));
         vm_create_module_binding(vm, CURRENT_MODULE(), accessor_name_string, OBJECT_VAL(accessor),
                                  true);
+
+        // Pop the accessor function and its name off of the stack
+        mesche_vm_stack_pop(vm);
+        mesche_vm_stack_pop(vm);
       }
 
-      // Pop all of the fields and record name off of the stack
+      // Pop all of the fields and record name off of the stack (basically, the
+      // arguments to `define-record-type`)
       for (int i = 0; i < (field_count * 2) + 1; i++) {
         mesche_vm_stack_pop(vm);
       }
 
-      // Push the record type onto the stack
+      // Push the record type onto the stack as the result
       mesche_vm_stack_push(vm, OBJECT_VAL(record));
 
       break;
@@ -793,9 +877,12 @@ InterpretResult mesche_vm_run(VM *vm) {
       // This works because scripts are compiled into functions with
       // their own closure, so a `define-module` will cause that to
       // be set.
-      ObjectCons *list = AS_CONS(mesche_vm_stack_pop(vm));
+      ObjectCons *list = AS_CONS(vm_stack_peek(vm, 0));
       // TODO: Error if module is already set?
       frame->closure->module = mesche_module_resolve_by_path(vm, list);
+
+      // Pop the module path symbol list off of the stack
+      mesche_vm_stack_pop(vm);
 
       // Push the defined module onto the stack
       mesche_vm_stack_push(vm, OBJECT_VAL(frame->closure->module));
@@ -803,12 +890,17 @@ InterpretResult mesche_vm_run(VM *vm) {
     }
     case OP_RESOLVE_MODULE: {
       // Resolve the module based on the given path
-      ObjectCons *list = AS_CONS(mesche_vm_stack_pop(vm));
+      ObjectCons *list = AS_CONS(vm_stack_peek(vm, 0));
       ObjectModule *resolved_module = mesche_module_resolve_by_path(vm, list);
 
-      // Compiling the module file will push its closure onto the stack
-      if (IS_CLOSURE(vm_stack_peek(vm, 0))) {
-        ObjectClosure *closure = AS_CLOSURE(mesche_vm_stack_pop(vm));
+      // Pop the module path list off the stack and push the module on in its place
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
+
+      // Compiling the module file will push its closure onto the stack, but we
+      // look back one slot because we just pushed the module itself
+      if (IS_CLOSURE(vm_stack_peek(vm, 1))) {
+        ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 1));
         if (closure->function->type == TYPE_SCRIPT) {
           // Set up the module's closure for execution in the next VM loop
           // TODO: This pattern needs to be made into a macro!
@@ -816,18 +908,14 @@ InterpretResult mesche_vm_run(VM *vm) {
           frame = &vm->frames[vm->frame_count - 1];
         }
 
-        // Push the module onto the stack before pushing the closure back.  We
-        // leave the closure on the stack so that OP_RETURN semantics are not
-        // affected!
-        mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
-        mesche_vm_stack_push(vm, OBJECT_VAL(closure));
+        // We leave both the closure on the stack so that OP_RETURN semantics
+        // are not affected!
       } else {
         // This case will happen when the module has previously been executed
         // and was merely resolved this time.  We have to emulate the load of
         // a module to keep the stack handling consistent, so push the resolved
         // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
         // stack first!
-        mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
         mesche_vm_stack_push(vm, NIL_VAL);
       }
       break;
@@ -840,6 +928,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       // Grab the module that was resolved and pull in its exports
       ObjectModule *imported_module = AS_MODULE(vm_stack_peek(vm, 0));
       mesche_module_import(vm, imported_module, CURRENT_MODULE());
+      mesche_vm_stack_pop(vm);
 
       // Nothing new is pushed onto the stack
       break;
@@ -1017,7 +1106,9 @@ void mesche_vm_load_path_add(VM *vm, const char *load_path) {
   char *resolved_path = mesche_fs_resolve_path(load_path);
   if (resolved_path) {
     ObjectString *path_str = mesche_object_make_string(vm, resolved_path, strlen(resolved_path));
+    mesche_vm_stack_push(vm, OBJECT_VAL(path_str));
     vm->load_paths = mesche_list_push(vm, vm->load_paths, OBJECT_VAL(path_str));
+    mesche_vm_stack_pop(vm);
     free(resolved_path);
   } else {
     printf("Could not resolve load path: %s\n", load_path);
