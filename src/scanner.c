@@ -309,8 +309,13 @@ Token mesche_scanner_next_token(Scanner *scanner) {
   case '+':
     // TODO: Make sure this isn't the start of a symbol
     return scanner_make_token(scanner, TokenKindPlus);
-  case '-':
+  case '-': {
+    if (scanner_is_digit(scanner_peek(scanner))) {
+      return scanner_read_number(scanner);
+    }
+
     return scanner_make_token(scanner, TokenKindMinus);
+  }
   case '*':
     return scanner_make_token(scanner, TokenKindStar);
   case '/':

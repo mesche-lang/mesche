@@ -21,7 +21,7 @@
   ASSERT_KIND(next_token.sub_kind, _sub_kind);
 
 static void scanner_finds_literals() {
-  INIT_SCANNER("t nil 1 2.2 \"three\"");
+  INIT_SCANNER("t nil -1 2.2 \"three\"");
   CHECK_TOKEN(TokenKindTrue);
   CHECK_TOKEN(TokenKindNil);
   CHECK_TOKEN(TokenKindNumber);
