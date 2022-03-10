@@ -355,6 +355,55 @@ void mesche_vm_free(VM *vm) {
   vm_free_objects(vm);
 }
 
+static ObjectUpvalue *vm_capture_upvalue(VM *vm, Value *local) {
+  ObjectUpvalue *prev_upvalue = NULL;
+  ObjectUpvalue *upvalue = vm->open_upvalues;
+
+  // Loop overall upvalues until we reach a local that is defined on the stack
+  // before the local we're trying to capture.  This linked list is in reverse
+  // order (top of stack comes first)
+  while (upvalue != NULL && upvalue->location > local) {
+    prev_upvalue = upvalue;
+    upvalue = upvalue->next;
+  }
+
+  // If we found an existing upvalue for this local, return it
+  if (upvalue != NULL && upvalue->location == local) {
+    return upvalue;
+  }
+
+  // We didn't find an existing upvalue, create a new one and insert it
+  // in the VM's upvalues linked list at the place where the loop stopped
+  // (or at the beginning if NULL)
+  ObjectUpvalue *created_upvalue = mesche_object_make_upvalue(vm, local);
+  created_upvalue->next = upvalue;
+  if (prev_upvalue == NULL) {
+    // This upvalue is now the first entry
+    vm->open_upvalues = created_upvalue;
+  } else {
+    // Because the captured local can be earlier in the stack than the
+    // existing upvalue, we insert it between the previous and current
+    // upvalue entries
+    prev_upvalue->next = created_upvalue;
+  }
+
+  return created_upvalue;
+}
+
+static void vm_close_upvalues(VM *vm, Value *stack_slot) {
+  // Loop over the upvalues and close any that are at or above the given slot
+  // location on the stack
+  while (vm->open_upvalues != NULL && vm->open_upvalues->location >= stack_slot) {
+    // Copy the value of the local at the given location into the `closed` field
+    // and then set `location` to it so that existing code uses the same pointer
+    // indirection to access it regardless of whether open or closed
+    ObjectUpvalue *upvalue = vm->open_upvalues;
+    upvalue->closed = *upvalue->location;
+    upvalue->location = &upvalue->closed;
+    vm->open_upvalues = upvalue->next;
+  }
+}
+
 static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t keyword_count,
                     bool is_tail_call) {
   if (arg_count != closure->function->arity) {
@@ -427,23 +476,33 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
     // Reuse the existing frame
     CallFrame *frame = &vm->frames[vm->frame_count - 1];
 
+    // Close out upvalues for any function locals that have been captured by
+    // closures before we wipe them from the stack
+    vm_close_upvalues(vm, frame->slots);
+
     // Copy the new arguments (and the closure value itself) on top of the old
     // slots
-    // TODO: This is possibly inefficient, need to profile!
-    memcpy(frame->slots, arg_start - 1, sizeof(Value) * (arg_count + 1));
+    memmove(frame->slots, arg_start - 1, sizeof(Value) * (arg_count + 1));
 
     // Reset the top of the value stack to shrink it back to where it was before
-    vm->stack_top -= arg_count + 1;
+    vm->stack_top = frame->slots + arg_count + 1;
 
     // Set up the closure and instruction pointer to continue execution
     frame->closure = closure;
     frame->ip = closure->function->chunk.code;
+    frame->total_arg_count = arg_count + keyword_count;
     return true;
   } else {
     CallFrame *frame = &vm->frames[vm->frame_count++];
     frame->closure = closure;
     frame->ip = closure->function->chunk.code;
     frame->slots = arg_start - 1;
+
+    // The total argument count is plain argument count plus number of
+    // keyword arguments because we've removed the keywords from the list
+    // and left either the specified value or the default.
+    frame->total_arg_count = arg_count + keyword_count;
+
     return true;
   }
 }
@@ -458,7 +517,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       FunctionPtr func_ptr = AS_NATIVE_FUNC(callee);
       Value result = func_ptr((MescheMemory *)vm, arg_count, vm->stack_top - arg_count);
 
-      // Pop off all of the argument and the function itself
+      // Pop off all of the arguments and the function itself
       for (int i = 0; i < arg_count + 1; i++) {
         mesche_vm_stack_pop(vm);
       }
@@ -540,55 +599,6 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
   vm_runtime_error(vm, "Only functions can be called (received kind %d)", OBJECT_KIND(callee));
 
   return false;
-}
-
-static ObjectUpvalue *vm_capture_upvalue(VM *vm, Value *local) {
-  ObjectUpvalue *prev_upvalue = NULL;
-  ObjectUpvalue *upvalue = vm->open_upvalues;
-
-  // Loop overall upvalues until we reach a local that is defined on the stack
-  // before the local we're trying to capture.  This linked list is in reverse
-  // order (top of stack comes first)
-  while (upvalue != NULL && upvalue->location > local) {
-    prev_upvalue = upvalue;
-    upvalue = upvalue->next;
-  }
-
-  // If we found an existing upvalue for this local, return it
-  if (upvalue != NULL && upvalue->location == local) {
-    return upvalue;
-  }
-
-  // We didn't find an existing upvalue, create a new one and insert it
-  // in the VM's upvalues linked list at the place where the loop stopped
-  // (or at the beginning if NULL)
-  ObjectUpvalue *created_upvalue = mesche_object_make_upvalue(vm, local);
-  created_upvalue->next = upvalue;
-  if (prev_upvalue == NULL) {
-    // This upvalue is now the first entry
-    vm->open_upvalues = created_upvalue;
-  } else {
-    // Because the captured local can be earlier in the stack than the
-    // existing upvalue, we insert it between the previous and current
-    // upvalue entries
-    prev_upvalue->next = created_upvalue;
-  }
-
-  return created_upvalue;
-}
-
-static void vm_close_upvalues(VM *vm, Value *stack_slot) {
-  // Loop over the upvalues and close any that are at or above the given slot
-  // location on the stack
-  while (vm->open_upvalues != NULL && vm->open_upvalues->location >= stack_slot) {
-    // Copy the value of the local at the given location into the `closed` field
-    // and then set `location` to it so that existing code uses the same pointer
-    // indirection to access it regardless of whether open or closed
-    ObjectUpvalue *upvalue = vm->open_upvalues;
-    upvalue->closed = *upvalue->location;
-    upvalue->location = &upvalue->closed;
-    vm->open_upvalues = upvalue->next;
-  }
 }
 
 static bool vm_create_module_binding(VM *vm, ObjectModule *module, ObjectString *binding_name,
@@ -771,9 +781,8 @@ InterpretResult mesche_vm_run(VM *vm) {
         return INTERPRET_OK;
       }
 
-      // TODO: Consider adding this back if we figure out the right approach.
-      // It will allow us to clear out any intermediate stack values on return.
-      /* vm->stack_top = frame->slots; */
+      // Reset the value stack to where it was before this function was called
+      vm->stack_top -= frame->total_arg_count;
 
       // Restore the previous result value, call frame, and value stack pointer
       // before continuing execution
@@ -881,7 +890,8 @@ InterpretResult mesche_vm_run(VM *vm) {
       // TODO: Error if module is already set?
       frame->closure->module = mesche_module_resolve_by_path(vm, list);
 
-      // Pop the module path symbol list off of the stack
+      // Pop the module path symbol list and string off of the stack
+      mesche_vm_stack_pop(vm);
       mesche_vm_stack_pop(vm);
 
       // Push the defined module onto the stack

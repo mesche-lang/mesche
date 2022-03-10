@@ -51,9 +51,6 @@ typedef struct CompilerContext {
   ObjectFunction *function;
   FunctionType function_type;
 
-  bool in_tail_context;
-  int last_call_offset;
-
   Local locals[UINT8_COUNT];
   int local_count;
   int scope_depth;
@@ -113,17 +110,24 @@ static void compiler_emit_bytes(CompilerContext *ctx, uint8_t byte1, uint8_t byt
 }
 
 static void compiler_emit_call(CompilerContext *ctx, uint8_t arg_count, uint8_t keyword_count) {
-  ctx->last_call_offset = ctx->function->chunk.count;
   compiler_emit_byte(ctx, OP_CALL);
   compiler_emit_byte(ctx, arg_count);
   compiler_emit_byte(ctx, keyword_count);
 }
 
 static void compiler_patch_tail_call(CompilerContext *ctx) {
-  // At this point, patch any call that in tail position to make
-  // it a tail call.
-  if (ctx->in_tail_context && ctx->last_call_offset == ctx->function->chunk.count - 3) {
-    ctx->function->chunk.code[ctx->last_call_offset] = OP_TAIL_CALL;
+  // Here's how it works:
+  // - Parser code that knows it contains tail contexts will call parsing functions
+  //   to parse sub-units of code (like define, lambda, let, if, etc)
+  // - At the site of a tail context in one of these functions, compiler_patch_tail_call
+  //   will be called to assess whether the last instruction written is a call, even if
+  //   another function took care of parsing the expression at the tail context.
+  // - If the most recent instruction is OP_CALL, make it an OP_TAIL_CALL instead!
+
+  // Was the last instruction in the current chunk a call?  (Calls are 3 bytes)
+  if (ctx->function->chunk.count >= 3 &&
+      ctx->function->chunk.code[ctx->function->chunk.count - 3] == OP_CALL) {
+    ctx->function->chunk.code[ctx->function->chunk.count - 3] = OP_TAIL_CALL;
   }
 }
 
@@ -269,7 +273,6 @@ static void compiler_parse_literal(CompilerContext *ctx) {
 
 static void compiler_parse_block(CompilerContext *ctx, bool expect_end_paren) {
   for (;;) {
-    ctx->in_tail_context = true;
     compiler_parse_expr(ctx);
 
     if (expect_end_paren && ctx->parser->current.kind == TokenKindRightParen) {
@@ -593,6 +596,7 @@ static void compiler_parse_let(CompilerContext *ctx) {
   // Restore the offset where OP_CALL should be and write it
   ctx->function->chunk.count = call_offset;
   compiler_emit_call(ctx, let_ctx.function->arity, 0);
+  compiler_patch_tail_call(ctx);
 }
 
 static void compiler_parse_define_attributes(CompilerContext *ctx,
@@ -899,7 +903,6 @@ static void compiler_parse_if(CompilerContext *ctx) {
 
 static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token,
                                          uint8_t operand_count) {
-  bool in_tail_context = false;
   TokenKind operator= call_token->sub_kind;
   switch (operator) {
   case TokenKindPlus:
@@ -941,9 +944,6 @@ static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token
   default:
     return; // We shouldn't hit this
   }
-
-  // Set the context when we return so that the caller can examine it
-  ctx->in_tail_context = in_tail_context;
 }
 
 static void compiler_parse_module_import(CompilerContext *ctx) {
@@ -968,11 +968,9 @@ static void compiler_parse_load_file(CompilerContext *ctx) {
 }
 
 static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token) {
-  bool in_tail_context = false;
   TokenKind operator= call_token->sub_kind;
   switch (operator) {
   case TokenKindBegin:
-    in_tail_context = true;
     compiler_parse_block(ctx, true);
     break;
   case TokenKindDefine:
@@ -1000,7 +998,6 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
     compiler_parse_let(ctx);
     break;
   case TokenKindIf:
-    in_tail_context = true;
     compiler_parse_if(ctx);
     break;
   case TokenKindLambda:
@@ -1009,8 +1006,6 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
   default:
     return false; // No special form found
   }
-
-  ctx->in_tail_context = in_tail_context;
 
   return true;
 }
@@ -1115,7 +1110,6 @@ static void compiler_parse_list(CompilerContext *ctx) {
         compiler_parse_operator_call(ctx, &call_token, arg_count);
       } else {
         // If this is a legitimate call, it can be turned into a tail call
-        ctx->in_tail_context = true;
         compiler_emit_call(ctx, arg_count, keyword_count);
       }
 
@@ -1161,10 +1155,6 @@ static void compiler_parse_expr(CompilerContext *ctx) {
   /*                                          NULL,              //
    * TokenKindRightParen, */
   /* ]; */
-
-  // Specific parser functions will change this value to 'true' if the parsed
-  // expression represents a tail context
-  ctx->in_tail_context = false;
 
   if (ctx->parser->current.kind == TokenKindEOF) {
     return;

@@ -17,6 +17,7 @@ typedef struct {
   ObjectClosure *closure;
   uint8_t *ip;
   Value *slots;
+  int total_arg_count;
 } CallFrame;
 
 typedef struct {

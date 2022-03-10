@@ -26,7 +26,8 @@ static uint16_t jump_val;
 
 #define CHECK_BYTE(byte)                                                                           \
   if (out_func->chunk.code[byte_idx] != byte) {                                                    \
-    FAIL("Expected byte %s, got %d", __stringify(byte), out_func->chunk.code[byte_idx]);           \
+    FAIL("Expected byte %s, got %d\n           at line %d", __stringify(byte),                     \
+         out_func->chunk.code[byte_idx], __LINE__);                                                \
   }                                                                                                \
   byte_idx++;
 
@@ -99,7 +100,7 @@ static void compiles_let() {
   CHECK_BYTES(OP_CLOSURE, 2);
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_CONSTANT, 1);
-  CHECK_CALL(OP_CALL, 2, 0);
+  CHECK_CALL(OP_TAIL_CALL, 2, 0);
   CHECK_BYTE(OP_RETURN);
 
   CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[2]));
@@ -125,7 +126,7 @@ static void compiles_named_let() {
   CHECK_BYTES(OP_CLOSURE, 2);
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_CONSTANT, 1);
-  CHECK_CALL(OP_CALL, 2, 0);
+  CHECK_CALL(OP_TAIL_CALL, 2, 0);
   CHECK_BYTE(OP_RETURN);
 
   CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[2]));
@@ -301,6 +302,44 @@ static void compiles_tail_call_if_expr() {
   PASS();
 }
 
+static void compiles_tail_call_nested() {
+  COMPILER_INIT();
+
+  COMPILE("(define (test-loop)"
+          "  (let loop ((x 1))"
+          "    (let ((y x))"
+          "      (loop y)"
+          "      (loop x))))");
+
+  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[1]));
+  CHECK_BYTES(OP_CLOSURE, 1);
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_CALL(OP_TAIL_CALL, 1, 0);
+  CHECK_BYTE(OP_RETURN);
+
+  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[1]));
+  CHECK_BYTES(OP_CLOSURE, 0);
+  CHECK_BYTES(1, 0); // Local upvalue 0
+  CHECK_BYTES(1, 1); // Local upvalue 1
+  CHECK_BYTES(OP_READ_LOCAL, 1);
+  CHECK_CALL(OP_TAIL_CALL, 1, 0);
+  CHECK_BYTE(OP_CLOSE_UPVALUE);
+  CHECK_BYTE(OP_RETURN);
+
+  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[0]));
+  CHECK_BYTES(OP_READ_UPVALUE, 0);
+  CHECK_BYTES(OP_READ_LOCAL, 1);
+  CHECK_CALL(OP_CALL, 1, 0);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_READ_UPVALUE, 0);
+  CHECK_BYTES(OP_READ_UPVALUE, 1);
+  CHECK_CALL(OP_TAIL_CALL, 1, 0);
+  CHECK_BYTES(OP_POP_SCOPE, 1);
+  CHECK_BYTE(OP_RETURN);
+
+  PASS();
+}
+
 static void compiler_suite_cleanup() { mesche_vm_free(&vm); }
 
 void test_compiler_suite() {
@@ -318,6 +357,7 @@ void test_compiler_suite() {
   compiles_tail_call_begin();
   compiles_tail_call_let();
   compiles_tail_call_if_expr();
+  compiles_tail_call_nested();
 
   END_SUITE();
 }
