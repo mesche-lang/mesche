@@ -855,7 +855,8 @@ static void compiler_patch_jump(CompilerContext *ctx, int offset) {
 }
 
 static void compiler_parse_if(CompilerContext *ctx) {
-  // Parse predicate
+  // Parse predicate and write out a jump instruction to the else code
+  // path if the predicate evaluates to false
   compiler_parse_expr(ctx);
   int jump_origin = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
 
@@ -868,17 +869,24 @@ static void compiler_parse_if(CompilerContext *ctx) {
   compiler_parse_expr(ctx);
   compiler_patch_tail_call(ctx);
 
+  // Write out a jump from the end of the truth case to the end of the expression
   int else_jump = compiler_emit_jump(ctx, OP_JUMP);
 
-  // Patch the jump instruction after the truth path has been compiled
+  // Patch the jump instruction which leads to the else path
   compiler_patch_jump(ctx, jump_origin);
 
-  // Include a pop so that the expression value gets removed from the stack
+  // Include a pop so that the predicate expression value gets removed from the stack
   compiler_emit_byte(ctx, OP_POP);
 
-  // Parse false expr
-  compiler_parse_expr(ctx);
-  compiler_patch_tail_call(ctx);
+  // Is there an else expression?
+  if (ctx->parser->current.kind != TokenKindRightParen) {
+    // Parse false expr
+    compiler_parse_expr(ctx);
+    compiler_patch_tail_call(ctx);
+  } else {
+    // Push a 'nil' onto the value stack if there was no else
+    compiler_emit_byte(ctx, OP_NIL);
+  }
 
   // Patch the jump instruction after the false path has been compiled
   compiler_patch_jump(ctx, else_jump);

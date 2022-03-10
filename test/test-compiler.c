@@ -143,6 +143,44 @@ static void compiles_named_let() {
   PASS();
 }
 
+static void compiles_if_expr() {
+  COMPILER_INIT();
+
+  COMPILE("(if t (+ 3 1) 2)");
+
+  CHECK_BYTE(OP_T);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 13);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_BYTES(OP_CONSTANT, 1);
+  CHECK_BYTE(OP_ADD);
+  CHECK_JUMP(OP_JUMP, 10, 16);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 2);
+  CHECK_BYTE(OP_RETURN);
+
+  PASS();
+}
+
+static void compiles_if_expr_no_else() {
+  COMPILER_INIT();
+
+  COMPILE("(if t (+ 3 1))");
+
+  CHECK_BYTE(OP_T);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 11);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_BYTES(OP_CONSTANT, 1);
+  CHECK_BYTE(OP_ADD);
+  CHECK_JUMP(OP_JUMP, 10, 16);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTE(OP_NIL);
+  CHECK_BYTE(OP_RETURN);
+
+  PASS();
+}
+
 /*
 
   Check section 11.20 of R6RS spec, it mentions how to determine tail contexts.
@@ -274,6 +312,8 @@ void test_compiler_suite() {
   compiles_module_import();
   compiles_let();
   compiles_named_let();
+  compiles_if_expr();
+  compiles_if_expr_no_else();
   compiles_tail_call_basic();
   compiles_tail_call_begin();
   compiles_tail_call_let();
