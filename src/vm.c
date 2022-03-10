@@ -444,6 +444,12 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
     frame->closure = closure;
     frame->ip = closure->function->chunk.code;
     frame->slots = arg_start - 1;
+
+    // The total argument count is plain argument count plus number of
+    // keyword arguments because we've removed the keywords from the list
+    // and left either the specified value or the default.
+    frame->total_arg_count = arg_count + keyword_count;
+
     return true;
   }
 }
@@ -458,13 +464,20 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       FunctionPtr func_ptr = AS_NATIVE_FUNC(callee);
       Value result = func_ptr((MescheMemory *)vm, arg_count, vm->stack_top - arg_count);
 
-      // Pop off all of the argument and the function itself
+      // Pop off all of the arguments and the function itself
+      printf("ABOUT TO POP NATIVE ARGS: %d\n", arg_count);
       for (int i = 0; i < arg_count + 1; i++) {
+        printf("POPPING NATIVE ARG: ");
+        mesche_value_print(vm_stack_peek(vm, 0));
+        printf("\n");
         mesche_vm_stack_pop(vm);
       }
 
       // Push the result to store it
       mesche_vm_stack_push(vm, result);
+      printf("PUSHING NATIVE RESULT: ");
+      mesche_value_print(vm_stack_peek(vm, 0));
+      printf("\n");
       return true;
     }
     case ObjectKindRecord: {
@@ -754,6 +767,17 @@ InterpretResult mesche_vm_run(VM *vm) {
     case OP_RETURN:
       // Hold on to the function result value before we manipulate the stack
       value = mesche_vm_stack_pop(vm);
+      printf("RESULT VALUE OF %s IS (%d): ",
+             frame->closure->function->name ? frame->closure->function->name->chars : "NONAME",
+             frame->total_arg_count);
+      mesche_value_print(value);
+      printf("\n");
+
+      for (int i = 0; i < frame->total_arg_count; i++) {
+        printf("SHOULD POP %d: ", i);
+        mesche_value_print(vm_stack_peek(vm, frame->total_arg_count - i));
+        printf("\n");
+      }
 
       // Close out upvalues for any function locals that have been captured by
       // closures
@@ -773,7 +797,10 @@ InterpretResult mesche_vm_run(VM *vm) {
 
       // TODO: Consider adding this back if we figure out the right approach.
       // It will allow us to clear out any intermediate stack values on return.
+      // TODO: This needs more adjustment!
       /* vm->stack_top = frame->slots; */
+      /* printf("CURRENT FRAME NEEDS TO POP %d ARGS!\n", frame->total_arg_count); */
+      /* vm->stack_top -= frame->total_arg_count; */
 
       // Restore the previous result value, call frame, and value stack pointer
       // before continuing execution
