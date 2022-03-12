@@ -85,13 +85,21 @@ static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_
   // Then check the load path to see if a module file exists
   // If no file exists, create a new module with the name
 
+  // Push the module name string onto the stack to prevent garbage collection
+  mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
+
   Value module_val;
   ObjectModule *module = NULL;
+  bool loaded_module = false;
   if (!mesche_table_get(&vm->modules, module_name, &module_val)) {
     // Create an empty module and push it on the stack temporarily to avoid collection
+    loaded_module = true;
     module = mesche_object_make_module(vm, module_name);
     mesche_vm_stack_push(vm, OBJECT_VAL(module));
     mesche_table_set((MescheMemory *)vm, &vm->modules, module_name, OBJECT_VAL(module));
+    mesche_vm_stack_pop(vm);
+
+    // Pop the module name from the stack since the module has it now
     mesche_vm_stack_pop(vm);
 
     // Look up the module in the load path
@@ -99,17 +107,21 @@ static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_
     if (module_path) {
       // Load the module file to populate the empty module
       // TODO: Guard against circular module loads!
-      mesche_vm_load_module(vm, module_path);
-      free(module_path);
+      InterpretResult result = mesche_vm_load_module(vm, module_path);
 
-      if (!mesche_table_get(&vm->modules, module_name, &module_val)) {
-        PANIC("Could not resolve module (%s) after loading its file.", module_name->chars);
+      if (result != INTERPRET_OK) {
+        PANIC("Error while loading module path %s\n", module_path)
       }
 
-      module = AS_MODULE(module_val);
+      free(module_path);
     }
   } else {
     module = AS_MODULE(module_val);
+  }
+
+  // Pop the value string from the stack if we didn't need to load the module
+  if (!loaded_module) {
+    mesche_vm_stack_pop(vm);
   }
 
   return module;
@@ -118,11 +130,7 @@ static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_
 ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_name) {
   // Allocate the name string and push it to the stack temporarily to avoid GC
   ObjectString *module_name_str = mesche_object_make_string(vm, module_name, strlen(module_name));
-  mesche_vm_stack_push(vm, OBJECT_VAL(module_name_str));
   ObjectModule *module = mesche_module_resolve_by_name(vm, module_name_str);
-
-  // Pop the name string off of the value stack
-  mesche_vm_stack_pop(vm);
 
   return module;
 }
@@ -130,9 +138,7 @@ ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_na
 ObjectModule *mesche_module_resolve_by_path(VM *vm, ObjectCons *list) {
   // Allocate the name string and push it to the stack temporarily to avoid GC
   ObjectString *module_name = mesche_module_name_from_symbol_list(vm, list);
-  mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
   ObjectModule *module = mesche_module_resolve_by_name(vm, module_name);
-  mesche_vm_stack_pop(vm);
 
   return module;
 }

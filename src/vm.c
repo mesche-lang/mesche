@@ -902,14 +902,10 @@ InterpretResult mesche_vm_run(VM *vm) {
       ObjectCons *list = AS_CONS(vm_stack_peek(vm, 0));
       ObjectModule *resolved_module = mesche_module_resolve_by_path(vm, list);
 
-      // Pop the module path list off the stack and push the module on in its place
-      mesche_vm_stack_pop(vm);
-      mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
-
       // Compiling the module file will push its closure onto the stack, but we
       // look back one slot because we just pushed the module itself
-      if (IS_CLOSURE(vm_stack_peek(vm, 1))) {
-        ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 1));
+      if (IS_CLOSURE(vm_stack_peek(vm, 0))) {
+        ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
         if (closure->function->type == TYPE_SCRIPT) {
           // Set up the module's closure for execution in the next VM loop
           // TODO: This pattern needs to be made into a macro!
@@ -917,8 +913,12 @@ InterpretResult mesche_vm_run(VM *vm) {
           frame = &vm->frames[vm->frame_count - 1];
         }
 
-        // We leave both the closure on the stack so that OP_RETURN semantics
-        // are not affected!
+        // Pop the module path list off the stack and push the module on in its
+        // place so that it can be imported after the closure finishes executing
+        mesche_vm_stack_pop(vm);
+        mesche_vm_stack_pop(vm);
+        mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
+        mesche_vm_stack_push(vm, OBJECT_VAL(closure));
       } else {
         // This case will happen when the module has previously been executed
         // and was merely resolved this time.  We have to emulate the load of
@@ -937,9 +937,9 @@ InterpretResult mesche_vm_run(VM *vm) {
       // Grab the module that was resolved and pull in its exports
       ObjectModule *imported_module = AS_MODULE(vm_stack_peek(vm, 0));
       mesche_module_import(vm, imported_module, CURRENT_MODULE());
-      mesche_vm_stack_pop(vm);
 
-      // Nothing new is pushed onto the stack
+      // All opcodes should leave something new on the stack that can be popped,
+      // so leave the module itself on the stack.
       break;
     }
     case OP_ENTER_MODULE: {
