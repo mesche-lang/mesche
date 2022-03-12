@@ -304,7 +304,7 @@ void mesche_object_free(VM *vm, Object *object) {
     break;
   case ObjectKindArray: {
     ObjectArray *array = (ObjectArray *)object;
-    mesche_value_array_free((MescheMemory *)vm, array);
+    mesche_value_array_free((MescheMemory *)vm, &array->objects);
     FREE(vm, ObjectArray, object);
     break;
   }
@@ -314,13 +314,14 @@ void mesche_object_free(VM *vm, Object *object) {
   case ObjectKindFunction: {
     ObjectFunction *function = (ObjectFunction *)object;
     mesche_chunk_free((MescheMemory *)vm, &function->chunk);
+    function_keyword_args_free((MescheMemory *)vm, &function->keyword_args);
     FREE(vm, ObjectFunction, object);
     break;
   }
   case ObjectKindClosure: {
     ObjectClosure *closure = (ObjectClosure *)object;
     FREE_ARRAY(vm, ObjectUpvalue *, closure->upvalues, closure->upvalue_count);
-    FREE(vm, ObjectFunction, object);
+    FREE(vm, ObjectClosure, object);
     break;
   }
   case ObjectKindNativeFunction:
@@ -329,10 +330,11 @@ void mesche_object_free(VM *vm, Object *object) {
   case ObjectKindPointer: {
     ObjectPointer *pointer = (ObjectPointer *)object;
     if (pointer->is_managed) {
+      // TODO: Call free function for type
       free(pointer->ptr);
-      FREE(vm, ObjectPointer, object);
-      break;
     }
+    FREE(vm, ObjectPointer, object);
+    break;
   }
   case ObjectKindModule: {
     ObjectModule *module = (ObjectModule *)object;
