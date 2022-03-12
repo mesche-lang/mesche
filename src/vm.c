@@ -795,7 +795,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       mesche_value_print(vm_stack_peek(vm, 0));
       break;
     case OP_LOAD_FILE: {
-      ObjectString *path = READ_STRING();
+      ObjectString *path = AS_STRING(vm_stack_peek(vm, 0));
       mesche_vm_load_file(vm, path->chars);
 
       // Execute the file's closure
