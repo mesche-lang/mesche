@@ -1083,7 +1083,8 @@ void mesche_vm_define_native(VM *vm, ObjectModule *module, const char *name, Fun
   mesche_vm_stack_pop(vm);
 }
 
-void mesche_vm_define_native_funcs(VM *vm, const char *module_name, MescheNativeFuncDetails *func_array) {
+void mesche_vm_define_native_funcs(VM *vm, const char *module_name,
+                                   MescheNativeFuncDetails *func_array) {
   ObjectModule *module = mesche_module_resolve_by_name_string(vm, module_name);
   MescheNativeFuncDetails *func_details = func_array;
 
@@ -1094,9 +1095,11 @@ void mesche_vm_define_native_funcs(VM *vm, const char *module_name, MescheNative
     }
 
     // Create objects for the name and the function
-    ObjectString *func_name = mesche_object_make_string(vm, func_details->name, (int)strlen(func_details->name));
+    ObjectString *func_name =
+        mesche_object_make_string(vm, func_details->name, (int)strlen(func_details->name));
     mesche_vm_stack_push(vm, OBJECT_VAL(func_name));
-    mesche_vm_stack_push(vm, OBJECT_VAL(mesche_object_make_native_function(vm, func_details->function)));
+    mesche_vm_stack_push(
+        vm, OBJECT_VAL(mesche_object_make_native_function(vm, func_details->function)));
 
     // Create the binding to the function
     vm_create_module_binding(vm, module, AS_STRING(*(vm->stack_top - 2)), *(vm->stack_top - 1),
