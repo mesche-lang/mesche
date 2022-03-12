@@ -743,6 +743,18 @@ InterpretResult mesche_vm_run(VM *vm) {
     case OP_NOT:
       mesche_vm_stack_push(vm, IS_NIL(mesche_vm_stack_pop(vm)) ? T_VAL : NIL_VAL);
       break;
+    case OP_GREATER_THAN:
+      BINARY_OP(BOOL_VAL, IS_NUMBER, AS_NUMBER, >);
+      break;
+    case OP_GREATER_EQUAL:
+      BINARY_OP(BOOL_VAL, IS_NUMBER, AS_NUMBER, >=);
+      break;
+    case OP_LESS_THAN:
+      BINARY_OP(BOOL_VAL, IS_NUMBER, AS_NUMBER, <);
+      break;
+    case OP_LESS_EQUAL:
+      BINARY_OP(BOOL_VAL, IS_NUMBER, AS_NUMBER, <=);
+      break;
     case OP_EQUAL:
       // Drop through for now
     case OP_EQV: {

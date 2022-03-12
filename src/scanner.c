@@ -320,6 +320,22 @@ Token mesche_scanner_next_token(Scanner *scanner) {
     return scanner_make_token(scanner, TokenKindStar);
   case '/':
     return scanner_make_token(scanner, TokenKindSlash);
+  case '>': {
+    if (scanner_peek(scanner) == '=') {
+      scanner_next_char(scanner);
+      return scanner_make_token(scanner, TokenKindGreaterEqual);
+    }
+
+    return scanner_make_token(scanner, TokenKindGreaterThan);
+  }
+  case '<': {
+    if (scanner_peek(scanner) == '=') {
+      scanner_next_char(scanner);
+      return scanner_make_token(scanner, TokenKindLessEqual);
+    }
+
+    return scanner_make_token(scanner, TokenKindLessThan);
+  }
   }
 
   return scanner_make_error_token(scanner, "Unexpected character.");

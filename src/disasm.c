@@ -78,6 +78,14 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_simple_instr("OP_OR", offset);
   case OP_NOT:
     return mesche_disasm_simple_instr("OP_NOT", offset);
+  case OP_GREATER_THAN:
+    return mesche_disasm_simple_instr("OP_GREATER_THAN", offset);
+  case OP_GREATER_EQUAL:
+    return mesche_disasm_simple_instr("OP_GREATER_EQUAL", offset);
+  case OP_LESS_THAN:
+    return mesche_disasm_simple_instr("OP_LESS_THAN", offset);
+  case OP_LESS_EQUAL:
+    return mesche_disasm_simple_instr("OP_LESS_EQUAL", offset);
   case OP_EQV:
     return mesche_disasm_simple_instr("OP_EQV", offset);
   case OP_EQUAL:
