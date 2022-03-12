@@ -297,11 +297,7 @@ void mesche_vm_register_core_modules(VM *vm) {
   module = mesche_module_resolve_by_name_string(vm, "mesche list");
   mesche_vm_define_native(vm, module, "list-nth", mesche_list_nth_msc, true);
 
-  module = mesche_module_resolve_by_name_string(vm, "mesche array");
-  mesche_vm_define_native(vm, module, "make-array", mesche_array_make_msc, true);
-  mesche_vm_define_native(vm, module, "array-push", mesche_array_push_msc, true);
-  mesche_vm_define_native(vm, module, "array-length", mesche_array_length_msc, true);
-  mesche_vm_define_native(vm, module, "array-nth", mesche_array_nth_msc, true);
+  mesche_array_module_init(vm);
 }
 
 void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
