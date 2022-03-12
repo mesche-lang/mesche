@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
   mesche_vm_register_core_modules(&vm);
 
   // Evaluate the init script
-  mesche_vm_load_file(&vm, "src/init.msc");
+  mesche_vm_load_file(&vm, "src/main.msc");
 
   // Report the final memory allocation statistics
   /* mesche_mem_report((MescheMemory *)&vm); */
