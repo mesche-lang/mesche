@@ -925,6 +925,7 @@ InterpretResult mesche_vm_run(VM *vm) {
         // a module to keep the stack handling consistent, so push the resolved
         // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
         // stack first!
+        mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
         mesche_vm_stack_push(vm, NIL_VAL);
       }
       break;
@@ -938,8 +939,15 @@ InterpretResult mesche_vm_run(VM *vm) {
       ObjectModule *imported_module = AS_MODULE(vm_stack_peek(vm, 0));
       mesche_module_import(vm, imported_module, CURRENT_MODULE());
 
-      // All opcodes should leave something new on the stack that can be popped,
-      // so leave the module itself on the stack.
+      // Module import can happen in two ways:
+      // - Via imports in `define-module`
+      // - By calling `module-import`
+      // We do not explicitly pop the module off of the stack here because
+      // the former case emits its own OP_POP and the latter case uses normal
+      // block expression semantics to either pop off the value or return it
+      // when evaluating the expression.
+      //
+      // In other words, leave the module on the stack!
       break;
     }
     case OP_ENTER_MODULE: {

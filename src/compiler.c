@@ -798,6 +798,7 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
       compiler_parse_module_symbol_list(ctx);
       compiler_emit_byte(ctx, OP_RESOLVE_MODULE);
       compiler_emit_byte(ctx, OP_IMPORT_MODULE);
+      compiler_emit_byte(ctx, OP_POP);
     }
   }
 
