@@ -890,8 +890,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       // TODO: Error if module is already set?
       frame->closure->module = mesche_module_resolve_by_path(vm, list);
 
-      // Pop the module path symbol list and string off of the stack
-      mesche_vm_stack_pop(vm);
+      // Pop the module path symbol list off of the stack
       mesche_vm_stack_pop(vm);
 
       // Push the defined module onto the stack
@@ -1171,7 +1170,15 @@ InterpretResult mesche_vm_load_module(VM *vm, const char *module_path) {
   if (!vm->is_running) {
     // Call the initial closure and run the VM
     vm_call(vm, closure, 0, 0, false);
-    return mesche_vm_run(vm);
+    InterpretResult result = mesche_vm_run(vm);
+
+    // This code path *SHOULD* only get called when the developer has used
+    // `mesche_vm_define_native`, all other module imports are handled with the
+    // OP_IMPORT_MODULE instruction at runtime.  Thus, pop the name string off
+    // of the value stack.
+    mesche_vm_stack_pop(vm);
+
+    return result;
   }
 }
 

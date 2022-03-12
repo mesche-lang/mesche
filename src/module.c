@@ -120,6 +120,8 @@ ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_na
   ObjectString *module_name_str = mesche_object_make_string(vm, module_name, strlen(module_name));
   mesche_vm_stack_push(vm, OBJECT_VAL(module_name_str));
   ObjectModule *module = mesche_module_resolve_by_name(vm, module_name_str);
+
+  // Pop the name string off of the value stack
   mesche_vm_stack_pop(vm);
 
   return module;
