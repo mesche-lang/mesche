@@ -62,6 +62,8 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_simple_instr("OP_POP", offset);
   case OP_POP_SCOPE:
     return mesche_disasm_byte_instr("OP_POP_SCOPE", chunk, offset);
+  case OP_CONS:
+    return mesche_disasm_simple_instr("OP_CONS", offset);
   case OP_ADD:
     return mesche_disasm_simple_instr("OP_ADD", offset);
   case OP_SUBTRACT:
