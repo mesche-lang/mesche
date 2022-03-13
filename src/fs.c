@@ -29,6 +29,10 @@ char *mesche_fs_resolve_path(const char *fs_path) {
   }
 }
 
+char *mesche_fs_file_directory(const char *file_path) {
+  return dirname(file_path);
+}
+
 char *mesche_fs_file_read_all(const char *file_path) {
   FILE *file = fopen(file_path, "rb");
 
