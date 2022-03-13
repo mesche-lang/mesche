@@ -477,11 +477,13 @@ static void compiler_parse_set(CompilerContext *ctx) {
   int arg = compiler_resolve_local(ctx, &ctx->parser->previous);
 
   // If there isn't a local, use a global variable instead
-  if (arg == -1) {
-    arg = compiler_parse_symbol(ctx, true);
-    instr = OP_SET_GLOBAL;
+  if (arg != -1) {
+    // Do nothing, all values are already set.
   } else if ((arg = compiler_resolve_upvalue(ctx, &ctx->parser->previous)) != -1) {
     instr = OP_SET_UPVALUE;
+  } else {
+    arg = compiler_parse_symbol(ctx, true);
+    instr = OP_SET_GLOBAL;
   }
 
   compiler_parse_expr(ctx);
