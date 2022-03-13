@@ -292,6 +292,7 @@ static void mem_collect_garbage(MescheMemory *mem) {
 }
 
 void mesche_vm_register_core_modules(VM *vm) {
+  mesche_fs_module_init(vm);
   mesche_list_module_init(vm);
   mesche_array_module_init(vm);
   mesche_string_module_init(vm);

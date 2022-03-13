@@ -1,7 +1,4 @@
 (define-module (mesche fs))
 
-(define (path-exists? fs-path) :export
-  (path-exists-internal fs-path))
-
 ;; (define (path-join :rest path-parts) :export
 ;;   t)
