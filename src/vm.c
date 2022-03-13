@@ -294,9 +294,7 @@ void mesche_vm_register_core_modules(VM *vm) {
   ObjectModule *module = mesche_module_resolve_by_name_string(vm, "mesche process");
   mesche_vm_define_native(vm, module, "process-arguments", mesche_process_arguments_msc, true);
 
-  module = mesche_module_resolve_by_name_string(vm, "mesche list");
-  mesche_vm_define_native(vm, module, "list-nth", mesche_list_nth_msc, true);
-
+  mesche_list_module_init(vm);
   mesche_array_module_init(vm);
 }
 
