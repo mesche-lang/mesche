@@ -296,6 +296,7 @@ void mesche_vm_register_core_modules(VM *vm) {
 
   mesche_list_module_init(vm);
   mesche_array_module_init(vm);
+  mesche_string_module_init(vm);
 }
 
 void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
