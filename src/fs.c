@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <libgen.h>
 #include <unistd.h>
 
 #include "fs.h"
@@ -12,7 +13,14 @@ bool mesche_fs_path_exists_p(const char *fs_path) { return access(fs_path, F_OK)
 
 bool mesche_fs_path_absolute_p(const char *fs_path) { return fs_path[0] == '/'; }
 
+// NOTE: Caller must free the result string!
 char *mesche_fs_resolve_path(const char *fs_path) {
+  if (mesche_fs_path_absolute_p(fs_path)) {
+    // Return a copy of the string that can be freed so that the caller can deal
+    // with it consistently
+    return strdup(fs_path);
+  }
+
   char *current_path = getcwd(NULL, 0);
   if (current_path != NULL) {
     size_t size = strlen(current_path) + strlen(fs_path) + 2;
