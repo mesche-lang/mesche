@@ -15,6 +15,7 @@
 #include "op.h"
 #include "process.h"
 #include "string.h"
+#include "process.h"
 #include "util.h"
 #include "value.h"
 #include "vm.h"
@@ -291,12 +292,10 @@ static void mem_collect_garbage(MescheMemory *mem) {
 }
 
 void mesche_vm_register_core_modules(VM *vm) {
-  ObjectModule *module = mesche_module_resolve_by_name_string(vm, "mesche process");
-  mesche_vm_define_native(vm, module, "process-arguments", mesche_process_arguments_msc, true);
-
   mesche_list_module_init(vm);
   mesche_array_module_init(vm);
   mesche_string_module_init(vm);
+  mesche_process_module_init(vm);
 }
 
 void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {

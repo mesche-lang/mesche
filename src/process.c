@@ -1,8 +1,10 @@
+#include <stdio.h>
+
 #include "object.h"
 #include "process.h"
 #include "util.h"
 
-Value mesche_process_arguments_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value process_arguments_msc(MescheMemory *mem, int arg_count, Value *args) {
   if (arg_count != 0) {
     PANIC("Function does not accept arguments.");
   }
@@ -16,4 +18,24 @@ Value mesche_process_arguments_msc(MescheMemory *mem, int arg_count, Value *args
   }
 
   return first;
+}
+
+Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
+  ObjectString *process_string = AS_STRING(args[0]);
+  FILE *process_pipe = popen(process_string->chars, "r");
+
+  char c;
+  while(c = getc(process_pipe) != EOF) {
+    putchar(c);
+  }
+
+  return T_VAL;
+}
+
+void mesche_process_module_init(VM *vm) {
+  mesche_vm_define_native_funcs(
+      vm, "mesche process",
+      &(MescheNativeFuncDetails[]){{"process-start", process_start_msc, true},
+                                   {"process-arguments", process_arguments_msc, true},
+                                   {NULL, NULL, false}});
 }
