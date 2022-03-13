@@ -1,4 +1,0 @@
-(define-module (mesche fs))
-
-;; (define (path-join :rest path-parts) :export
-;;   t)
