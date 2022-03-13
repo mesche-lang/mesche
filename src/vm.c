@@ -791,6 +791,13 @@ InterpretResult mesche_vm_run(VM *vm) {
       // Reset the value stack to where it was before this function was called
       vm->stack_top -= frame->total_arg_count;
 
+      // There could be a stray module on the stack if we just executed a script
+      // file that defines a module
+      // TODO: Add more specific checks
+      if (mesche_object_is_kind(vm_stack_peek(vm, 0), ObjectKindModule)) {
+        mesche_vm_stack_pop(vm);
+      }
+
       // Restore the previous result value, call frame, and value stack pointer
       // before continuing execution
       mesche_vm_stack_pop(vm); // Pop the closure before restoring result
@@ -816,9 +823,11 @@ InterpretResult mesche_vm_run(VM *vm) {
         }
       }
 
-      // Pop the file path and closure off the stack
+      // Pop the file path off the stack, but not the closure!  It needs
+      // to be there so that OP_RETURN semantics work correctly.
+      Value closure = mesche_vm_stack_pop(vm);
       mesche_vm_stack_pop(vm);
-      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_push(vm, closure);
 
       break;
     }
@@ -909,13 +918,12 @@ InterpretResult mesche_vm_run(VM *vm) {
       ObjectCons *list = AS_CONS(vm_stack_peek(vm, 0));
       ObjectModule *resolved_module = mesche_module_resolve_by_path(vm, list);
 
-      // Compiling the module file will push its closure onto the stack, but we
-      // look back one slot because we just pushed the module itself
+      // Compiling the module file will push its closure onto the stack
       if (IS_CLOSURE(vm_stack_peek(vm, 0))) {
         ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
         if (closure->function->type == TYPE_SCRIPT) {
-          // Set up the module's closure for execution in the next VM loop
-          // TODO: This pattern needs to be made into a macro!
+          // Set up the module's closure for execution in the next VM loop and
+          // reset the frame back to the current one until the next cycle
           vm_call(vm, closure, 0, 0, false);
           frame = &vm->frames[vm->frame_count - 1];
         }
@@ -932,6 +940,7 @@ InterpretResult mesche_vm_run(VM *vm) {
         // a module to keep the stack handling consistent, so push the resolved
         // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
         // stack first!
+        mesche_vm_stack_pop(vm);  // Pop the module path list
         mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
         mesche_vm_stack_push(vm, NIL_VAL);
       }
