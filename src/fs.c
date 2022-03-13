@@ -89,8 +89,7 @@ Value fs_file_modified_time_msc(MescheMemory *mem, int arg_count, Value *args) {
   struct stat file_stat;
 
   if (stat(file_path, &file_stat) != 0) {
-    // TODO: Error!
-    return NIL_VAL;
+    return NUMBER_VAL(0);
   }
 
   return NUMBER_VAL(file_stat.st_mtime);
