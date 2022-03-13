@@ -566,7 +566,6 @@ static void compiler_parse_let(CompilerContext *ctx) {
 
   // Parse the let body
   compiler_parse_block(&let_ctx, true);
-  compiler_end_scope(&let_ctx);
 
   // Finish the function and write out its constant and closure back where it
   // needs to go
