@@ -100,15 +100,13 @@ static void compiles_let() {
   CHECK_BYTES(OP_CLOSURE, 2);
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_CONSTANT, 1);
-  CHECK_CALL(OP_TAIL_CALL, 2, 0);
+  CHECK_CALL(OP_CALL, 2, 0);
   CHECK_BYTE(OP_RETURN);
 
   CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[2]));
   CHECK_BYTES(OP_READ_LOCAL, 1);
   CHECK_BYTES(OP_READ_LOCAL, 2);
   CHECK_BYTE(OP_ADD);
-  CHECK_BYTES(OP_POP_SCOPE, 1);
-  CHECK_BYTES(OP_POP_SCOPE, 1);
   CHECK_BYTE(OP_RETURN);
 
   PASS();
@@ -126,7 +124,7 @@ static void compiles_named_let() {
   CHECK_BYTES(OP_CLOSURE, 2);
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_CONSTANT, 1);
-  CHECK_CALL(OP_TAIL_CALL, 2, 0);
+  CHECK_CALL(OP_CALL, 2, 0); // In script scope, not a tail call!
   CHECK_BYTE(OP_RETURN);
 
   CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[2]));
@@ -137,8 +135,6 @@ static void compiles_named_let() {
   CHECK_BYTE(OP_MULTIPLY);
   CHECK_BYTES(OP_READ_LOCAL, 2);
   CHECK_CALL(OP_TAIL_CALL, 2, 0);
-  CHECK_BYTES(OP_POP_SCOPE, 1);
-  CHECK_BYTES(OP_POP_SCOPE, 1);
   CHECK_BYTE(OP_RETURN);
 
   PASS();
@@ -225,10 +221,12 @@ static void compiles_tail_call_basic() {
 static void compiles_tail_call_begin() {
   COMPILER_INIT();
 
-  COMPILE("(begin"
-          "  (next-func x)"
-          "  (next-func x))");
+  COMPILE("(define (test-func)"
+          "  (begin"
+          "    (next-func x)"
+          "    (next-func x)))");
 
+  out_func = AS_FUNCTION(out_func->chunk.constants.values[1]);
   CHECK_BYTES(OP_READ_GLOBAL, 0);
   CHECK_BYTES(OP_READ_GLOBAL, 1);
   CHECK_CALL(OP_CALL, 1, 0);
@@ -238,11 +236,28 @@ static void compiles_tail_call_begin() {
   CHECK_CALL(OP_TAIL_CALL, 1, 0);
   CHECK_BYTE(OP_RETURN);
 
-  // Not a tail call
+  // Not a tail call because it's at script scope
 
   COMPILE("(begin"
-          "  (* 1 (next-func x)))");
+          "  (next-func x)"
+          "  (next-func x))");
+  CHECK_BYTES(OP_READ_GLOBAL, 0);
+  CHECK_BYTES(OP_READ_GLOBAL, 1);
+  CHECK_CALL(OP_CALL, 1, 0);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_READ_GLOBAL, 0);
+  CHECK_BYTES(OP_READ_GLOBAL, 1);
+  CHECK_CALL(OP_CALL, 1, 0);
+  CHECK_BYTE(OP_RETURN);
 
+  // Not a tail call because the return value of `next-func` is modified before
+  // being returned from `test-func`.
+
+  COMPILE("(define (test-func)"
+          "  (begin"
+          "    (* 1 (next-func x))))");
+
+  out_func = AS_FUNCTION(out_func->chunk.constants.values[1]);
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_READ_GLOBAL, 1);
   CHECK_BYTES(OP_READ_GLOBAL, 2);
@@ -268,7 +283,6 @@ static void compiles_tail_call_let() {
   CHECK_BYTES(OP_READ_GLOBAL, 0);
   CHECK_BYTES(OP_READ_LOCAL, 1);
   CHECK_CALL(OP_TAIL_CALL, 1, 0);
-  CHECK_BYTES(OP_POP_SCOPE, 1);
   CHECK_BYTE(OP_RETURN);
 
   PASS();
@@ -307,6 +321,11 @@ static void compiles_tail_call_nested() {
 
   COMPILE("(define (test-loop)"
           "  (let loop ((x 1))"
+          "    (non-tail-call)"
+          "    (begin"
+          "      (non-tail-call)"
+          "      (if t (non-tail-call)"
+          "            (non-tail-call)))"
           "    (let ((y x))"
           "      (loop y)"
           "      (loop x))))");
@@ -318,15 +337,30 @@ static void compiles_tail_call_nested() {
   CHECK_BYTE(OP_RETURN);
 
   CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[1]));
-  CHECK_BYTES(OP_CLOSURE, 0);
+  CHECK_BYTES(OP_READ_GLOBAL, 0);
+  CHECK_CALL(OP_CALL, 0, 0);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_READ_GLOBAL, 0);
+  CHECK_CALL(OP_CALL, 0, 0);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTE(OP_T);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 13, 25);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_READ_GLOBAL, 0);
+  CHECK_CALL(OP_CALL, 0, 0);
+  CHECK_JUMP(OP_JUMP, 22, 31);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_READ_GLOBAL, 0);
+  CHECK_CALL(OP_CALL, 0, 0);
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CLOSURE, 1);
   CHECK_BYTES(1, 0); // Local upvalue 0
   CHECK_BYTES(1, 1); // Local upvalue 1
   CHECK_BYTES(OP_READ_LOCAL, 1);
   CHECK_CALL(OP_TAIL_CALL, 1, 0);
-  CHECK_BYTE(OP_CLOSE_UPVALUE);
   CHECK_BYTE(OP_RETURN);
 
-  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[0]));
+  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[1]));
   CHECK_BYTES(OP_READ_UPVALUE, 0);
   CHECK_BYTES(OP_READ_LOCAL, 1);
   CHECK_CALL(OP_CALL, 1, 0);
@@ -334,7 +368,6 @@ static void compiles_tail_call_nested() {
   CHECK_BYTES(OP_READ_UPVALUE, 0);
   CHECK_BYTES(OP_READ_UPVALUE, 1);
   CHECK_CALL(OP_TAIL_CALL, 1, 0);
-  CHECK_BYTES(OP_POP_SCOPE, 1);
   CHECK_BYTE(OP_RETURN);
 
   PASS();

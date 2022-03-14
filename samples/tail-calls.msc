@@ -1,0 +1,40 @@
+(define (no-way)
+  (display "No way!"))
+
+(define (yes-way)
+  (display "Yes way!"))
+
+(define (bogus-journey bill ted)
+  ;; This whole expression would not contain any tail calls, but we won't know
+  ;; that until we reach the next expression in the block.  We still need to log
+  ;; every possible tail call site.
+
+  ;; Single-expression paths like `if` don't need to worry about wiping the site
+  ;; list.  Only multi-expression parsers like `let`, `and`, and `begin` will do
+  ;; that.
+
+  (begin
+    (+ 1 2)
+    ;; Prev tail sites wiped
+    (if t
+        ;; Could be a tail call, log it
+        (no-way))
+    ;; Prev tail sites wiped
+    (no-way))
+
+  ;; At this point we will wipe the ctx->tail_sites array because nothing in
+  ;; there can be considered a tail call.
+
+  ;; No tail calls
+  (if bill
+      (no-way)
+      (no-way))
+  (begin
+    ;; Non!
+    (no-way)
+    ;; Tail calls!
+    (if t
+        (begin
+          "Nope!"
+          (yes-way))
+        (yes-way))))

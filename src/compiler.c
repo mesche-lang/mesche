@@ -55,6 +55,9 @@ typedef struct CompilerContext {
   int local_count;
   int scope_depth;
   Upvalue upvalues[UINT8_COUNT];
+
+  int tail_site_count;
+  uint8_t tail_sites[UINT8_COUNT];
 } CompilerContext;
 
 typedef struct {
@@ -80,13 +83,12 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
     ctx->scanner = parent->scanner;
   }
 
-  // TODO: Assert if VM isn't set yet!  Should only happen at top-level scope.
-
   // Set up the compiler state for this scope
   ctx->function = mesche_object_make_function(ctx->vm, type);
   ctx->function_type = type;
   ctx->local_count = 0;
   ctx->scope_depth = 0;
+  ctx->tail_site_count = 0;
 
   // Set up memory management
   ctx->vm->current_compiler = ctx;
@@ -115,19 +117,38 @@ static void compiler_emit_call(CompilerContext *ctx, uint8_t arg_count, uint8_t 
   compiler_emit_byte(ctx, keyword_count);
 }
 
-static void compiler_patch_tail_call(CompilerContext *ctx) {
+static void compiler_log_tail_site(CompilerContext *ctx) {
+  // Log the call site to potentially patch tail calls later.  The call has
+  // already been written so look back 3 bytes (the size of an OP_CALL) to
+  // check whether there actually was a call.
+  int func_offset = ctx->function->chunk.count - 3;
+  if (ctx->function->chunk.count >= 3 && ctx->function->chunk.code[func_offset] == OP_CALL) {
+    // It's possible that a block parser could try to add a tail site that was
+    // just added by another sub-expression, skip such an occurrence.
+    if (ctx->tail_site_count == 0 || ctx->tail_sites[ctx->tail_site_count - 1] != func_offset) {
+      ctx->tail_sites[ctx->tail_site_count] = func_offset;
+      ctx->tail_site_count++;
+    }
+  }
+}
+
+static void compiler_patch_tail_calls(CompilerContext *ctx) {
   // Here's how it works:
   // - Parser code that knows it contains tail contexts will call parsing functions
-  //   to parse sub-units of code (like define, lambda, let, if, etc)
-  // - At the site of a tail context in one of these functions, compiler_patch_tail_call
-  //   will be called to assess whether the last instruction written is a call, even if
-  //   another function took care of parsing the expression at the tail context.
-  // - If the most recent instruction is OP_CALL, make it an OP_TAIL_CALL instead!
+  //   to parse sub-units of code (like define, lambda, let, if, etc).
+  // - At the site of a tail context in one of these functions, compiler_log_tail_site
+  //   will be called to log the offset where the last instruction written is a call,
+  //   even if another function took care of parsing the expression at the tail context.
+  // - Expressions that parse multiple sub-expressions in sequence (let, begin, lambda,
+  //   and, or) will reset the tail_site count to its original location each time a new
+  //   sub expression is encountered.  This ensures that only the tail sites from the
+  //   last sub-expression will be patched.
+  // - Once the parsing of an actual function is completed in compiler_end, patch any
+  //   tail site offsets that remain in the tail_sites array!
 
-  // Was the last instruction in the current chunk a call?  (Calls are 3 bytes)
-  if (ctx->function->chunk.count >= 3 &&
-      ctx->function->chunk.code[ctx->function->chunk.count - 3] == OP_CALL) {
-    ctx->function->chunk.code[ctx->function->chunk.count - 3] = OP_TAIL_CALL;
+  for (int i = 0; i < ctx->tail_site_count; i++) {
+    // Convert the call site to a tail call
+    ctx->function->chunk.code[ctx->tail_sites[i]] = OP_TAIL_CALL;
   }
 }
 
@@ -135,6 +156,12 @@ static void compiler_emit_return(CompilerContext *ctx) { compiler_emit_byte(ctx,
 
 static ObjectFunction *compiler_end(CompilerContext *ctx) {
   ObjectFunction *function = ctx->function;
+
+  if (function->type == TYPE_FUNCTION) {
+    // Patch tail calls in the function
+    compiler_patch_tail_calls(ctx);
+  }
+
   compiler_emit_return(ctx);
 
 #ifdef DEBUG_PRINT_CODE
@@ -272,14 +299,21 @@ static void compiler_parse_literal(CompilerContext *ctx) {
 }
 
 static void compiler_parse_block(CompilerContext *ctx, bool expect_end_paren) {
+  int previous_tail_count = ctx->tail_site_count;
+
   for (;;) {
+    // Reset the tail sites to log again for the sub-expression
+    ctx->tail_site_count = previous_tail_count;
+
+    // Parse the sub-expression
     compiler_parse_expr(ctx);
 
+    // Are we finished parsing expressions?
     if (expect_end_paren && ctx->parser->current.kind == TokenKindRightParen) {
       compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
 
-      // Patch the tail call if there should be one
-      compiler_patch_tail_call(ctx);
+      // Log the possible tail call if there should be one
+      compiler_log_tail_site(ctx);
 
       break;
     } else if (ctx->parser->current.kind == TokenKindEOF) {
@@ -597,7 +631,7 @@ static void compiler_parse_let(CompilerContext *ctx) {
   // Restore the offset where OP_CALL should be and write it
   ctx->function->chunk.count = call_offset;
   compiler_emit_call(ctx, let_ctx.function->arity, 0);
-  compiler_patch_tail_call(ctx);
+  compiler_log_tail_site(ctx);
 }
 
 static void compiler_parse_define_attributes(CompilerContext *ctx,
@@ -873,10 +907,10 @@ static void compiler_parse_if(CompilerContext *ctx) {
   // the truth path
   compiler_emit_byte(ctx, OP_POP);
 
-  // Parse truth expr and patch the tail call if the expression was still in a
+  // Parse truth expr and log the tail call if the expression was still in a
   // tail context afterward
   compiler_parse_expr(ctx);
-  compiler_patch_tail_call(ctx);
+  compiler_log_tail_site(ctx);
 
   // Write out a jump from the end of the truth case to the end of the expression
   int else_jump = compiler_emit_jump(ctx, OP_JUMP);
@@ -891,7 +925,7 @@ static void compiler_parse_if(CompilerContext *ctx) {
   if (ctx->parser->current.kind != TokenKindRightParen) {
     // Parse false expr
     compiler_parse_expr(ctx);
-    compiler_patch_tail_call(ctx);
+    compiler_log_tail_site(ctx);
   } else {
     // Push a 'nil' onto the value stack if there was no else
     compiler_emit_byte(ctx, OP_NIL);
