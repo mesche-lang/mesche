@@ -18,7 +18,6 @@ static VM vm;
 #define VM_INIT()                                                                                  \
   InterpretResult result;                                                                          \
   mesche_vm_init(&vm, 0, NULL);                                                                    \
-  mesche_vm_load_path_add(&vm, "./modules");                                                       \
   mesche_vm_load_path_add(&vm, "./test/modules");                                                  \
   mesche_vm_register_core_modules(&vm);
 
