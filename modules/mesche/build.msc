@@ -58,21 +58,23 @@
   ;; Ensure the output path exists
   (ensure-output-path out-path)
 
+  (if (not c-flags) (set! c-flags ""))
+  (if (not c-compiler) (set! c-compiler "gcc"))
+
   (let compile-next ((input-files source-files)
                      (output-files '()))
     (if (pair? input-files)
         (begin
           (if (equal? "c" (file-extension (car input-files)))
               (let ((source-file (string-append src-path "/" (car input-files)))
-                    (output-file (string-append out-path "/" (file-name (car input-files)) ".o"))
-                    (compiler "gcc"))
+                    (output-file (string-append out-path "/" (file-name (car input-files)) ".o")))
                 (if (>= (file-modified-time source-file)
                         (file-modified-time output-file))
                     (begin
                       (display "Compiling: ") (display source-file)
                       (display " to ") (display output-file)
                       (display "...\n")
-                      (process-start (string-append compiler
+                      (process-start (string-append c-compiler
                                                     " -c "
                                                     source-file
                                                     " -o "
@@ -83,30 +85,35 @@
           (compile-next (cdr input-files) output-files))
         output-files)))
 
-(define (link-program program-file output-files :keys c-libs c-flags) :export
+(define (link-program program-file output-files :keys c-compiler c-libs c-flags) :export
   (display (string-append "Linking " program-file "\n"))
 
   ;; Ensure the output path exists
   (ensure-output-path (file-directory program-file))
 
+  (if (not c-compiler) (set! c-compiler "gcc"))
+  (if (not c-libs) (set! c-libs ""))
+  (if (not c-flags) (set! c-flags ""))
+
   ;; Run the linker
-  (process-start (string-append "gcc"
+  (process-start (string-append c-compiler
                                 " -o "
                                 program-file
                                 " "
                                 (string-join output-files " ")
                                 " "
-                                c-flags))
+                                c-flags
+                                " "
+                                c-libs))
 
   ;; Make the file executable
   (process-start (string-append "chmod +x " program-file)))
 
-(define (link-static-library library-file output-files :keys c-libs) :export
+(define (link-static-library library-file output-files) :export
   (display (string-append "Linking " library-file "\n"))
 
   ;; Ensure the output path exists
   (ensure-output-path (file-directory library-file))
-
 
   ;; Run the linker
   (process-start (string-append "ar rcs "
@@ -115,7 +122,8 @@
                                 (string-join output-files " "))))
 
 (define-record-type build-config
-  (fields c-flags
+  (fields compiler
+          c-flags
           c-libs
           output-path))
 
