@@ -51,7 +51,13 @@
                                 " "
                                 target)))
 
+(define (ensure-output-path output-path)
+  (directory-create output-path))
+
 (define (compile-files source-files :keys src-path out-path c-compiler c-flags) :export
+  ;; Ensure the output path exists
+  (ensure-output-path out-path)
+
   (let compile-next ((input-files source-files)
                      (output-files '()))
     (if (pair? input-files)
@@ -65,24 +71,23 @@
                     (begin
                       (display "Compiling: ") (display source-file)
                       (display " to ") (display output-file)
-                      (display "...\n\n")
+                      (display "...\n")
                       (process-start (string-append compiler
                                                     " -c "
                                                     source-file
                                                     " -o "
                                                     output-file
                                                     " "
-                                                    c-flags)))
-                    ;; (display (string-append "Skipping " source-file "...\n"))
-                    nil)
+                                                    c-flags))))
                 (set! output-files (cons output-file output-files))))
           (compile-next (cdr input-files) output-files))
         output-files)))
 
 (define (link-program program-file output-files :keys c-libs c-flags) :export
-  ;; (display "Linking program ")
-  ;; (display program-file)
-  ;; (display "...\n")
+  (display (string-append "Linking " program-file "\n"))
+
+  ;; Ensure the output path exists
+  (ensure-output-path (file-directory program-file))
 
   ;; Run the linker
   (process-start (string-append "gcc"
@@ -97,7 +102,11 @@
   (process-start (string-append "chmod +x " program-file)))
 
 (define (link-static-library library-file output-files :keys c-libs) :export
-  ;; (display "Linking static library!\n")
+  (display (string-append "Linking " library-file "\n"))
+
+  ;; Ensure the output path exists
+  (ensure-output-path (file-directory library-file))
+
 
   ;; Run the linker
   (process-start (string-append "ar rcs "
