@@ -15,8 +15,21 @@ jobs:
           sudo apt-get update
           sudo apt-get --no-install-recommends -y install pkg-config
 
-      - name: Build
+      - name: Bootstrap CLI
         run: ./build.sh
+
+      - name: Build CLI with Mesche
+        run: |
+          # Prepare a temporary copy
+          mkdir -p tmp/bin
+          cp bin/mesche tmp/bin
+          cp -R modules tmp/
+
+          # Clean up bin folders
+          rm -rf bin compiler/bin
+
+          # Run Mesche on itself to produce a release artifact
+          tmp/bin/mesche build
 
       - name: Test
         run: bin/mesche
