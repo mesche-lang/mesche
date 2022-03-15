@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
 
   // Change directory to resolve the path correctly
   chdir(program_dir);
-  char *main_file_path = mesche_fs_resolve_path("./../src/main.msc");
+  char *main_file_path = mesche_fs_resolve_path("./../modules/main.msc");
   char *modules_path = mesche_fs_resolve_path("./../modules/");
   chdir(original_dir);
 
