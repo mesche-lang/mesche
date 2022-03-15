@@ -577,9 +577,22 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
     };
     case ObjectKindRecordFieldAccessor: {
       ObjectRecordFieldAccessor *accessor = AS_RECORD_FIELD_ACCESSOR(callee);
-      ObjectRecordInstance *instance = AS_RECORD_INSTANCE(vm_stack_peek(vm, 0));
+
+      Value possible_instance = vm_stack_peek(vm, 0);
+      if (!IS_OBJECT(possible_instance)) {
+        vm_runtime_error(vm, "Expected instance of record type %s but received non-object kind %d.",
+                         accessor->record_type->name->chars, possible_instance.kind);
+        return false;
+      }
+
+      if (!IS_RECORD_INSTANCE(possible_instance)) {
+        vm_runtime_error(vm, "Expected instance of record type %s but received object kind %d.",
+                         accessor->record_type->name->chars, AS_OBJECT(possible_instance)->kind);
+        return false;
+      }
 
       // TODO: Be somewhat tolerant to record type version?
+      ObjectRecordInstance *instance = AS_RECORD_INSTANCE(possible_instance);
       if (instance->record_type != accessor->record_type) {
         vm_runtime_error(vm, "Passed record of type %s to accessor that expects %s.",
                          instance->record_type->name->chars, accessor->record_type->name->chars);
