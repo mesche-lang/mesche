@@ -49,9 +49,7 @@
                                 " build --project "
                                 project-path
                                 " "
-                                target))
-
-  (display "\n"))
+                                target)))
 
 (define (compile-files source-files :keys src-path out-path c-compiler c-flags) :export
   (let compile-next ((input-files source-files)
@@ -75,7 +73,8 @@
                                                     output-file
                                                     " "
                                                     c-flags)))
-                    (display (string-append "Skipping " source-file "...\n")))
+                    ;; (display (string-append "Skipping " source-file "...\n"))
+                    nil)
                 (set! output-files (cons output-file output-files))))
           (compile-next (cdr input-files) output-files))
         output-files)))
@@ -95,9 +94,7 @@
                                 c-flags))
 
   ;; Make the file executable
-  (process-start (string-append "chmod +x " program-file))
-  ;; (display "\nDone!\n")
-  )
+  (process-start (string-append "chmod +x " program-file)))
 
 (define (link-static-library library-file output-files :keys c-libs) :export
   ;; (display "Linking static library!\n")
@@ -132,19 +129,21 @@
     ;; Resolve the project file path
     (set! project-file (path-resolve project-file))
 
-    ;; TODO: REMOVE
-    ;; (display "\n")
-    ;; (display (string-append "Project path: " project-file "\n"))
-    ;; (if target-name
-    ;;     (display (string-append "Target name: " target-name "\n")))
-    ;; (display "\n")
-
     ;; Load the project file
-    (let ((project (load-file project-file))
-          (project-path (file-directory project-file)))
+    (let ((project-path (file-directory project-file)))
       (if (not (equal? "." project-path))
           ;; Set working directory to the project path
           (process-directory-set! (file-directory project-file)))
+
+      ;; Load the project file
+      (load-file project-file)
+
+      ;; Use the default target if one was not specified
+      (if (not target-name)
+          (set! target-name default-target))
+
+      (if (not current-project) (display "NO PROJECT DEFINED\n"))
+      (display (string-append "Building " (project-name current-project) ", target " target-name "\n"))
 
       ;; Build the specified target
       (if target-name
