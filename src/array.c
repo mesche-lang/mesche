@@ -47,7 +47,7 @@ Value array_nth_msc(MescheMemory *mem, int arg_count, Value *args) {
 
 void mesche_array_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
-      vm, "mesche process",
+      vm, "mesche array",
       &(MescheNativeFuncDetails[]){{"make-array", array_make_msc, true},
                                    {"array-push", array_push_msc, true},
                                    {"array-length", array_length_msc, true},
