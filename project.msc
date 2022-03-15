@@ -4,7 +4,7 @@
           (mesche process)))
 
 (project :name "Mesche Compiler"
-         :url "https://github.com/mesche-lang/cli"
+         :url "https://github.com/mesche-lang/compiler"
          :version "0.0.1"
          :description "This is the compiler for the Mesche language.")
 
