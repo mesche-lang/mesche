@@ -1,0 +1,24 @@
+(define-module (mesche compiler)
+  (import (mesche build)
+          (mesche string)
+          (mesche process)))
+
+(project :name "Mesche Compiler"
+         :url "https://github.com/mesche-lang/cli"
+         :version "0.0.1"
+         :description "This is the compiler for the Mesche language.")
+
+(define source-files '("chunk.c" "compiler.c" "disasm.c"
+                       "fs.c" "list.c" "array.c" "mem.c" "module.c"
+                       "object.c" "process.c" "repl.c" "scanner.c"
+                       "string.c" "table.c" "value.c" "vm.c"))
+
+(target "lib"
+        (lambda (options)
+          (link-static-library "bin/libmesche.a"
+                               (compile-files source-files
+                                              :src-path "./src"
+                                              :out-path "./bin"
+                                              :c-flags "-I ./compiler/include"))))
+
+(target-default "lib")
