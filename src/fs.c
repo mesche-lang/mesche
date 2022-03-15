@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <libgen.h>
 #include <unistd.h>
 
@@ -127,6 +128,16 @@ Value fs_file_modified_time_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(file_stat.st_mtime);
 }
 
+Value fs_directory_create_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // TODO: Make permissions a parameter
+  int result = mkdir(AS_CSTRING(args[0]), 0777);
+
+  // TODO: Write out error on failure
+
+  return result == 0 ? T_VAL : NIL_VAL;
+}
+
+
 void mesche_fs_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche fs",
@@ -136,5 +147,6 @@ void mesche_fs_module_init(VM *vm) {
                                    {"file-directory", fs_file_directory_msc, true},
                                    {"file-extension", fs_file_extension_msc, true},
                                    {"file-modified-time", fs_file_modified_time_msc, true},
+                                   {"directory-create", fs_directory_create_msc, true},
                                    {NULL, NULL, false}});
 }
