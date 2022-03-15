@@ -35,9 +35,9 @@ Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
   ObjectString *process_string = AS_STRING(args[0]);
   FILE *process_pipe = popen(process_string->chars, "r");
 
-  char c;
-  while(c = getc(process_pipe) != EOF) {
-    putchar(c);
+  char buffer[BUFSIZ];
+  while (fgets(buffer, sizeof(buffer), process_pipe)) {
+    printf(buffer);
   }
 
   return T_VAL;
