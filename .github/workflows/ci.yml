@@ -34,9 +34,14 @@ jobs:
           # Run Mesche on itself to produce a release artifact
           tmp/bin/mesche build
 
+      - name: Sanity Check Again
+        run: bin/mesche
+
+      - name: Package Build
+        run: cd tmp && zip -r ../mesche.zip *
+
       - name: Archive workflow results
         uses: actions/upload-artifact@v2
         with:
           name: mesche
-          path: |
-            bin/mesche
+          path: mesche.zip

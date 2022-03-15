@@ -9,4 +9,5 @@
    "bash"
    "wget"
    "tar"
+   "zip"
    "gzip"))
