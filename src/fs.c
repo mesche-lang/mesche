@@ -76,6 +76,14 @@ Value fs_path_exists_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(access(AS_CSTRING(args[0]), F_OK) != -1);
 }
 
+Value fs_path_resolve_msc(MescheMemory *mem, int arg_count, Value *args) {
+  char *resolved_path = mesche_fs_resolve_path(AS_CSTRING(args[0]));
+  ObjectString *resolved_path_str = mesche_object_make_string(mem, resolved_path, strlen(resolved_path));
+  free(resolved_path);
+
+  return OBJECT_VAL(resolved_path_str);
+}
+
 Value fs_file_extension_msc(MescheMemory *mem, int arg_count, Value *args) {
   const char *file_path = AS_CSTRING(args[0]);
   const char *dot = strrchr(file_path, '.');
@@ -96,6 +104,18 @@ Value fs_file_name_msc(MescheMemory *mem, int arg_count, Value *args) {
   return OBJECT_VAL(file_name_str);
 }
 
+Value fs_file_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // dirname may change the original string, so duplicate it first
+  char *file_path = strdup(AS_CSTRING(args[0]));
+  char *dir_name = dirname(file_path);
+  ObjectString *dir_name_str = mesche_object_make_string(mem, dir_name, strlen(dir_name));
+
+  // NOTE: dir_name doesn't need to be freed because it doesn't cause an allocation
+  free(file_path);
+
+  return OBJECT_VAL(dir_name_str);
+}
+
 Value fs_file_modified_time_msc(MescheMemory *mem, int arg_count, Value *args) {
   const char *file_path = AS_CSTRING(args[0]);
   struct stat file_stat;
@@ -111,7 +131,9 @@ void mesche_fs_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche fs",
       &(MescheNativeFuncDetails[]){{"path-exists?", fs_path_exists_p_msc, true},
+                                   {"path-resolve", fs_path_resolve_msc, true},
                                    {"file-name", fs_file_name_msc, true},
+                                   {"file-directory", fs_file_directory_msc, true},
                                    {"file-extension", fs_file_extension_msc, true},
                                    {"file-modified-time", fs_file_modified_time_msc, true},
                                    {NULL, NULL, false}});
