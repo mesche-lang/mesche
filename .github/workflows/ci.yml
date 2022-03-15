@@ -18,6 +18,9 @@ jobs:
       - name: Bootstrap CLI
         run: ./build.sh
 
+      - name: Sanity Check
+        run: bin/mesche
+
       - name: Build CLI with Mesche
         run: |
           # Prepare a temporary copy
@@ -30,9 +33,6 @@ jobs:
 
           # Run Mesche on itself to produce a release artifact
           tmp/bin/mesche build
-
-      - name: Test
-        run: bin/mesche
 
       - name: Archive workflow results
         uses: actions/upload-artifact@v2
