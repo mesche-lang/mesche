@@ -1,18 +1,23 @@
 (define-module (mesche cli main)
   (import (mesche list)
+          (mesche build)
           (mesche process)
           (mesche cli project)))
 
-(define (run-build args)
-  ;; TODO: Resolve file to current working directory, or accept path
-  (let ((project (load-file "project.msc")))
-    (display "Running build for project: ")
-    (display "Project name: ")
-    (display (project-name project))))
+(define (repl-command)
+  (display "This would run the REPL!\n"))
+
+(define commands
+  (list (cons "build" build-command)
+        (cons "repl" repl-command)))
 
 (define (display-help)
-  (display "Mesche Compiler\n\nUsage: mesche <command> [arguments]\n\n"))
+  (display "Mesche Compiler\n\nUsage: mesche <command> [arguments]\n\nCommands:\n\n  build - Builds a Mesche project\n\n"))
 
-(if (equal? "build" (list-nth (process-arguments) 1))
-    (run-build '())
-    (display-help))
+(let find-command ((command (list-nth (process-arguments) 1))
+                   (commands commands))
+  (if (pair? commands)
+      (if (equal? command (car (car commands)))
+          ((cdr (car commands)))
+          (find-command command (cdr commands)))
+      (display-help)))

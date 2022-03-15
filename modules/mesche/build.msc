@@ -1,0 +1,152 @@
+(define-module (mesche build)
+  (import (mesche fs)
+          (mesche list)
+          (mesche process)
+          (mesche string)
+          (mesche cli project)))
+
+(define current-project nil)
+(define default-target nil)
+(define build-targets '())
+
+(define (project :keys name url version description) :export
+  (set! current-project (make-project :name name
+                                      :url url
+                                      :version version
+                                      :description description)))
+
+(define (target name func) :export
+  (set! build-targets (cons (cons name func) build-targets)))
+
+(define (target-default name) :export
+  (set! default-target name))
+
+(define (find-target target-name targets)
+  (if (pair? targets)
+      (let ((target (car targets)))
+        (if (equal? (car target) target-name)
+            (cdr target)
+            (find-target target-name (cdr targets))))))
+
+(define (build-default-target) :export
+  (if (equal? default-target nil)
+      (display "No default target specified!\n")
+      (build-target default-target)))
+
+(define (build-target target-name) :export
+  (let ((target-func (find-target target-name build-targets)))
+    (if target-func
+        ;; TODO: Send build options
+        (target-func nil)
+        (begin
+          (display "Could not find target '")
+          (display target-name)
+          (display  "'!\n")))))
+
+(define (build-project project-path :keys target) :export
+  ;; Launch myself to compile the specified project
+  (process-start (string-append (car (process-arguments))
+                                " build --project "
+                                project-path
+                                " "
+                                target))
+
+  (display "\n"))
+
+(define (compile-files source-files :keys src-path out-path c-compiler c-flags) :export
+  (let compile-next ((input-files source-files)
+                     (output-files '()))
+    (if (pair? input-files)
+        (begin
+          (if (equal? "c" (file-extension (car input-files)))
+              (let ((source-file (string-append src-path "/" (car input-files)))
+                    (output-file (string-append out-path "/" (file-name (car input-files)) ".o"))
+                    (compiler "gcc"))
+                (if (>= (file-modified-time source-file)
+                        (file-modified-time output-file))
+                    (begin
+                      (display "Compiling: ") (display source-file)
+                      (display " to ") (display output-file)
+                      (display "...\n\n")
+                      (process-start (string-append compiler
+                                                    " -c "
+                                                    source-file
+                                                    " -o "
+                                                    output-file
+                                                    " "
+                                                    c-flags)))
+                    (display (string-append "Skipping " source-file "...\n")))
+                (set! output-files (cons output-file output-files))))
+          (compile-next (cdr input-files) output-files))
+        output-files)))
+
+(define (link-program program-file output-files :keys c-libs c-flags) :export
+  ;; (display "Linking program ")
+  ;; (display program-file)
+  ;; (display "...\n")
+
+  ;; Run the linker
+  (process-start (string-append "gcc"
+                                " -o "
+                                program-file
+                                " "
+                                (string-join output-files " ")
+                                " "
+                                c-flags))
+
+  ;; Make the file executable
+  (process-start (string-append "chmod +x " program-file))
+  ;; (display "\nDone!\n")
+  )
+
+(define (link-static-library library-file output-files :keys c-libs) :export
+  ;; (display "Linking static library!\n")
+
+  ;; Run the linker
+  (process-start (string-append "ar rcs "
+                                library-file
+                                " "
+                                (string-join output-files " "))))
+
+(define-record-type build-config
+  (fields c-flags
+          c-libs
+          output-path))
+
+(define (build-command) :export
+  (let ((args (cdr (cdr (process-arguments))))
+        (project-file "./project.msc")
+        (target-name nil))
+
+    ;; Process arguments
+    (let next-arg ((args args))
+      (if (pair? args)
+          (if (equal? (car args) "--project")
+              (begin
+                (set! project-file (car (cdr args)))
+                (next-arg (cdr (cdr args))))
+              ;; The last possibility is that the target name is being specified
+              ;; TODO: Ensure the name doesn't start with --
+              (set! target-name (car args)))))
+
+    ;; Resolve the project file path
+    (set! project-file (path-resolve project-file))
+
+    ;; TODO: REMOVE
+    ;; (display "\n")
+    ;; (display (string-append "Project path: " project-file "\n"))
+    ;; (if target-name
+    ;;     (display (string-append "Target name: " target-name "\n")))
+    ;; (display "\n")
+
+    ;; Load the project file
+    (let ((project (load-file project-file))
+          (project-path (file-directory project-file)))
+      (if (not (equal? "." project-path))
+          ;; Set working directory to the project path
+          (process-directory-set! (file-directory project-file)))
+
+      ;; Build the specified target
+      (if target-name
+          (build-target target-name)
+          (build-default-target)))))

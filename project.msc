@@ -1,13 +1,30 @@
 (define-module (mesche cli)
-  (import (mesche cli project)))
+  (import (mesche list)
+          (mesche build)))
 
-(make-project :name "Mesche Command Line Interface"
-              :url "https://github.com/mesche-lang/cli"
-              :version "0.0.1"
-              :description "This is the command line interface for the Mesche language."
-              :dependencies '(mesche compiler)
+(project :name "Mesche Command Line Interface"
+         :url "https://github.com/mesche-lang/cli"
+         :version "0.0.1"
+         :description "This is the command line interface for the Mesche language.")
 
-              :inputs (list "src/main.c"
-                            "src/init.msc")
+(target "deps"
+        (lambda (options)
+          ;; (display "TODO: Ensure dependencies are downloaded...\n")
+          nil))
 
-              :output "bin/mesche")
+(target "main"
+        (lambda (options)
+          ;; Build the Mesche compiler
+          (build-target "deps")
+          (build-project "compiler/project.msc" :target "lib")
+
+          ;; Build and link CLI source files
+          (link-program "bin/mesche"
+                        (append (compile-files (list "main.c")
+                                               :src-path "./src"
+                                               :out-path "./bin"
+                                               :c-flags "-I ./compiler/include")
+                                (list "./compiler/bin/libmesche.a"))
+                        :c-flags "-O0 -g -ggdb -DDEBUG -fsanitize=address")))
+
+(target-default "main")
