@@ -49,6 +49,10 @@ Value string_append_msc(MescheMemory *mem, int arg_count, Value *args) {
   // Append all string arguments together
   ObjectString *result_string = AS_STRING(args[0]);
   for (int i = 1; i < arg_count; i++) {
+    // Skip all nils
+    if (IS_NIL(args[i]))
+      continue;
+
     mesche_vm_stack_push((VM *)mem, OBJECT_VAL(result_string));
     result_string = mesche_string_join((VM *)mem, result_string, AS_STRING(args[i]), NULL);
     mesche_vm_stack_pop((VM *)mem);
