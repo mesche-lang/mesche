@@ -409,9 +409,12 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
   // Locate the first argument on the value stack
   Value *arg_start = vm->stack_top - (arg_count + (keyword_count * 2));
 
+  // Store the number of keyword arguments the function takes, we'll need it later
+  int num_keyword_args = closure->function->keyword_args.count;
+
   // Process keyword arguments, if any
   if (keyword_count > 0) {
-    if (closure->function->keyword_args.count == 0) {
+    if (num_keyword_args == 0) {
       vm_runtime_error(vm, "Function does not accept keyword arguments.");
       return false;
     }
@@ -436,7 +439,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
     // keyword default values on so that they line up with the local variables
     // we've defined
     KeywordArgument *keyword_arg = closure->function->keyword_args.args;
-    for (int i = 0; i < closure->function->keyword_args.count; i++) {
+    for (int i = 0; i < num_keyword_args; i++) {
       // Check if the passed keyword args match this keyword
       bool found_match = false;
       for (int j = 0; j < keyword_count * 2; j += 2) {
@@ -476,16 +479,21 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
     vm_close_upvalues(vm, frame->slots);
 
     // Copy the new arguments (and the closure value itself) on top of the old
-    // slots
-    memmove(frame->slots, arg_start - 1, sizeof(Value) * (arg_count + 1));
+    // slots (add 1 to the argument counts because we're also copying the callee
+    // value).
+    //
+    // NOTE: we're using num_keyword_arguments because values for all keyword
+    // arguments will be sent to the call regardless of whether the caller
+    // specified them!
+    memmove(frame->slots, arg_start - 1, sizeof(Value) * (arg_count + num_keyword_args + 1));
 
     // Reset the top of the value stack to shrink it back to where it was before
-    vm->stack_top = frame->slots + arg_count + 1;
+    vm->stack_top = frame->slots + arg_count + num_keyword_args + 1;
 
     // Set up the closure and instruction pointer to continue execution
     frame->closure = closure;
     frame->ip = closure->function->chunk.code;
-    frame->total_arg_count = arg_count + keyword_count;
+    frame->total_arg_count = arg_count + num_keyword_args;
     return true;
   } else {
     CallFrame *frame = &vm->frames[vm->frame_count++];
@@ -496,7 +504,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
     // The total argument count is plain argument count plus number of
     // keyword arguments because we've removed the keywords from the list
     // and left either the specified value or the default.
-    frame->total_arg_count = arg_count + keyword_count;
+    frame->total_arg_count = arg_count + num_keyword_args;
 
     return true;
   }
