@@ -973,6 +973,7 @@ static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token
     break;
   case TokenKindLessEqual:
     compiler_emit_byte(ctx, OP_LESS_EQUAL);
+    break;
   case TokenKindList:
     compiler_emit_bytes(ctx, OP_LIST, operand_count);
     break;
