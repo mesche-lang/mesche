@@ -3,9 +3,14 @@
 # Yes, I know I could just use a Makefile.  This script is for bootstrapping purposes.
 
 CC=${CC:-gcc}
+if [ "$1" == "--debug" ]; then
+ FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
+else
+ FLAGS="-O2 -fPIE"
+fi
+
 SOURCE_DIR=src
 OUTPUT_DIR=bin
-DEBUG_FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
 
 source_files=(
     "chunk.c"
@@ -41,7 +46,7 @@ do
 
     if [[ $input_file -nt $output_file ]]; then
         echo "Compiling $i..."
-        $CC -c $DEBUG_FLAGS "$SOURCE_DIR/$i" -o "$OUTPUT_DIR/${i%.c}.o"
+        $CC -c $FLAGS "$SOURCE_DIR/$i" -o "$OUTPUT_DIR/${i%.c}.o"
         [ $? -eq 1 ] && exit 1
     else
         echo "Skipping $i, it is up to date."
@@ -49,7 +54,5 @@ do
 done
 
 # Build the static library
-echo -e "\nCreating static library bin/libmesche.a..."
+echo -e "Creating static library bin/libmesche.a...\n"
 ar rcs bin/libmesche.a "${object_files[@]}"
-
-echo -e "\nDone!\n"
