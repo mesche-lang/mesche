@@ -8,7 +8,7 @@ if [ "$1" == "--debug" ]; then
  BUILD_ARGS="--debug"
 else
  CC="$(pwd)/musl/bin/x86_64-linux-musl-gcc -static"
- FLAGS="-O2"
+ FLAGS="-O2 -fPIE"
  BUILD_ARGS=""
 fi
 
