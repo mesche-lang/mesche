@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h>
 
 #include "object.h"
 #include "process.h"
@@ -20,6 +21,16 @@ Value process_arguments_msc(MescheMemory *mem, int arg_count, Value *args) {
   return first;
 }
 
+Value process_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
+  char cwd[512];
+  char *current_path = getcwd(cwd, sizeof(cwd));
+  return OBJECT_VAL(mesche_object_make_string(mem, current_path, strlen(current_path)));
+}
+
+Value process_directory_set_msc(MescheMemory *mem, int arg_count, Value *args) {
+  chdir(AS_CSTRING(args[0])) == 0 ? T_VAL: NIL_VAL;
+}
+
 Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
   ObjectString *process_string = AS_STRING(args[0]);
   FILE *process_pipe = popen(process_string->chars, "r");
@@ -37,5 +48,7 @@ void mesche_process_module_init(VM *vm) {
       vm, "mesche process",
       &(MescheNativeFuncDetails[]){{"process-start", process_start_msc, true},
                                    {"process-arguments", process_arguments_msc, true},
+                                   {"process-directory", process_directory_msc, true},
+                                   {"process-directory-set!", process_directory_set_msc, true},
                                    {NULL, NULL, false}});
 }
