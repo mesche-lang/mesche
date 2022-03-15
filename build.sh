@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 
-CC="musl/bin/x86_64-linux-musl-gcc -static"
+# Yes, I know I could just use a Makefile.  This script is for bootstrapping purposes.
+
+if [ "$1" == "--debug" ]; then
+ CC="gcc"
+ FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
+ BUILD_ARGS="--debug"
+else
+ CC="$(pwd)/musl/bin/x86_64-linux-musl-gcc -static"
+ FLAGS="-O2"
+ BUILD_ARGS=""
+fi
+
 SOURCE_DIR=src
 OUTPUT_DIR=bin
 CFLAGS="-I ./compiler/include"
-
-# Yes, I know I could just use a Makefile.  This script is for bootstrapping purposes.
 
 # Ensure that the compiler library is cloned
 if [ ! -d "./compiler" ]; then
@@ -31,9 +40,8 @@ if [ ! -d "./musl" ]; then
 fi
 
 # Build the compiler
-LCC="$(pwd)/$CC"
 cd ./compiler
-CC=$LCC ./build.sh
+CC=$CC ./build.sh $BUILD_ARGS
 [ $? -eq 1 ] && exit 1
 cd ..
 
@@ -57,7 +65,7 @@ do
 
     if [[ $input_file -nt $output_file ]]; then
         echo "Compiling $i..."
-        $CC -c "$SOURCE_DIR/$i" -o "$OUTPUT_DIR/${i%.c}.o" $CFLAGS
+        $CC -c $FLAGS "$SOURCE_DIR/$i" -o "$OUTPUT_DIR/${i%.c}.o" $CFLAGS
         [ $? -eq 1 ] && exit 1
     else
         echo "Skipping $i, it is up to date."
@@ -65,9 +73,7 @@ do
 done
 
 # Build the CLI program
-echo -e "\nCreating Mesche CLI bin/mesche..."
-$CC -o bin/mesche "${object_files[@]}" ./compiler/bin/libmesche.a
+echo -e "Creating Mesche CLI bin/mesche...\n"
+$CC -o bin/mesche "${object_files[@]}" ./compiler/bin/libmesche.a $FLAGS
 [ $? -eq 1 ] && exit 1
 chmod +x bin/mesche
-
-echo -e "\nDone!\n"
