@@ -1228,6 +1228,9 @@ InterpretResult mesche_vm_load_module(VM *vm, const char *module_path) {
 
     return result;
   }
+
+  // Since we can't run the module body yet, return that things are OK
+  return INTERPRET_OK;
 }
 
 InterpretResult mesche_vm_load_file(VM *vm, const char *file_path) {
