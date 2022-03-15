@@ -18,7 +18,6 @@
           (link-static-library "bin/libmesche.a"
                                (compile-files source-files
                                               :src-path "./src"
-                                              :out-path "./bin"
-                                              :c-flags "-I ./compiler/include"))))
+                                              :out-path "./bin"))))
 
 (target-default "lib")
