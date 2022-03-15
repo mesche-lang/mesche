@@ -1,6 +1,7 @@
 #include <stdlib.h>
 
 #include "string.h"
+#include "util.h"
 
 char *mesche_cstring_join(const char *left, size_t left_length, const char *right,
                           size_t right_length, const char *separator) {
@@ -44,8 +45,8 @@ ObjectString *mesche_string_join(VM *vm, ObjectString *left, ObjectString *right
   return new_string;
 }
 
-Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // Join all string arguments together
+Value string_append_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // Append all string arguments together
   ObjectString *result_string = AS_STRING(args[0]);
   for (int i = 1; i < arg_count; i++) {
     mesche_vm_stack_push((VM *)mem, OBJECT_VAL(result_string));
@@ -57,8 +58,50 @@ Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
   return OBJECT_VAL(result_string);
 }
 
+static Value string_join_list(MescheMemory *mem, ObjectCons *list, const char *separator) {
+  Value current = OBJECT_VAL(list);
+  ObjectString *result_string = NULL;
+  while (IS_CONS(current)) {
+    ObjectCons *cons = AS_CONS(current);
+    if (IS_STRING(cons->car)) {
+      if (result_string == NULL) {
+        result_string = AS_STRING(cons->car);
+      } else {
+        mesche_vm_stack_push((VM *)mem, OBJECT_VAL(result_string));
+        result_string =
+            mesche_string_join((VM *)mem, result_string, AS_STRING(cons->car), separator);
+        mesche_vm_stack_pop((VM *)mem);
+      }
+    } else {
+      // ERROR?
+    }
+
+    current = cons->cdr;
+  }
+
+  return OBJECT_VAL(result_string);
+}
+
+Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
+  char *separator = NULL;
+  if (arg_count > 1) {
+    separator = AS_CSTRING(args[1]);
+  }
+
+  Value collection = args[0];
+  if (IS_CONS(collection)) {
+    return string_join_list(mem, AS_CONS(collection), separator);
+    /* } else if (IS_ARRAY(collection)) { */
+    /*   return string_join_array(mem, AS_ARRAY(collection), separator); */
+  } else {
+    PANIC("string-join: Unexpected object kind: %d\n", AS_OBJECT(collection)->kind);
+  }
+}
+
 void mesche_string_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche string",
-      &(MescheNativeFuncDetails[]){{"string-join", string_join_msc, true}, {NULL, NULL, false}});
+      &(MescheNativeFuncDetails[]){{"string-append", string_append_msc, true},
+                                   {"string-join", string_join_msc, true},
+                                   {NULL, NULL, false}});
 }
