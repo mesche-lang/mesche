@@ -20,6 +20,7 @@ source_files=(
     "list.c"
     "array.c"
     "mem.c"
+    "math.c"
     "module.c"
     "object.c"
     "process.c"

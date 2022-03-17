@@ -9,13 +9,13 @@
 #include "disasm.h"
 #include "fs.h"
 #include "list.h"
+#include "math.h"
 #include "mem.h"
 #include "module.h"
 #include "object.h"
 #include "op.h"
 #include "process.h"
 #include "string.h"
-#include "process.h"
 #include "util.h"
 #include "value.h"
 #include "vm.h"
@@ -294,6 +294,7 @@ static void mem_collect_garbage(MescheMemory *mem) {
 void mesche_vm_register_core_modules(VM *vm) {
   mesche_fs_module_init(vm);
   mesche_list_module_init(vm);
+  mesche_math_module_init(vm);
   mesche_array_module_init(vm);
   mesche_string_module_init(vm);
   mesche_process_module_init(vm);
