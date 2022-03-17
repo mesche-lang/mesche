@@ -1,23 +1,86 @@
 (define-module (mesche cli main)
   (import (mesche list)
           (mesche build)
+          (mesche string)
           (mesche process)
           (mesche cli project)))
 
+(define (run-command)
+  (display "TODO: This would build and run the project!\n"))
+
+(define (install-command)
+  (display "TODO: This would install the project!\n"))
+
+(define (sync-command)
+  (display "TODO: This would sync project dependencies!\n"))
+
+(define (new-command)
+  (display "TODO: This would create a new Mesche project!\n"))
+
+(define (version-command)
+  (display "TODO: This would return the version of Mesche!\n"))
+
 (define (repl-command)
-  (display "This would run the REPL!\n"))
+  (display "TODO: This would run the REPL!\n"))
 
-(define commands
-  (list (cons "build" build-command)
-        (cons "repl" repl-command)))
+(define-record-type cli-command
+  (fields name
+          summary
+          run-function
+          help-function))
 
-(define (display-help)
-  (display "Mesche Compiler\n\nUsage: mesche <command> [arguments]\n\nCommands:\n\n  build - Builds a Mesche project\n\n"))
+(define (find-command command-name commands)
+  (if (and command-name (pair? commands))
+      (if (equal? command-name (cli-command-name (car commands)))
+          (car commands)
+          (find-command command-name (cdr commands)))))
 
-(let find-command ((command (list-nth (process-arguments) 1))
-                   (commands commands))
-  (if (pair? commands)
-      (if (equal? command (car (car commands)))
-          ((cdr (car commands)))
-          (find-command command (cdr commands)))
-      (display-help)))
+(define (display-help commands)
+  (if (and (equal? "help" (list-nth (process-arguments) 1))
+           (list-nth (process-arguments) 2))
+      (let ((command (find-command (list-nth (process-arguments) 2) commands)))
+        (if command
+            (if (cli-command-help-function command)
+                ((cli-command-help-function command))
+                (display "No additional help for command.\n"))
+            (display (string-append "Unknown command: " (list-nth (process-arguments) 2) "\n"))))
+      (begin
+        (display "Mesche Compiler\n\nUsage: mesche <command> [arguments]\n\nCommands:\n\n")
+        (let next-command ((commands commands))
+          (if (pair? commands)
+              (begin
+                (display (string-append "  "
+                                        (cli-command-name (car commands))
+                                        " -- "
+                                        (cli-command-summary (car commands))
+                                        "\n"))
+                (next-command (cdr commands))))))))
+
+(define (handle-command-arguments commands)
+  (let ((command (find-command (list-nth (process-arguments) 1) commands)))
+    (if command
+        ((cli-command-run-function command))
+        (display-help commands))))
+
+(handle-command-arguments
+ (list (make-cli-command :name "build"
+                         :summary "Builds a Mesche project target."
+                         :run-function build-command)
+       (make-cli-command :name "run"
+                         :summary "Builds a Mesche project target and runs its output immediately."
+                         :run-function run-command)
+       (make-cli-command :name "install"
+                         :summary "Installs the output files of a Mesche project to your system."
+                         :run-function install-command)
+       (make-cli-command :name "sync"
+                         :summary "Syncs the dependencies of a Mesche project."
+                         :run-function sync-command)
+       (make-cli-command :name "new"
+                         :summary "Creates a new Mesche project using pre-defined templates."
+                         :run-function new-command)
+       (make-cli-command :name "version"
+                         :summary "Returns the versions of the Mesche CLI and compiler."
+                         :run-function version-command)
+       (make-cli-command :name "repl"
+                         :summary "Launches a Mesche REPL in the context of the current project."
+                         :run-function repl-command)))
