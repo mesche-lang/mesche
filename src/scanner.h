@@ -21,6 +21,7 @@ typedef enum {
   TokenKindMinus,
   TokenKindStar,
   TokenKindSlash,
+  TokenKindPercent,
   TokenKindAnd,
   TokenKindOr,
   TokenKindNot,

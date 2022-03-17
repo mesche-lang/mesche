@@ -72,6 +72,8 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_simple_instr("OP_MULTIPLY", offset);
   case OP_DIVIDE:
     return mesche_disasm_simple_instr("OP_DIVIDE", offset);
+  case OP_MODULO:
+    return mesche_disasm_simple_instr("OP_MODULO", offset);
   case OP_NEGATE:
     return mesche_disasm_simple_instr("OP_NEGATE", offset);
   case OP_AND:

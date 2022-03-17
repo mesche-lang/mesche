@@ -751,6 +751,16 @@ InterpretResult mesche_vm_run(VM *vm) {
     case OP_DIVIDE:
       BINARY_OP(NUMBER_VAL, IS_NUMBER, AS_NUMBER, /);
       break;
+    case OP_MODULO: {
+      if (!IS_NUMBER(vm_stack_peek(vm, 0)) || !IS_NUMBER(vm_stack_peek(vm, 1))) {
+        vm_runtime_error(vm, "Operands must be numbers.");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      int b = (int)AS_NUMBER(mesche_vm_stack_pop(vm));
+      int a = (int)AS_NUMBER(mesche_vm_stack_pop(vm));
+      mesche_vm_stack_push(vm, NUMBER_VAL(a % b));
+      break;
+    }
     case OP_AND:
       BINARY_OP(BOOL_VAL, IS_ANY, AS_BOOL, &&);
       break;

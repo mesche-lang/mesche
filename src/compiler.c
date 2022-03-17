@@ -953,6 +953,9 @@ static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token
   case TokenKindSlash:
     compiler_emit_byte(ctx, OP_DIVIDE);
     break;
+  case TokenKindPercent:
+    compiler_emit_byte(ctx, OP_MODULO);
+    break;
   case TokenKindAnd:
     compiler_emit_byte(ctx, OP_AND);
     break;

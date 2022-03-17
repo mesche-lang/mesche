@@ -320,6 +320,8 @@ Token mesche_scanner_next_token(Scanner *scanner) {
     return scanner_make_token(scanner, TokenKindStar);
   case '/':
     return scanner_make_token(scanner, TokenKindSlash);
+  case '%':
+    return scanner_make_token(scanner, TokenKindPercent);
   case '>': {
     if (scanner_peek(scanner) == '=') {
       scanner_next_char(scanner);
