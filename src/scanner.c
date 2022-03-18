@@ -46,6 +46,11 @@ static Token scanner_read_string(Scanner *scanner) {
     if (scanner_peek(scanner) == '\n')
       scanner->line++;
 
+    if (scanner_peek(scanner) == '\\' && scanner_peek_next(scanner) == '\"') {
+      // Include the escaped quote
+      scanner_next_char(scanner);
+    }
+
     scanner_next_char(scanner);
   }
 
