@@ -122,6 +122,7 @@ struct ObjectFunction {
   Object object;
   FunctionType type;
   int arity;
+  int rest_arg_index;
   int upvalue_count;
   Chunk chunk;
   KeywordArgumentArray keyword_args;

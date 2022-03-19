@@ -178,6 +178,25 @@ static void compiles_if_expr_no_else() {
   PASS();
 }
 
+static void compiles_lambda_rest_keyword_args() {
+  COMPILER_INIT();
+
+  COMPILE("(define (rest-func x y :rest args)"
+          "  (display args))");
+
+  ObjectFunction *func = AS_FUNCTION(out_func->chunk.constants.values[1]);
+  ASSERT_INT(func->rest_arg_index, 3);
+
+  COMPILE("(define (rest-func :rest args :keys x y)"
+          "  (display args))");
+
+  func = AS_FUNCTION(out_func->chunk.constants.values[1]);
+  ASSERT_INT(func->rest_arg_index, 1);
+  ASSERT_INT(func->keyword_args.count, 2);
+
+  PASS();
+}
+
 /*
 
   Check section 11.20 of R6RS spec, it mentions how to determine tail contexts.
@@ -386,6 +405,7 @@ void test_compiler_suite() {
   compiles_named_let();
   compiles_if_expr();
   compiles_if_expr_no_else();
+  compiles_lambda_rest_keyword_args();
   compiles_tail_call_basic();
   compiles_tail_call_begin();
   compiles_tail_call_let();

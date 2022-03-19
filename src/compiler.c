@@ -65,6 +65,12 @@ typedef struct {
   ObjectString *doc_string;
 } DefineAttributes;
 
+typedef enum {
+  ARG_POSITIONAL,
+  ARG_REST,
+  ARG_KEYWORD
+} ArgType;
+
 void mesche_compiler_mark_roots(void *target) {
   CompilerContext *ctx = (CompilerContext *)target;
 
@@ -661,6 +667,10 @@ static void compiler_parse_define_attributes(CompilerContext *ctx,
   }
 }
 
+static bool compiler_compare_keyword(Token keyword, const char *expected_name) {
+  return memcmp(keyword.start + 1, expected_name, strlen(expected_name)) == 0;
+}
+
 static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name,
                                         DefineAttributes *define_attributes) {
   // Create a new compiler context for parsing the function body
@@ -668,6 +678,7 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name
   compiler_init_context(&func_ctx, ctx, TYPE_FUNCTION);
   compiler_begin_scope(&func_ctx);
 
+  ArgType arg_type = ARG_POSITIONAL;
   bool in_keyword_list = false;
   for (;;) {
     // Try to parse each argument until we reach a closing paren
@@ -678,16 +689,29 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name
     }
 
     if (func_ctx.parser->current.kind == TokenKindKeyword) {
-      compiler_consume(&func_ctx, TokenKindKeyword,
-                       "Expected :keys keyword to start keyword list.");
-      in_keyword_list = true;
+      if (compiler_compare_keyword(func_ctx.parser->current, "keys")) {
+        arg_type = ARG_KEYWORD;
+      } else if (compiler_compare_keyword(func_ctx.parser->current, "rest")) {
+        arg_type = ARG_REST;
+      } else {
+        compiler_error_at_current(&func_ctx, "Unexpected function definition keyword.");
+      }
+      compiler_advance(&func_ctx);
     }
 
-    if (!in_keyword_list) {
+    if (arg_type < ARG_KEYWORD) {
       // Increase the function argument count (arity)
       func_ctx.function->arity++;
       if (func_ctx.function->arity > 255) {
         compiler_error_at_current(&func_ctx, "Function cannot have more than 255 parameters.");
+      }
+
+      if (arg_type == ARG_REST) {
+        if (func_ctx.function->rest_arg_index > 0) {
+          compiler_error_at_current(&func_ctx, "Function cannot have more than one :rest argument.");
+        }
+
+        func_ctx.function->rest_arg_index = func_ctx.function->arity;
       }
 
       // Parse the argument

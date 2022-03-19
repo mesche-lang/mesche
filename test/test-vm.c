@@ -46,6 +46,36 @@ static void returns_basic_values() {
   PASS();
 }
 
+static void calls_function_with_rest_args() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(module-import (mesche list))"
+          "(define (with-rest x :rest args)"
+          "  (car (cdr (cdr args))))"
+          "(with-rest 1 2 3 4)", INTERPRET_OK);
+
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  VM_EVAL("(module-import (mesche list))"
+          "(define (with-rest x :rest args :keys key)"
+          "  (car (cdr (cdr args))))"
+          "(with-rest 4 5 6 7 8)", INTERPRET_OK);
+
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  VM_EVAL("(define (with-rest x :rest args :keys key)"
+          "  args)"
+          "(with-rest 4 :key 'foo)", INTERPRET_OK);
+
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NIL);
+
+  PASS();
+}
+
 static void imports_modules() {
   VM_INIT();
   Value value;
@@ -123,6 +153,7 @@ void test_vm_suite() {
   test_suite_cleanup_func = vm_suite_cleanup;
 
   returns_basic_values();
+  calls_function_with_rest_args();
   imports_modules();
   evaluates_let();
   evaluates_tail_calls();

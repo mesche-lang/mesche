@@ -48,7 +48,6 @@ static void vm_reset_stack(VM *vm) {
 static void vm_runtime_error(VM *vm, const char *format, ...) {
   CallFrame *frame = &vm->frames[vm->frame_count - 1];
 
-  // TODO: Port to printf
   va_list args;
   va_start(args, format);
   vfprintf(stderr, format, args);
@@ -402,8 +401,13 @@ static void vm_close_upvalues(VM *vm, Value *stack_slot) {
 
 static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t keyword_count,
                     bool is_tail_call) {
-  if (arg_count != closure->function->arity) {
+  // Arity checks differ depending on whether a :rest argument is present
+  if (closure->function->rest_arg_index == 0 && arg_count != closure->function->arity) {
     vm_runtime_error(vm, "Expected %d arguments but got %d.", closure->function->arity, arg_count);
+    return false;
+  } else if (closure->function->rest_arg_index > 0 && arg_count < closure->function->arity - 1) {
+    vm_runtime_error(vm, "Expected at least %d arguments but got %d.", closure->function->arity - 1,
+                     arg_count);
     return false;
   }
 
@@ -468,6 +472,78 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
       }
 
       keyword_arg++;
+    }
+  } else if (num_keyword_args > 0) {
+    // This branch is reached if the function takes keyword arguments but
+    // the caller didn't specify any.
+
+    KeywordArgument *keyword_arg = closure->function->keyword_args.args;
+    for (int i = 0; i < num_keyword_args; i++) {
+      // Apply default value of keyword argument
+      if (keyword_arg->default_index > 0) {
+        mesche_vm_stack_push(
+            vm, closure->function->chunk.constants.values[keyword_arg->default_index - 1]);
+      } else {
+        // If no default value was provided, choose `nil`
+        mesche_vm_stack_push(vm, NIL_VAL);
+      }
+
+      keyword_arg++;
+    }
+  }
+
+  // Only process rest arguments if there is one and the number of passed arguments is
+  // clearly enough to trigger it
+  if (closure->function->rest_arg_index > 0) {
+    if (arg_count >= closure->function->arity) {
+      // Collapse all rest arguments into a single list:
+      // 1. Create a new cons using the value at rest index, save it back in the same spot
+      // 2. Repeat the process until all values have been integrated into the list
+      // 3. Shift the keyword argument values to fill the gap
+
+      mesche_vm_stack_push(vm, EMPTY_VAL);
+      int rest_value_count = (int)arg_count - closure->function->rest_arg_index + 1;
+      int rest_value_start = (int)num_keyword_args + 1;
+      for (int i = rest_value_start; i < rest_value_start + rest_value_count; i++) {
+        // Allocate the new cons pair in a way that avoids GC collection
+        ObjectCons *cons =
+            mesche_object_make_cons((MescheMemory *)vm, vm_stack_peek(vm, i), vm_stack_peek(vm, 0));
+        mesche_vm_stack_pop(vm);
+        mesche_vm_stack_push(vm, OBJECT_VAL(cons));
+      }
+
+      // Move the new argument list variable into the argument position
+      ObjectCons *arg_list = AS_CONS(mesche_vm_stack_pop(vm));
+      *(vm->stack_top - (rest_value_start + rest_value_count - 1)) = OBJECT_VAL(arg_list);
+      vm->stack_top = arg_start + closure->function->arity + num_keyword_args;
+
+      // Copy the keyword arguments on top of the old value slots that we collapsed
+      // into a single slot.
+      //
+      // NOTE: we're using num_keyword_arguments because values for all keyword
+      // arguments will be sent to the call regardless of whether the caller
+      // specified them!
+      if (num_keyword_args > 0) {
+        // arg_count specifies the original argument count which includes the
+        // individual rest arguments, so we use it to target the keyword values
+        // that were placed after rest arguments.
+        memmove(arg_start + closure->function->arity, arg_start + arg_count,
+                sizeof(Value) * num_keyword_args);
+      }
+
+      // Update the argument count to reflect the reduced amount
+      arg_count -= rest_value_count - 1;
+    } else {
+      // Fill in rest arg with nil if nothing was passed for it
+      if (num_keyword_args > 0) {
+        // Shift the keyword args forward by 1
+        memmove(arg_start + closure->function->arity + 1, arg_start + closure->function->arity,
+                sizeof(Value) * num_keyword_args);
+      }
+
+      // Place the NIL value and update the stack top
+      *(vm->stack_top - num_keyword_args) = NIL_VAL;
+      vm->stack_top = arg_start + closure->function->arity + num_keyword_args;
     }
   }
 
@@ -972,7 +1048,7 @@ InterpretResult mesche_vm_run(VM *vm) {
         // a module to keep the stack handling consistent, so push the resolved
         // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
         // stack first!
-        mesche_vm_stack_pop(vm);  // Pop the module path list
+        mesche_vm_stack_pop(vm); // Pop the module path list
         mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
         mesche_vm_stack_push(vm, NIL_VAL);
       }
@@ -1062,7 +1138,6 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     }
     case OP_TAIL_CALL: {
-      // TODO: Perhaps this can be a flag to OP_CALL?
       // Call the function with the specified number of arguments
       uint8_t arg_count = READ_BYTE();
       uint8_t keyword_count = READ_BYTE();
