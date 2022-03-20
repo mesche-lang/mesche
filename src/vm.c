@@ -1330,5 +1330,10 @@ InterpretResult mesche_vm_load_file(VM *vm, const char *file_path) {
   InterpretResult result = mesche_vm_eval_string(vm, source);
   free(source);
 
+  if (result == INTERPRET_COMPILE_ERROR) {
+    vm_runtime_error(vm, "Could not load file due to compilation error: %s\n", file_path);
+    return result;
+  }
+
   return result;
 }
