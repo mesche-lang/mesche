@@ -1270,7 +1270,7 @@ static void compiler_parse_expr(CompilerContext *ctx) {
     compiler_advance(ctx);
     compiler_parse_identifier(ctx);
   } else {
-    PANIC("Unexpected token kind: %d\n", ctx->parser->current.kind);
+    compiler_error_at_current(ctx, "Premature end of expression.");
   }
 }
 
