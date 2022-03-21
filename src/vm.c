@@ -655,6 +655,13 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
     case ObjectKindRecordFieldAccessor: {
       ObjectRecordFieldAccessor *accessor = AS_RECORD_FIELD_ACCESSOR(callee);
 
+      if (arg_count != 1) {
+        vm_runtime_error(
+            vm, "Record field accessor for type '%s' requires a single record instance argument.",
+            accessor->record_type->name->chars);
+        return false;
+      }
+
       Value possible_instance = vm_stack_peek(vm, 0);
       if (!IS_OBJECT(possible_instance)) {
         vm_runtime_error(vm, "Expected instance of record type %s but received non-object kind %d.",
