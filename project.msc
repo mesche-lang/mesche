@@ -1,6 +1,9 @@
 (define-module (mesche cli)
-  (import (mesche build)
-          (mesche project)))
+  (import (mesche fs)
+          (mesche build)
+          (mesche string)
+          (mesche project)
+          (mesche process)))
 
 (project :name "Mesche Command Line Interface"
          :url "https://github.com/mesche-lang/cli"
@@ -10,11 +13,16 @@
          :deps (list (musl-toolchain)
                      (mesche-lib "mesche-lang/compiler"))
 
-         :configs (list (config :name "debug"
+         :configs (list (config :name "dev"
                                 :default t
-                                :output-path "./bin/debug"
+                                :output-path "./bin/dev"
                                 :c-compiler "gcc"
-                                :c-flags "-O0 -g -ggdb -DDEBUG -fsanitize=address")
+                                :c-flags "-O0 -g -ggdb -DDEV_BUILD -fsanitize=address")
+
+                        (config :name "debug"
+                                :output-path "./bin/debug"
+                                :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
+                                :c-flags "-O0 -g -ggdb -DDEBUG -fPIE")
 
                         (config :name "release"
                                 :output-path "./bin/release"
@@ -27,4 +35,17 @@
                                 :runs (steps (build-project "./deps/mesche-lang/compiler/project.msc" :target "lib")
                                              (compile-source :source-files (list "main.c")
                                                              :mesche-main "modules/main.msc")
-                                             (link-program "mesche")))))
+                                             (link-program "mesche")))
+
+                        (target :name "dist"
+                                :description "Prepares the Mesche CLI distribution."
+                                :runs (steps (build-target "main")
+                                             (lambda (project config outputs)
+                                               ;; TODO: Clean existing dist folder?
+                                               (path-ensure "./dist")
+                                               (process-start (string-append "cp "
+                                                                             (project-config-output-path config)
+                                                                             "/mesche "
+                                                                             "dist/"))
+                                               (process-start "cp -R ./modules ./dist")
+                                               nil)))))

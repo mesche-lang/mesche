@@ -14,8 +14,13 @@ int main(int argc, char **argv) {
 
   // Change directory to resolve the path correctly
   chdir(program_dir);
-  char *main_file_path = mesche_fs_resolve_path("./../modules/main.msc");
-  char *modules_path = mesche_fs_resolve_path("./../modules/");
+#ifdef DEV_BUILD
+  char *main_file_path = mesche_fs_resolve_path("./../../modules/main.msc");
+  char *modules_path = mesche_fs_resolve_path("./../../modules/");
+#else
+  char *main_file_path = mesche_fs_resolve_path("./modules/main.msc");
+  char *modules_path = mesche_fs_resolve_path("./modules/");
+#endif
   chdir(original_dir);
 
   // Make sure the VM has the full program path

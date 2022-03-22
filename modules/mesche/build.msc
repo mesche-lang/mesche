@@ -127,10 +127,10 @@
 
 (define (build-target target-name) :export
   (lambda (project config outputs)
-    (let ((target-func (project-find-target project target-name)))
+    (let ((target (project-find-target project target-name)))
       ;; TODO: Throw error if target isn't found
-      (if target-func
-          (target-func config outputs)
+      (if target
+          (run-target project target config)
           (begin
             (display "Could not find target '")
             (display target-name)
@@ -208,8 +208,11 @@
 
 (define (build-project project-path :keys target-name config-name) :export
   (lambda (project config outputs)
-    ;; TODO: Don't assume the same configuration name, allow it to be passed as param!
-    (build-project-inner project-path target-name config-name)))
+    ;; By default, use the name of the current project configuration
+    (if (not config-name) (set! config-name (project-config-name config)))
+    (build-project-inner project-path
+                         target-name
+                         config-name)))
 
 (define (compile-source :keys source-files src-path mesche-main) :export
   ;; TODO: Use mesche-main to generate a main.c file that invokes it
@@ -235,6 +238,8 @@
                         (output-file (string-append out-path "/" (file-name (car input-files)) ".o")))
 
                     ;; Ensure the output path exists
+                    ;; TODO: Do this twice because it sometimes fails the first time...
+                    (path-ensure (file-directory output-file))
                     (path-ensure (file-directory output-file))
 
                     ;; Compile the file if the source is newer than the output file
@@ -243,7 +248,7 @@
                         (begin
                           (display "Compiling: ") (display source-file)
                           (display " to ") (display output-file)
-                          (display "...\n\n")
+                          (display "...\n")
                           (process-start (string-append c-compiler
                                                         " -c "
                                                         source-file
@@ -330,7 +335,8 @@
                          (next-arg (cdr (cdr args))))
                   ;; The last possibility is that the target name is being specified
                   ;; TODO: Ensure the name doesn't start with --
-                  (set! target-name (car args))))))
+                  (begin (set! target-name (car args))
+                         (next-arg (cdr args)))))))
 
     ;; Build the specified project
     (build-project-inner project-path target-name config-name))
