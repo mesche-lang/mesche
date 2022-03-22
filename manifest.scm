@@ -6,6 +6,7 @@
    "pkg-config"
    "gdb"
    "git"
+   "nss-certs"
    "bash"
    "wget"
    "tar"
