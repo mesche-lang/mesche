@@ -14,12 +14,13 @@ fi
 
 SOURCE_DIR=src
 OUTPUT_DIR=bin
-CFLAGS="-I ./compiler/include"
+CFLAGS="-I ./deps/mesche-lang/compiler/include"
 
 # Ensure that the compiler library is cloned
-if [ ! -d "./compiler" ]; then
+if [ ! -d "./deps/mesche-lang/compiler" ]; then
+  mkdir -p ./deps/mesche-lang
   echo -e "Cloning Mesche Compiler repo...\n"
-  git clone https://github.com/mesche-lang/compiler compiler
+  git clone https://github.com/mesche-lang/compiler ./deps/mesche-lang/compiler
 fi
 
 # Also pull down musl-c
@@ -40,10 +41,11 @@ if [ ! -d "./musl" ]; then
 fi
 
 # Build the compiler
-cd ./compiler
+pushd ./deps/mesche-lang/compiler
+cd ./deps/mesche-lang/compiler
 CC=$CC ./build.sh $BUILD_ARGS
 [ $? -eq 1 ] && exit 1
-cd ..
+popd
 
 # Build the CLI
 source_files=(
@@ -74,6 +76,6 @@ done
 
 # Build the CLI program
 echo -e "Creating Mesche CLI bin/mesche...\n"
-$CC -o bin/mesche "${object_files[@]}" ./compiler/bin/libmesche.a $FLAGS
+$CC -o bin/mesche "${object_files[@]}" ./deps/mesche-lang/compiler/bin/libmesche.a $FLAGS
 [ $? -eq 1 ] && exit 1
 chmod +x bin/mesche

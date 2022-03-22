@@ -1,30 +1,30 @@
 (define-module (mesche cli)
-  (import (mesche list)
-          (mesche build)))
+  (import (mesche build)
+          (mesche cli project)))
 
 (project :name "Mesche Command Line Interface"
          :url "https://github.com/mesche-lang/cli"
          :version "0.0.1"
-         :description "This is the command line interface for the Mesche language.")
+         :description "This is the command line interface for the Mesche language."
 
-(target "deps"
-        (lambda (options)
-          ;; (display "TODO: Ensure dependencies are downloaded...\n")
-          nil))
+         :deps (list (musl-toolchain)
+                     (mesche-lib "mesche-lang/compiler"))
 
-(target "main"
-        (lambda (options)
-          ;; Build the Mesche compiler
-          (build-target "deps")
-          (build-project "compiler/project.msc" :target "lib")
+         :configs (list (config :name "debug"
+                                :default t
+                                :output-path "./bin/debug"
+                                :c-compiler "gcc"
+                                :c-flags "-O0 -g -ggdb -DDEBUG -fsanitize=address")
 
-          ;; Build and link CLI source files
-          (link-program "bin/mesche"
-                        (append (compile-files (list "main.c")
-                                               :src-path "./src"
-                                               :out-path "./bin"
-                                               :c-flags "-I ./compiler/include")
-                                (list "./compiler/bin/libmesche.a"))
-                        :c-flags "-O0 -g -ggdb -DDEBUG -fsanitize=address")))
+                        (config :name "release"
+                                :output-path "./bin/release"
+                                :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
+                                :c-flags "-O2 -fPIE"))
 
-(target-default "main")
+         :targets (list (target :name "main"
+                                :description "Builds the Mesche CLI program."
+                                :default t
+                                :runs (steps (build-project "./deps/mesche-lang/compiler/project.msc" :target "lib")
+                                             (compile-source :source-files (list "main.c")
+                                                             :mesche-main "modules/main.msc")
+                                             (link-program "mesche")))))
