@@ -44,6 +44,9 @@
 #define IS_RECORD_FIELD_ACCESSOR(value) mesche_object_is_kind(value, ObjectKindRecordFieldAccessor)
 #define AS_RECORD_FIELD_ACCESSOR(value) ((ObjectRecordFieldAccessor *)AS_OBJECT(value))
 
+#define IS_RECORD_FIELD_SETTER(value) mesche_object_is_kind(value, ObjectKindRecordFieldSetter)
+#define AS_RECORD_FIELD_SETTER(value) ((ObjectRecordFieldSetter *)AS_OBJECT(value))
+
 #define IS_RECORD_INSTANCE(value) mesche_object_is_kind(value, ObjectKindRecordInstance)
 #define AS_RECORD_INSTANCE(value) ((ObjectRecordInstance *)AS_OBJECT(value))
 
@@ -68,7 +71,8 @@ typedef enum {
   ObjectKindRecord,
   ObjectKindRecordInstance,
   ObjectKindRecordField,
-  ObjectKindRecordFieldAccessor
+  ObjectKindRecordFieldAccessor,
+  ObjectKindRecordFieldSetter
 } ObjectKind;
 
 struct Object {
@@ -157,6 +161,12 @@ struct ObjectRecordFieldAccessor {
   ObjectRecord *record_type;
 };
 
+struct ObjectRecordFieldSetter {
+  Object object;
+  int field_index;
+  ObjectRecord *record_type;
+};
+
 struct ObjectRecordField {
   Object object;
   Value default_value;
@@ -204,6 +214,8 @@ ObjectRecord *mesche_object_make_record(VM *vm, ObjectString *name);
 ObjectRecordField *mesche_object_make_record_field(VM *vm, ObjectString *name, Value default_value);
 ObjectRecordFieldAccessor *mesche_object_make_record_accessor(VM *vm, ObjectRecord *record_type,
                                                               int field_index);
+ObjectRecordFieldSetter *mesche_object_make_record_setter(VM *vm, ObjectRecord *record_type,
+                                                          int field_index);
 ObjectRecordInstance *mesche_object_make_record_instance(VM *vm, ObjectRecord *record_type);
 
 void mesche_object_free(VM *vm, struct Object *object);

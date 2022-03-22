@@ -218,6 +218,11 @@ static void mem_darken_object(VM *vm, Object *object) {
     mesche_mem_mark_object(vm, (Object *)accessor->record_type);
     break;
   }
+  case ObjectKindRecordFieldSetter: {
+    ObjectRecordFieldSetter *setter = (ObjectRecordFieldSetter *)object;
+    mesche_mem_mark_object(vm, (Object *)setter->record_type);
+    break;
+  }
   case ObjectKindRecordInstance: {
     ObjectRecordInstance *instance = (ObjectRecordInstance *)object;
     mem_mark_array(vm, &instance->field_values);
@@ -506,8 +511,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
       int rest_value_start = (int)num_keyword_args + 1;
       for (int i = rest_value_start; i < rest_value_start + rest_value_count; i++) {
         // Allocate the new cons pair in a way that avoids GC collection
-        ObjectCons *cons =
-            mesche_object_make_cons((MescheMemory *)vm, vm_stack_peek(vm, i), vm_stack_peek(vm, 0));
+        ObjectCons *cons = mesche_object_make_cons(vm, vm_stack_peek(vm, i), vm_stack_peek(vm, 0));
         mesche_vm_stack_pop(vm);
         mesche_vm_stack_push(vm, OBJECT_VAL(cons));
       }
@@ -689,6 +693,48 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
 
       // Return the value on the stack
       mesche_vm_stack_push(vm, instance->field_values.values[accessor->field_index]);
+      return true;
+    }
+    case ObjectKindRecordFieldSetter: {
+      ObjectRecordFieldSetter *setter = AS_RECORD_FIELD_SETTER(callee);
+
+      if (arg_count != 2) {
+        vm_runtime_error(vm,
+                         "Record field setter for type '%s' requires a record instance argument "
+                         "and a value to set for the associated field.",
+                         setter->record_type->name->chars);
+        return false;
+      }
+
+      Value possible_instance = vm_stack_peek(vm, 1);
+      if (!IS_OBJECT(possible_instance)) {
+        vm_runtime_error(vm, "Expected instance of record type %s but received non-object kind %d.",
+                         setter->record_type->name->chars, possible_instance.kind);
+        return false;
+      }
+
+      if (!IS_RECORD_INSTANCE(possible_instance)) {
+        vm_runtime_error(vm, "Expected instance of record type %s but received object kind %d.",
+                         setter->record_type->name->chars, AS_OBJECT(possible_instance)->kind);
+        return false;
+      }
+
+      // TODO: Be somewhat tolerant to record type version?
+      ObjectRecordInstance *instance = AS_RECORD_INSTANCE(possible_instance);
+      if (instance->record_type != setter->record_type) {
+        vm_runtime_error(vm, "Passed record of type %s to setter that expects %s.",
+                         instance->record_type->name->chars, setter->record_type->name->chars);
+        return false;
+      }
+
+      // Pop the setter, record, and value off the stack
+      Value value = mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
+
+      // Set the field's value and return that same value
+      instance->field_values.values[setter->field_index] = value;
+      mesche_vm_stack_push(vm, value);
       return true;
     }
     default:
@@ -996,7 +1042,22 @@ InterpretResult mesche_vm_run(VM *vm) {
         vm_create_module_binding(vm, CURRENT_MODULE(), accessor_name_string, OBJECT_VAL(accessor),
                                  true);
 
-        // Pop the accessor function and its name off of the stack
+        // Create a binding for the field setter "function"
+        // TODO: Only do this if requested!
+        char *setter_name = mesche_cstring_join(accessor_name_string->chars,
+                                                accessor_name_string->length, "-set!", 5, "");
+        ObjectString *setter_name_string =
+            mesche_object_make_string(vm, setter_name, strlen(setter_name));
+        mesche_vm_stack_push(vm, OBJECT_VAL(setter_name_string));
+        free(setter_name);
+        ObjectRecordFieldSetter *setter = mesche_object_make_record_setter(vm, record, i);
+        mesche_vm_stack_push(vm, OBJECT_VAL(setter));
+        vm_create_module_binding(vm, CURRENT_MODULE(), setter_name_string, OBJECT_VAL(setter),
+                                 true);
+
+        // Pop the accessor and setter functions and names off of the stack
+        mesche_vm_stack_pop(vm);
+        mesche_vm_stack_pop(vm);
         mesche_vm_stack_pop(vm);
         mesche_vm_stack_pop(vm);
       }

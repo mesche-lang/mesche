@@ -268,6 +268,15 @@ ObjectRecordFieldAccessor *mesche_object_make_record_accessor(VM *vm, ObjectReco
   return accessor;
 }
 
+ObjectRecordFieldSetter *mesche_object_make_record_setter(VM *vm, ObjectRecord *record_type,
+                                                          int field_index) {
+  ObjectRecordFieldSetter *setter =
+      ALLOC_OBJECT(vm, ObjectRecordFieldSetter, ObjectKindRecordFieldSetter);
+  setter->record_type = record_type;
+  setter->field_index = field_index;
+  return setter;
+}
+
 ObjectRecordInstance *mesche_object_make_record_instance(VM *vm, ObjectRecord *record_type) {
   ObjectRecordInstance *instance = ALLOC_OBJECT(vm, ObjectRecordInstance, ObjectKindRecordInstance);
   instance->record_type = record_type;
@@ -361,6 +370,9 @@ void mesche_object_free(VM *vm, Object *object) {
   case ObjectKindRecordFieldAccessor:
     FREE(vm, ObjectRecordFieldAccessor, object);
     break;
+  case ObjectKindRecordFieldSetter:
+    FREE(vm, ObjectRecordFieldSetter, object);
+    break;
   default:
     PANIC("Don't know how to free object kind %d!", object->kind);
   }
@@ -444,7 +456,14 @@ void mesche_object_print(Value value) {
     ObjectRecordFieldAccessor *accessor = (ObjectRecordFieldAccessor *)AS_OBJECT(value);
     ObjectRecordField *field =
         AS_RECORD_FIELD(accessor->record_type->fields.values[accessor->field_index]);
-    printf("<record field '%s' %p>", field->name->chars, accessor);
+    printf("<record field getter '%s' %p>", field->name->chars, accessor);
+    break;
+  }
+  case ObjectKindRecordFieldSetter: {
+    ObjectRecordFieldSetter *setter = (ObjectRecordFieldSetter *)AS_OBJECT(value);
+    ObjectRecordField *field =
+        AS_RECORD_FIELD(setter->record_type->fields.values[setter->field_index]);
+    printf("<record field setter '%s' %p>", field->name->chars, setter);
     break;
   }
   case ObjectKindRecordInstance: {

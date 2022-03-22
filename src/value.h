@@ -17,6 +17,7 @@ typedef struct ObjectRecord ObjectRecord;
 typedef struct ObjectRecordInstance ObjectRecordInstance;
 typedef struct ObjectRecordField ObjectRecordField;
 typedef struct ObjectRecordFieldAccessor ObjectRecordFieldAccessor;
+typedef struct ObjectRecordFieldSetter ObjectRecordFieldSetter;
 
 #include <stdbool.h>
 
