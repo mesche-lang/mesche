@@ -197,6 +197,7 @@ ObjectFunction *mesche_object_make_function(VM *vm, FunctionType type) {
   ObjectFunction *function = ALLOC_OBJECT(vm, ObjectFunction, ObjectKindFunction);
   function->arity = 0;
   function->upvalue_count = 0;
+  function->rest_arg_index = 0;
   function->type = type;
   function->name = NULL;
   function_keyword_args_init(&function->keyword_args);
