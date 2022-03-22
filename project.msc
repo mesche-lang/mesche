@@ -2,7 +2,7 @@
   (import (mesche fs)
           (mesche build)
           (mesche string)
-          (mesche cli project)))
+          (mesche project)))
 
 (project :name "Mesche Compiler"
          :url "https://github.com/mesche-lang/compiler"
@@ -17,7 +17,6 @@
 
                         (config :name "release"
                                 :output-path "./bin/release"
-                                ;; TODO: Make an API function for getting musl compiler path
                                 :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
                                 :c-flags "-O2 -fPIE"))
 
