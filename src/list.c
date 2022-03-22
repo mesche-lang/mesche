@@ -29,11 +29,19 @@ Value list_nth_msc(MescheMemory *mem, int arg_count, Value *args) {
 }
 
 Value list_car_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (!IS_CONS(args[0])) {
+    PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
+  }
+
   ObjectCons *current_cons = AS_CONS(args[0]);
   return current_cons->car;
 }
 
 Value list_cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (!IS_CONS(args[0])) {
+    PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
+  }
+
   ObjectCons *current_cons = AS_CONS(args[0]);
   return current_cons->cdr;
 }
