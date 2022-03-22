@@ -1,23 +1,34 @@
 (define-module (mesche compiler)
-  (import (mesche build)
+  (import (mesche fs)
+          (mesche build)
           (mesche string)
-          (mesche process)))
+          (mesche cli project)))
 
 (project :name "Mesche Compiler"
          :url "https://github.com/mesche-lang/compiler"
          :version "0.0.1"
-         :description "This is the compiler for the Mesche language.")
+         :description "This is the compiler for the Mesche language."
 
-(define source-files '("chunk.c" "compiler.c" "disasm.c"
-                       "fs.c" "list.c" "array.c" "mem.c" "module.c"
-                       "object.c" "process.c" "repl.c" "scanner.c"
-                       "string.c" "table.c" "value.c" "vm.c"))
+         :configs (list (config :name "debug"
+                                :output-path "./bin/debug"
+                                :c-compiler "gcc"
+                                :c-flags "-O0 -g -ggdb -DDEBUG -fsanitize=address"
+                                :default t)
 
-(target "lib"
-        (lambda (options)
-          (link-static-library "bin/libmesche.a"
-                               (compile-files source-files
-                                              :src-path "./src"
-                                              :out-path "./bin"))))
+                        (config :name "release"
+                                :output-path "./bin/release"
+                                ;; TODO: Make an API function for getting musl compiler path
+                                :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
+                                :c-flags "-O2 -fPIE"))
 
-(target-default "lib")
+         :targets (list (target :name "lib"
+                                :description "Builds the Mesche compiler library."
+                                :default t
+                                :runs (steps (compile-source :source-files
+                                                             '("chunk.c" "compiler.c" "disasm.c" "math.c"
+                                                               "fs.c" "list.c" "array.c" "mem.c" "module.c"
+                                                               "object.c" "process.c" "repl.c" "scanner.c"
+                                                               "string.c" "table.c" "value.c" "vm.c"))
+                                             (create-static-library "libmesche.a"
+                                                                    :c-flags (string-append "-I " (path-resolve "./include"))
+                                                                    :c-libs "-lm")))))
