@@ -4,11 +4,11 @@
 
 if [ "$1" == "--debug" ]; then
  CC="gcc"
- FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
+ FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address -lm"
  BUILD_ARGS="--debug"
 else
  CC="$(pwd)/musl/bin/x86_64-linux-musl-gcc -static"
- FLAGS="-O2 -fPIE"
+ FLAGS="-O2 -fPIE -lm"
  BUILD_ARGS=""
 fi
 
