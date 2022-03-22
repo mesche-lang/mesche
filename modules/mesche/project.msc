@@ -1,4 +1,4 @@
-(define-module (mesche cli project)
+(define-module (mesche project)
   (import (mesche fs)
           (mesche list)
           (mesche string)))

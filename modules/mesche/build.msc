@@ -3,7 +3,7 @@
           (mesche list)
           (mesche process)
           (mesche string)
-          (mesche cli project)))
+          (mesche project)))
 
 ;;; Records
 

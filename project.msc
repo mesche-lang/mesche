@@ -1,6 +1,6 @@
 (define-module (mesche cli)
   (import (mesche build)
-          (mesche cli project)))
+          (mesche project)))
 
 (project :name "Mesche Command Line Interface"
          :url "https://github.com/mesche-lang/cli"

@@ -3,7 +3,7 @@
           (mesche build)
           (mesche string)
           (mesche process)
-          (mesche cli project)))
+          (mesche project)))
 
 (define (run-command)
   (display "TODO: This would build and run the project!\n"))
