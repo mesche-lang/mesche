@@ -1,4 +1,5 @@
 compiler/
 bin/
+deps/
 musl/
 .ccls-cache/
