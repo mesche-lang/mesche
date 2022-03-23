@@ -3,7 +3,7 @@
 CC=${CC:-gcc}
 TEST_DIR=test
 OUTPUT_DIR=bin
-DEBUG_FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
+DEBUG_FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address -lm"
 
 test_files=(
     "test-main.c"
