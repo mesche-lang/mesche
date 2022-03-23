@@ -1,4 +1,4 @@
-name: Build Mesche CLI
+name: Mesche CLI - CI
 
 on: [push, pull_request]
 
