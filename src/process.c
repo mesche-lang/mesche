@@ -1,9 +1,24 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include "fs.h"
 #include "object.h"
 #include "process.h"
 #include "util.h"
+
+char *mesche_process_executable_path(void) {
+  char *proc_path = "/proc/self/exe";
+  char exec_path[1024];
+
+  // TODO: Add OS-specific implementations for Windows and macOS!
+  if (mesche_fs_path_exists_p(proc_path)) {
+    // TODO: What happens if /proc/self/exe does not exist?
+    readlink(proc_path, exec_path, sizeof(exec_path));
+    return strdup(exec_path);
+  } else {
+    PANIC("On Linux, the path %s unexpectedly does not exist!\n", proc_path);
+  }
+}
 
 Value process_arguments_msc(MescheMemory *mem, int arg_count, Value *args) {
   if (arg_count != 0) {
