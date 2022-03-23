@@ -39,11 +39,8 @@ jobs:
       - name: Sanity Check Again
         run: ./dist/mesche
 
-      - name: Package Build
-        run: cd dist && zip -r ../mesche.zip *
-
       - name: Archive workflow results
         uses: actions/upload-artifact@v2
         with:
           name: mesche-linux-x86_64
-          path: mesche.zip
+          path: dist/*
