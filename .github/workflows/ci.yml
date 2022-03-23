@@ -16,29 +16,31 @@ jobs:
           sudo apt-get --no-install-recommends -y install pkg-config
 
       - name: Bootstrap CLI
-        run: ./build.sh
+        run: |
+          # Run the bootstrapper script
+          ./build.sh
+
+          # Prepare a temporary build
+          mkdir -p tmp
+          cp bin/mesche tmp
+          cp -R modules tmp/
 
       - name: Sanity Check
-        run: bin/mesche
+        run: ./tmp/mesche
 
       - name: Build CLI with Mesche
         run: |
-          # Prepare a temporary copy
-          mkdir -p tmp/bin
-          cp bin/mesche tmp/bin
-          cp -R modules tmp/
-
           # Clean up bin folders
           rm -rf bin compiler/bin
 
           # Run Mesche on itself to produce a release artifact
-          tmp/bin/mesche build
+          tmp/mesche build dist --config release
 
       - name: Sanity Check Again
-        run: bin/mesche
+        run: ./dist/mesche
 
       - name: Package Build
-        run: cd tmp && zip -r ../mesche.zip *
+        run: cd dist && zip -r ../mesche.zip *
 
       - name: Archive workflow results
         uses: actions/upload-artifact@v2
