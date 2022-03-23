@@ -6,7 +6,7 @@ CC=${CC:-gcc}
 if [ "$1" == "--debug" ]; then
  FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
 else
- FLAGS="-O2 -fPIE"
+ FLAGS="-O0 -g -ggdb -fPIE -lm"
 fi
 
 SOURCE_DIR=src
