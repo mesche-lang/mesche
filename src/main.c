@@ -8,7 +8,7 @@
 int main(int argc, char **argv) {
   // Set up the compiler's load path relative to the program path
   char cwd[500];
-  char *program_path = mesche_fs_resolve_path(argv[0]);
+  char *program_path = mesche_process_executable_path();
   char *program_dir = mesche_fs_file_directory(strdup(program_path));
   char *original_dir = getcwd(&cwd[0], sizeof(cwd));
 
@@ -26,9 +26,6 @@ int main(int argc, char **argv) {
   tmp_path = mesche_cstring_join(modules_path, strlen(modules_path),
                                  "/main.msc", 9, NULL);
   char *main_file_path = mesche_fs_resolve_path(tmp_path);
-
-  // Make sure the VM has the full program path
-  argv[0] = program_path;
 
   VM vm;
   mesche_vm_init(&vm, argc, argv);

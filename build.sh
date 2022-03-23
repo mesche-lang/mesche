@@ -42,7 +42,6 @@ fi
 
 # Build the compiler
 pushd ./deps/mesche-lang/compiler
-cd ./deps/mesche-lang/compiler
 CC=$CC ./build.sh $BUILD_ARGS
 [ $? -eq 1 ] && exit 1
 popd
