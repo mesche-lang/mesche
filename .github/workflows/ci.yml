@@ -22,7 +22,7 @@ jobs:
 
           # Prepare a temporary build
           mkdir -p tmp
-          cp bin/mesche tmp
+          cp bin/boot/mesche tmp
           cp -R modules tmp/
 
       - name: Sanity Check
@@ -31,7 +31,7 @@ jobs:
       - name: Build CLI with Mesche
         run: |
           # Clean up bin folders
-          rm -rf bin compiler/bin
+          rm -rf bin deps/mesche-lang/compiler/bin
 
           # Run Mesche on itself to produce a release artifact
           tmp/mesche build dist --config release

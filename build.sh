@@ -4,7 +4,7 @@
 
 if [ "$1" == "--debug" ]; then
  CC="gcc"
- FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address -lm"
+ FLAGS="-O0 -g -ggdb -DDEV_BUILD -fsanitize=address -lm"
  BUILD_ARGS="--debug"
 else
  CC="$(pwd)/musl/bin/x86_64-linux-musl-gcc -static"
@@ -13,7 +13,7 @@ else
 fi
 
 SOURCE_DIR=src
-OUTPUT_DIR=bin
+OUTPUT_DIR=bin/boot
 CFLAGS="-I ./deps/mesche-lang/compiler/include"
 
 # Ensure that the compiler library is cloned
@@ -54,8 +54,8 @@ source_files=(
 
 object_files=()
 
-if [ ! -d "./bin" ]; then
-    mkdir ./bin
+if [ ! -d "$OUTPUT_DIR" ]; then
+    mkdir -p $OUTPUT_DIR
 fi
 
 # Build any changed source files
@@ -75,7 +75,7 @@ do
 done
 
 # Build the CLI program
-echo -e "Creating Mesche CLI bin/mesche...\n"
-$CC -o bin/mesche "${object_files[@]}" ./deps/mesche-lang/compiler/bin/libmesche.a $FLAGS
+echo -e "Creating Mesche CLI $OUTPUT_DIR/mesche...\n"
+$CC -o $OUTPUT_DIR/mesche "${object_files[@]}" ./deps/mesche-lang/compiler/bin/libmesche.a $FLAGS
 [ $? -eq 1 ] && exit 1
-chmod +x bin/mesche
+chmod +x $OUTPUT_DIR/mesche
