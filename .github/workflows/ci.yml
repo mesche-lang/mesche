@@ -45,5 +45,5 @@ jobs:
       - name: Archive workflow results
         uses: actions/upload-artifact@v2
         with:
-          name: mesche
+          name: mesche-linux-x86_64
           path: mesche.zip
