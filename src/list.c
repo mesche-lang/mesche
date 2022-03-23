@@ -47,7 +47,7 @@ Value list_cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
 }
 
 Value list_pair_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  ObjectCons *current_cons = AS_CONS(args[0]);
+  // TODO: Ensure single argument
   return BOOL_VAL(mesche_object_is_kind(args[0], ObjectKindCons));
 }
 
@@ -74,10 +74,10 @@ Value list_append_msc(MescheMemory *mem, int arg_count, Value *args) {
 
 void mesche_list_module_init(VM *vm) {
   mesche_vm_define_native_funcs(vm, "mesche list",
-                                &(MescheNativeFuncDetails[]){{"list-nth", list_nth_msc, true},
-                                                             {"pair?", list_pair_p_msc, true},
-                                                             {"car", list_car_msc, true},
-                                                             {"cdr", list_cdr_msc, true},
-                                                             {"append", list_append_msc, true},
-                                                             {NULL, NULL, false}});
+                                (MescheNativeFuncDetails[]){{"list-nth", list_nth_msc, true},
+                                                            {"pair?", list_pair_p_msc, true},
+                                                            {"car", list_car_msc, true},
+                                                            {"cdr", list_cdr_msc, true},
+                                                            {"append", list_append_msc, true},
+                                                            {NULL, NULL, false}});
 }

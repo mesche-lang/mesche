@@ -39,11 +39,11 @@ Value process_arguments_msc(MescheMemory *mem, int arg_count, Value *args) {
 Value process_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
   char cwd[512];
   char *current_path = getcwd(cwd, sizeof(cwd));
-  return OBJECT_VAL(mesche_object_make_string(mem, current_path, strlen(current_path)));
+  return OBJECT_VAL(mesche_object_make_string((VM *)mem, current_path, strlen(current_path)));
 }
 
 Value process_directory_set_msc(MescheMemory *mem, int arg_count, Value *args) {
-  chdir(AS_CSTRING(args[0])) == 0 ? T_VAL: NIL_VAL;
+  chdir(AS_CSTRING(args[0])) == 0 ? T_VAL : NIL_VAL;
 }
 
 Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
@@ -61,9 +61,9 @@ Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
 void mesche_process_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche process",
-      &(MescheNativeFuncDetails[]){{"process-start", process_start_msc, true},
-                                   {"process-arguments", process_arguments_msc, true},
-                                   {"process-directory", process_directory_msc, true},
-                                   {"process-directory-set!", process_directory_set_msc, true},
-                                   {NULL, NULL, false}});
+      (MescheNativeFuncDetails[]){{"process-start", process_start_msc, true},
+                                  {"process-arguments", process_arguments_msc, true},
+                                  {"process-directory", process_directory_msc, true},
+                                  {"process-directory-set!", process_directory_set_msc, true},
+                                  {NULL, NULL, false}});
 }

@@ -70,10 +70,10 @@ Value array_nth_set_msc(MescheMemory *mem, int arg_count, Value *args) {
 void mesche_array_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche array",
-      &(MescheNativeFuncDetails[]){{"make-array", array_make_msc, true},
-                                   {"array-push", array_push_msc, true},
-                                   {"array-length", array_length_msc, true},
-                                   {"array-nth", array_nth_msc, true},
-                                   {"array-nth-set!", array_nth_set_msc, true},
-                                   {NULL, NULL, false}});
+      (MescheNativeFuncDetails[]){{"make-array", array_make_msc, true},
+                                  {"array-push", array_push_msc, true},
+                                  {"array-length", array_length_msc, true},
+                                  {"array-nth", array_nth_msc, true},
+                                  {"array-nth-set!", array_nth_set_msc, true},
+                                  {NULL, NULL, false}});
 }

@@ -94,7 +94,7 @@ Value fs_path_exists_p_msc(MescheMemory *mem, int arg_count, Value *args) {
 Value fs_path_resolve_msc(MescheMemory *mem, int arg_count, Value *args) {
   char *resolved_path = mesche_fs_resolve_path(AS_CSTRING(args[0]));
   ObjectString *resolved_path_str =
-      mesche_object_make_string(mem, resolved_path, strlen(resolved_path));
+      mesche_object_make_string((VM *)mem, resolved_path, strlen(resolved_path));
   free(resolved_path);
 
   return OBJECT_VAL(resolved_path_str);
@@ -124,7 +124,7 @@ Value fs_file_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
   // dirname may change the original string, so duplicate it first
   char *file_path = strdup(AS_CSTRING(args[0]));
   char *dir_name = dirname(file_path);
-  ObjectString *dir_name_str = mesche_object_make_string(mem, dir_name, strlen(dir_name));
+  ObjectString *dir_name_str = mesche_object_make_string((VM *)mem, dir_name, strlen(dir_name));
 
   // NOTE: dir_name doesn't need to be freed because it doesn't cause an allocation
   free(file_path);
@@ -177,7 +177,9 @@ Value fs_path_ensure_msc(MescheMemory *mem, int arg_count, Value *args) {
         if (fs_directory_create(resolved_path) == -1) {
           // TODO: Throw a language error instead
           if (errno == EEXIST) {
-            printf("A file with the same name already exists where a directory is being created: %s\n", errno, resolved_path);
+            printf(
+                "A file with the same name already exists where a directory is being created: %s\n",
+                errno, resolved_path);
             return NIL_VAL;
           } else {
             printf("Error %d while creating path: %s\n", errno, resolved_path);
@@ -193,7 +195,7 @@ Value fs_path_ensure_msc(MescheMemory *mem, int arg_count, Value *args) {
 
   // Create a resolved string to be returned
   ObjectString *resolved_path_str =
-      mesche_object_make_string(mem, resolved_path, strlen(resolved_path));
+      mesche_object_make_string((VM *)mem, resolved_path, strlen(resolved_path));
   free(resolved_path);
 
   return OBJECT_VAL(resolved_path_str);
@@ -202,13 +204,13 @@ Value fs_path_ensure_msc(MescheMemory *mem, int arg_count, Value *args) {
 void mesche_fs_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche fs",
-      &(MescheNativeFuncDetails[]){{"path-exists?", fs_path_exists_p_msc, true},
-                                   {"path-resolve", fs_path_resolve_msc, true},
-                                   {"path-ensure", fs_path_ensure_msc, true},
-                                   {"file-name", fs_file_name_msc, true},
-                                   {"file-directory", fs_file_directory_msc, true},
-                                   {"file-extension", fs_file_extension_msc, true},
-                                   {"file-modified-time", fs_file_modified_time_msc, true},
-                                   {"directory-create", fs_directory_create_msc, true},
-                                   {NULL, NULL, false}});
+      (MescheNativeFuncDetails[]){{"path-exists?", fs_path_exists_p_msc, true},
+                                  {"path-resolve", fs_path_resolve_msc, true},
+                                  {"path-ensure", fs_path_ensure_msc, true},
+                                  {"file-name", fs_file_name_msc, true},
+                                  {"file-directory", fs_file_directory_msc, true},
+                                  {"file-extension", fs_file_extension_msc, true},
+                                  {"file-modified-time", fs_file_modified_time_msc, true},
+                                  {"directory-create", fs_directory_create_msc, true},
+                                  {NULL, NULL, false}});
 }

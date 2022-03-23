@@ -25,7 +25,7 @@ void mesche_math_module_init(VM *vm) {
   srand(time(NULL));
 
   mesche_vm_define_native_funcs(vm, "mesche math",
-                                &(MescheNativeFuncDetails[]){{"floor", math_floor_msc, true},
-                                                             {"rand-int", math_rand_int_msc, true},
-                                                             {NULL, NULL, false}});
+                                (MescheNativeFuncDetails[]){{"floor", math_floor_msc, true},
+                                                            {"rand-int", math_rand_int_msc, true},
+                                                            {NULL, NULL, false}});
 }

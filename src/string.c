@@ -105,7 +105,7 @@ Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
 void mesche_string_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche string",
-      &(MescheNativeFuncDetails[]){{"string-append", string_append_msc, true},
-                                   {"string-join", string_join_msc, true},
-                                   {NULL, NULL, false}});
+      (MescheNativeFuncDetails[]){{"string-append", string_append_msc, true},
+                                  {"string-join", string_join_msc, true},
+                                  {NULL, NULL, false}});
 }
