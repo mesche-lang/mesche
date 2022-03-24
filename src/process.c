@@ -1,19 +1,15 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <sys/wait.h>
 #include <errno.h>
+#include <stdio.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
-#include "io.h"
 #include "fs.h"
+#include "io.h"
 #include "object.h"
 #include "process.h"
 #include "util.h"
 
-typedef enum {
-  PROCESS_NOT_STARTED,
-  PROCESS_RUNNING,
-  PROCESS_FINISHED
-} MescheProcessState;
+typedef enum { PROCESS_NOT_STARTED, PROCESS_RUNNING, PROCESS_FINISHED } MescheProcessState;
 
 typedef struct {
   pid_t id;
@@ -29,10 +25,7 @@ void process_free_func(MescheMemory *mem, Object *obj) {
   free(process);
 }
 
-const ObjectPointerType MescheProcessType = {
-  .name = "process",
-  .free_func = process_free_func
-};
+const ObjectPointerType MescheProcessType = {.name = "process", .free_func = process_free_func};
 
 void process_init(MescheProcess *process) {
   process->id = 0;
@@ -42,7 +35,7 @@ void process_init(MescheProcess *process) {
   process->stderr_fp = NULL;
 }
 
-#define PIPE_FD      0
+#define PIPE_FD 0
 #define PIPE_INHERIT 1
 
 MescheProcess *mesche_process_start(char *program_path, char *const argv[], char pipe_config[3]) {
@@ -170,16 +163,31 @@ Value process_directory_set_msc(MescheMemory *mem, int arg_count, Value *args) {
 }
 
 MescheProcess *process_start_inner(int arg_count, Value *args) {
-  char **argv = malloc(sizeof(char *) * arg_count);
-  for (int i = 0; i < arg_count; i++) {
-    // TODO: Verify type
-    // TODO: Guard against nil arg value
-    argv[i] = AS_CSTRING(args[i]);
-  }
+  // char **argv = malloc(sizeof(char *) * (arg_count + 1));
+  char *argv[100];
 
-  char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_FD};
+  int i = 0;
+  char *command_str = strdup(AS_CSTRING(args[0]));
+  char *arg = strtok(command_str, " ");
+  do {
+    argv[i++] = arg;
+    arg = strtok(NULL, " ");
+  } while(arg != NULL);
+
+  // for (int i = 0; i < arg_count; i++) {
+  //   // TODO: Verify type
+  //   // TODO: Guard against nil arg value
+  //   argv[i] = AS_CSTRING(args[i]);
+  //   printf("%s ", argv[i]);
+  // }
+
+  // The last argument must be null so that execvp knows when to stop
+  argv[i] = NULL;
+
+  /* char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_FD}; */
+  char pipe_config[3] = {PIPE_FD, PIPE_INHERIT, PIPE_INHERIT};
   MescheProcess *process = mesche_process_start(argv[0], argv, pipe_config);
-  free(argv);
+  free(command_str);
 
   return process;
 }
