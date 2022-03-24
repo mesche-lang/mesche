@@ -169,7 +169,16 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
   int i = 0;
   char *command_str = strdup(AS_CSTRING(args[0]));
   char *arg = strtok(command_str, " ");
+
   do {
+    // TODO: Remove this filthy hack!
+    int j = 0;
+    while (arg[j] != '\0') {
+      if (arg[j] == '\r') arg[j] = '\0';
+      if (arg[j] == '\n') arg[j] = '\0';
+      j++;
+    }
+
     argv[i++] = arg;
     arg = strtok(NULL, " ");
   } while(arg != NULL);
@@ -184,8 +193,7 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
   // The last argument must be null so that execvp knows when to stop
   argv[i] = NULL;
 
-  /* char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_FD}; */
-  char pipe_config[3] = {PIPE_FD, PIPE_INHERIT, PIPE_INHERIT};
+  char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_FD};
   MescheProcess *process = mesche_process_start(argv[0], argv, pipe_config);
   free(command_str);
 
