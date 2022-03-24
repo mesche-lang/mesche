@@ -1,5 +1,6 @@
 (define-module (mesche build)
   (import (mesche fs)
+          (mesche io)
           (mesche list)
           (mesche process)
           (mesche string)
