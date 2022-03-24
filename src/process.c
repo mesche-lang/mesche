@@ -1,10 +1,133 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <errno.h>
 
+#include "io.h"
 #include "fs.h"
 #include "object.h"
 #include "process.h"
 #include "util.h"
+
+typedef enum {
+  PROCESS_NOT_STARTED,
+  PROCESS_RUNNING,
+  PROCESS_FINISHED
+} MescheProcessState;
+
+typedef struct {
+  pid_t id;
+  int exit_code;
+  MescheProcessState state;
+  MeschePort *stdout_fp;
+  MeschePort *stderr_fp;
+} MescheProcess;
+
+void process_free_func(MescheMemory *mem, Object *obj) {
+  // TODO: Close streams
+  MescheProcess *process = (MescheProcess *)obj;
+  free(process);
+}
+
+const ObjectPointerType MescheProcessType = {
+  .name = "process",
+  .free_func = process_free_func
+};
+
+void process_init(MescheProcess *process) {
+  process->id = 0;
+  process->state = PROCESS_NOT_STARTED;
+  process->exit_code = -1;
+  process->stdout_fp = NULL;
+  process->stderr_fp = NULL;
+}
+
+#define PIPE_FD      0
+#define PIPE_INHERIT 1
+
+MescheProcess *mesche_process_start(char *program_path, char *const argv[], char pipe_config[3]) {
+  pid_t child_pid;
+
+  // Create a pipe for the child process' input and output streams
+  int stdout_fd[2], stderr_fd[2];
+  pipe(stdout_fd);
+  pipe(stderr_fd);
+
+  if ((child_pid = fork()) == -1) {
+    // TODO: Runtime error instead
+    PANIC("Could not launch subprocess for program: %s\n", program_path);
+    return NULL;
+  }
+
+  MescheProcess *process = malloc(sizeof(MescheProcess));
+  process_init(process);
+  process->id = child_pid;
+
+  // We're inside the child process
+  if (child_pid == 0) {
+    // Set up stdout
+    close(stdout_fd[0]);
+    if (pipe_config[STDOUT_FILENO] != PIPE_INHERIT) {
+      dup2(stdout_fd[1], STDOUT_FILENO);
+    }
+
+    // Set up stderr
+    close(stderr_fd[0]);
+    if (pipe_config[STDERR_FILENO] != PIPE_INHERIT) {
+      dup2(stderr_fd[1], STDERR_FILENO);
+    }
+
+    // Needed so negative PIDs can kill children of /bin/sh
+    setpgid(child_pid, child_pid);
+
+    // Execute the program
+    execvp(program_path, argv);
+  } else {
+    // Set up a file pointer for reading child process stdout
+    close(stdout_fd[1]);
+    if (pipe_config[STDOUT_FILENO] == PIPE_FD) {
+      process->stdout_fp = fdopen(stdout_fd[0], "r");
+    }
+
+    // Set up a file pointer for reading child process stderr
+    close(stderr_fd[1]);
+    if (pipe_config[STDERR_FILENO] == PIPE_FD) {
+      process->stderr_fp = fdopen(stderr_fd[0], "r");
+    }
+
+    return process;
+  }
+}
+
+int mesche_process_result(MescheProcess *process) {
+  int status = -1;
+
+  while (waitpid(process->id, &status, 0) == -1) {
+    if (errno != EINTR) {
+      status = -1;
+      break;
+    }
+  }
+
+  // TODO: There are other ways a process can exit, handle them
+
+  process->state = PROCESS_FINISHED;
+  process->exit_code = WEXITSTATUS(status);
+
+  return WEXITSTATUS(status);
+}
+
+void mesche_process_free(MescheProcess *process) {
+  // Close file descriptors
+  if (process->stdout_fp) {
+    fclose(process->stdout_fp);
+  }
+  if (process->stderr_fp) {
+    fclose(process->stderr_fp);
+  }
+
+  free(process);
+}
 
 char *mesche_process_executable_path(void) {
   char *proc_path = "/proc/self/exe";
@@ -46,22 +169,64 @@ Value process_directory_set_msc(MescheMemory *mem, int arg_count, Value *args) {
   chdir(AS_CSTRING(args[0])) == 0 ? T_VAL : NIL_VAL;
 }
 
-Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
-  ObjectString *process_string = AS_STRING(args[0]);
-  FILE *process_pipe = popen(process_string->chars, "r");
-
-  char buffer[BUFSIZ];
-  while (fgets(buffer, sizeof(buffer), process_pipe)) {
-    printf(buffer);
+MescheProcess *process_start_inner(int arg_count, Value *args) {
+  char **argv = malloc(sizeof(char *) * arg_count);
+  for (int i = 0; i < arg_count; i++) {
+    // TODO: Verify type
+    // TODO: Guard against nil arg value
+    argv[i] = AS_CSTRING(args[i]);
   }
 
-  return T_VAL;
+  char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_FD};
+  MescheProcess *process = mesche_process_start(argv[0], argv, pipe_config);
+  free(argv);
+
+  return process;
+}
+
+Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
+  MescheProcess *process = process_start_inner(arg_count, args);
+  return OBJECT_VAL(mesche_object_make_pointer((VM *)mem, process, &MescheProcessType));
+}
+
+Value process_start_sync_msc(MescheMemory *mem, int arg_count, Value *args) {
+  MescheProcess *process = process_start_inner(arg_count, args);
+
+  int exit_code = mesche_process_result(process);
+  return OBJECT_VAL(mesche_object_make_pointer_type((VM *)mem, process, &MescheProcessType));
+}
+
+Value process_exit_code_msc(MescheMemory *mem, int arg_count, Value *args) {
+  MescheProcess *process = (MescheProcess *)AS_POINTER(args[0])->ptr;
+  return NUMBER_VAL(process->exit_code);
+}
+
+Value process_stdout_msc(MescheMemory *mem, int arg_count, Value *args) {
+  MescheProcess *process = (MescheProcess *)AS_POINTER(args[0])->ptr;
+  if (process->stdout_fp) {
+    return OBJECT_VAL(mesche_object_make_pointer((VM *)mem, process->stdout_fp, false));
+  }
+
+  return NIL_VAL;
+}
+
+Value process_stderr_msc(MescheMemory *mem, int arg_count, Value *args) {
+  MescheProcess *process = (MescheProcess *)AS_POINTER(args[0])->ptr;
+  if (process->stderr_fp) {
+    return OBJECT_VAL(mesche_object_make_pointer((VM *)mem, process->stderr_fp, false));
+  }
+
+  return NIL_VAL;
 }
 
 void mesche_process_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche process",
       (MescheNativeFuncDetails[]){{"process-start", process_start_msc, true},
+                                  {"process-start-sync", process_start_sync_msc, true},
+                                  {"process-exit-code", process_exit_code_msc, true},
+                                  {"process-stdout", process_stdout_msc, true},
+                                  {"process-stderr", process_stderr_msc, true},
                                   {"process-arguments", process_arguments_msc, true},
                                   {"process-directory", process_directory_msc, true},
                                   {"process-directory-set!", process_directory_set_msc, true},
