@@ -35,20 +35,20 @@
   (string-append "./deps/" (project-dep-path dep)))
 
 (define (git-clone repo-url local-path) :export
-  (process-start (string-append "git clone "
+  (process-start-sync (string-append "git clone "
                                 repo-url
                                 " "
                                 local-path)))
 
 (define (download-url url local-path) :export
-  (process-start (string-append "wget "
+  (process-start-sync (string-append "wget "
                                 url
                                 " "
                                 " -O "
                                 local-path)))
 
 (define (unpack-tar-gz archive-path output-path) :export
-  (process-start (string-append "tar -zxvf "
+  (process-start-sync (string-append "tar -zxvf "
                                 archive-path
                                 " -C "
                                 output-path)))
@@ -62,8 +62,8 @@
                   "./deps/musl.tar.gz")
     (unpack-tar-gz "./deps/musl.tar.gz" "./deps")
     ;; TODO: Library functions for this
-    (process-start (string-append "mv " (path-resolve (string-append "./deps/" build)) " " local-path))
-    (process-start "rm ./deps/musl.tar.gz")))
+    (process-start-sync (string-append "mv " (path-resolve (string-append "./deps/" build)) " " local-path))
+    (process-start-sync "rm ./deps/musl.tar.gz")))
 
 (define (musl-gcc config deps outputs) :export
   ;; TODO: Generate this from the dep info
@@ -104,7 +104,7 @@
                       :updater (mesche-lib-updater full-repo))))
 
 (define (pkg-config name :keys exclude-cflags exclude-libs) :export
-  (let ((process (process-start-sync "pkg-config"
+  (let ((process (process-start-sync-sync "pkg-config"
                                      name
                                      (if exclude-cflags "" "--cflags")
                                      (if exclude-libs "" "--libs"))))
@@ -151,6 +151,8 @@
                     (outputs outputs))
       (if (pair? step-functions)
           (let ((step-output ((car step-functions) project config outputs)))
+            ;; TODO: Need record type predicate so we only add an output if it's
+            ;; an instance of the build-output type!
             (if step-output
                 (let ((new-c-flags (build-output-c-flags step-output))
                       (new-c-libs (build-output-c-libs step-output)))
@@ -256,7 +258,7 @@
                           (display "Compiling: ") (display source-file)
                           (display " to ") (display output-file)
                           (display "...\n")
-                          (process-start (string-append c-compiler
+                          (process-start-sync (string-append c-compiler
                                                         " -c "
                                                         source-file
                                                         " -o "
@@ -287,7 +289,7 @@
       ;; Run the linker
       (display (string-append "Linking " output-file "\n"))
       (let ((object-files (string-join (gather-object-files outputs) " ")))
-        (process-start (string-append c-compiler
+        (process-start-sync (string-append c-compiler
                                       " -o "
                                       output-path
                                       " "
@@ -298,7 +300,7 @@
                                       c-libs)))
 
       ;; Make the file executable
-      (process-start (string-append "chmod +x " output-path))
+      (process-start-sync (string-append "chmod +x " output-path))
 
       ;; Return the build output details
       (make-build-output :type 'program
@@ -310,7 +312,7 @@
                                       "/" output-file)))
       ;; Run the linker
       (display (string-append "Creating static library " output-file "\n"))
-      (process-start (string-append "ar rcs "
+      (process-start-sync (string-append "ar rcs "
                                     output-path
                                     " "
                                     (string-join (gather-object-files outputs) " ")))
