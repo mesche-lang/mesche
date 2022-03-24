@@ -12,6 +12,7 @@
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
 typedef Value (*FunctionPtr)(MescheMemory *mem, int arg_count, Value *args);
+typedef void (*ObjectFreePtr)(MescheMemory *mem, Object *object);
 
 typedef struct {
   ObjectClosure *closure;

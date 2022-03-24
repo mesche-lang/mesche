@@ -192,9 +192,15 @@ typedef struct {
 } ObjectNativeFunction;
 
 typedef struct {
+  const char *name;
+  ObjectFreePtr free_func;
+} ObjectPointerType;
+
+typedef struct {
   Object object;
-  void *ptr;
   bool is_managed;
+  void *ptr;
+  ObjectPointerType *type;
 } ObjectPointer;
 
 ObjectString *mesche_object_make_string(VM *vm, const char *chars, int length);
@@ -209,6 +215,7 @@ void mesche_object_function_keyword_add(MescheMemory *mem, ObjectFunction *funct
 ObjectClosure *mesche_object_make_closure(VM *vm, ObjectFunction *function, ObjectModule *module);
 ObjectNativeFunction *mesche_object_make_native_function(VM *vm, FunctionPtr function);
 ObjectPointer *mesche_object_make_pointer(VM *vm, void *ptr, bool is_managed);
+ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, ObjectPointerType *type);
 ObjectModule *mesche_object_make_module(VM *vm, ObjectString *name);
 ObjectRecord *mesche_object_make_record(VM *vm, ObjectString *name);
 ObjectRecordField *mesche_object_make_record_field(VM *vm, ObjectString *name, Value default_value);

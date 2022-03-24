@@ -234,6 +234,14 @@ ObjectPointer *mesche_object_make_pointer(VM *vm, void *ptr, bool is_managed) {
   return pointer;
 }
 
+ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, ObjectPointerType *type) {
+  ObjectPointer *pointer = ALLOC_OBJECT(vm, ObjectPointer, ObjectKindPointer);
+  pointer->ptr = ptr;
+  pointer->is_managed = true;
+  pointer->type = type;
+  return pointer;
+}
+
 ObjectModule *mesche_object_make_module(VM *vm, ObjectString *name) {
   ObjectModule *module = ALLOC_OBJECT(vm, ObjectModule, ObjectKindModule);
   module->name = name;
@@ -339,9 +347,15 @@ void mesche_object_free(VM *vm, Object *object) {
     break;
   case ObjectKindPointer: {
     ObjectPointer *pointer = (ObjectPointer *)object;
-    if (pointer->is_managed) {
+    if (pointer->ptr && pointer->is_managed) {
       // TODO: Call free function for type
-      free(pointer->ptr);
+      if (pointer->type != NULL) {
+        pointer->type->free_func((MescheMemory *)vm, (Object *)pointer->ptr);
+      } else {
+        free(pointer->ptr);
+      }
+
+      pointer->ptr = NULL;
     }
     FREE(vm, ObjectPointer, object);
     break;
@@ -440,9 +454,16 @@ void mesche_object_print(Value value) {
   case ObjectKindNativeFunction:
     printf("<native fn>");
     break;
-  case ObjectKindPointer:
-    printf("<pointer %p>", AS_POINTER(value)->ptr);
+  case ObjectKindPointer: {
+    ObjectPointer *pointer = AS_POINTER(value);
+    if (pointer->type) {
+      // TODO: Add custom print function
+      printf("<%s %p>", pointer->type->name, AS_POINTER(value)->ptr);
+    } else {
+      printf("<pointer %p>", AS_POINTER(value)->ptr);
+    }
     break;
+  }
   case ObjectKindModule: {
     ObjectModule *module = (ObjectModule *)AS_OBJECT(value);
     printf("<module (%s) %p>", module->name->chars, module);
