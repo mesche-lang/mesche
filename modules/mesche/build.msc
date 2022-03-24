@@ -104,10 +104,10 @@
                       :updater (mesche-lib-updater full-repo))))
 
 (define (pkg-config name :keys exclude-cflags exclude-libs) :export
-  (let ((process (process-start-sync-sync "pkg-config"
-                                     name
-                                     (if exclude-cflags "" "--cflags")
-                                     (if exclude-libs "" "--libs"))))
+  (let ((process (process-start-sync (string-append "pkg-config "
+                                                    name
+                                                    (if exclude-cflags "" " --cflags")
+                                                    (if exclude-libs "" " --libs")))))
     ;; TODO: Throw error if library not found?
     (if (equal? (process-exit-code process) 0)
         (read-all-text (process-stdout process))

@@ -43,9 +43,9 @@
                                              (lambda (project config outputs)
                                                ;; TODO: Clean existing dist folder?
                                                (path-ensure "./dist")
-                                               (process-start (string-append "cp "
-                                                                             (project-config-output-path config)
-                                                                             "/mesche "
-                                                                             "dist/"))
-                                               (process-start "cp -R ./modules ./dist")
+                                               (process-start-sync (string-append "cp "
+                                                                                  (project-config-output-path config)
+                                                                                  "/mesche "
+                                                                                  "dist/"))
+                                               (process-start-sync "cp -R ./modules ./dist")
                                                nil)))))
