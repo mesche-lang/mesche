@@ -16,6 +16,7 @@ source_files=(
     "chunk.c"
     "compiler.c"
     "disasm.c"
+    "io.c"
     "fs.c"
     "list.c"
     "array.c"

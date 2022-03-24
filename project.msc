@@ -31,7 +31,7 @@
                                 :description "Builds the Mesche compiler library."
                                 :default t
                                 :runs (steps (compile-source :source-files
-                                                             '("chunk.c" "compiler.c" "disasm.c" "math.c"
+                                                             '("chunk.c" "compiler.c" "disasm.c" "math.c" "io.c"
                                                                "fs.c" "list.c" "array.c" "mem.c" "module.c"
                                                                "object.c" "process.c" "repl.c" "scanner.c"
                                                                "string.c" "table.c" "value.c" "vm.c"))

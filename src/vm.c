@@ -8,6 +8,7 @@
 #include "compiler.h"
 #include "disasm.h"
 #include "fs.h"
+#include "io.h"
 #include "list.h"
 #include "math.h"
 #include "mem.h"
@@ -296,6 +297,7 @@ static void mem_collect_garbage(MescheMemory *mem) {
 }
 
 void mesche_vm_register_core_modules(VM *vm) {
+  mesche_io_module_init(vm);
   mesche_fs_module_init(vm);
   mesche_list_module_init(vm);
   mesche_math_module_init(vm);
