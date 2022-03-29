@@ -17,6 +17,7 @@
 #include "op.h"
 #include "process.h"
 #include "string.h"
+#include "time.h"
 #include "util.h"
 #include "value.h"
 #include "vm.h"
@@ -301,6 +302,7 @@ void mesche_vm_register_core_modules(VM *vm) {
   mesche_fs_module_init(vm);
   mesche_list_module_init(vm);
   mesche_math_module_init(vm);
+  mesche_time_module_init(vm);
   mesche_array_module_init(vm);
   mesche_string_module_init(vm);
   mesche_process_module_init(vm);

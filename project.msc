@@ -33,7 +33,7 @@
                                 :runs (steps (compile-source :source-files
                                                              '("chunk.c" "compiler.c" "disasm.c" "math.c" "io.c"
                                                                "fs.c" "list.c" "array.c" "mem.c" "module.c"
-                                                               "object.c" "process.c" "repl.c" "scanner.c"
+                                                               "time.c" "object.c" "process.c" "repl.c" "scanner.c"
                                                                "string.c" "table.c" "value.c" "vm.c"))
                                              (create-static-library "libmesche.a"
                                                                     :c-flags (string-append "-I " (path-resolve "./include"))
