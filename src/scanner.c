@@ -230,7 +230,7 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
 static Token scanner_read_identifier(Scanner *scanner) {
   while (scanner_is_alpha(scanner_peek(scanner)) || scanner_is_digit(scanner_peek(scanner)) ||
          scanner_peek(scanner) == '-' || scanner_peek(scanner) == '?' ||
-         scanner_peek(scanner) == '!') {
+         scanner_peek(scanner) == '>' || scanner_peek(scanner) == '!') {
     scanner_next_char(scanner);
   }
 

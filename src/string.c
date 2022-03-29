@@ -102,10 +102,17 @@ Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
   }
 }
 
+Value string_number_to_string_msc(MescheMemory *mem, int arg_count, Value *args) {
+  char buffer[256];
+  sprintf(buffer, "%.3f", AS_NUMBER(args[0]));
+  return OBJECT_VAL(mesche_object_make_string((VM *)mem, buffer, strlen(buffer)));
+}
+
 void mesche_string_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche string",
       (MescheNativeFuncDetails[]){{"string-append", string_append_msc, true},
                                   {"string-join", string_join_msc, true},
+                                  {"number->string", string_number_to_string_msc, true},
                                   {NULL, NULL, false}});
 }
