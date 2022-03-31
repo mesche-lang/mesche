@@ -31,7 +31,7 @@ void mesche_chunk_insert_space(MescheMemory *mem, Chunk *chunk, int start_offset
   int old_capacity = chunk->capacity;
   while (chunk->capacity < chunk->count + space_size) {
     int prev_capacity = chunk->capacity;
-    chunk->capacity = GROW_CAPACITY(old_capacity);
+    chunk->capacity = GROW_CAPACITY(prev_capacity);
   }
 
   // Then only grow capacity if necessary
