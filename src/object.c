@@ -231,6 +231,7 @@ ObjectPointer *mesche_object_make_pointer(VM *vm, void *ptr, bool is_managed) {
   ObjectPointer *pointer = ALLOC_OBJECT(vm, ObjectPointer, ObjectKindPointer);
   pointer->ptr = ptr;
   pointer->is_managed = is_managed;
+  pointer->type = NULL;
   return pointer;
 }
 
@@ -459,7 +460,7 @@ void mesche_object_print(Value value) {
     break;
   case ObjectKindPointer: {
     ObjectPointer *pointer = AS_POINTER(value);
-    if (pointer->type) {
+    if (pointer->type != NULL) {
       // TODO: Add custom print function
       printf("<%s %p>", pointer->type->name, AS_POINTER(value)->ptr);
     } else {
