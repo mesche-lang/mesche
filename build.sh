@@ -29,6 +29,7 @@ source_files=(
     "scanner.c"
     "string.c"
     "table.c"
+    "time.c"
     "value.c"
     "vm.c"
 )
