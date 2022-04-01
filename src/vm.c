@@ -603,10 +603,11 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       return vm_call(vm, AS_CLOSURE(callee), arg_count, keyword_count, is_tail_call);
     case ObjectKindNativeFunction: {
       FunctionPtr func_ptr = AS_NATIVE_FUNC(callee);
-      Value result = func_ptr((MescheMemory *)vm, arg_count, vm->stack_top - arg_count);
+      int total_args = arg_count + keyword_count * 2;
+      Value result = func_ptr((MescheMemory *)vm, total_args, vm->stack_top - total_args);
 
       // Pop off all of the arguments and the function itself
-      for (int i = 0; i < arg_count + 1; i++) {
+      for (int i = 0; i < total_args + 1; i++) {
         mesche_vm_stack_pop(vm);
       }
 
