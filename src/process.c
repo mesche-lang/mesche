@@ -41,6 +41,10 @@ void process_init(MescheProcess *process) {
 MescheProcess *mesche_process_start(char *program_path, char *const argv[], char pipe_config[3]) {
   pid_t child_pid;
 
+  // Flush output streams before forking
+  fflush(stdout);
+  fflush(stderr);
+
   // Create a pipe for the child process' input and output streams
   int stdout_fd[2], stderr_fd[2];
   pipe(stdout_fd);
