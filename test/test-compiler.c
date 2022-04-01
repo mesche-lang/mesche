@@ -159,6 +159,46 @@ static void compiles_if_expr() {
   PASS();
 }
 
+static void compiles_or_expr() {
+  COMPILER_INIT();
+
+  COMPILE("(or nil 2 3)");
+
+  CHECK_BYTE(OP_NIL);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 7);
+  CHECK_JUMP(OP_JUMP, 4, 19);
+
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 10, 16);
+  CHECK_JUMP(OP_JUMP, 13, 19);
+
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 1);
+  CHECK_BYTE(OP_RETURN);
+
+  PASS();
+}
+
+static void compiles_and_expr() {
+  COMPILER_INIT();
+
+  COMPILE("(and 2 nil 3)");
+
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 2, 13);
+
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTE(OP_NIL);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 7, 13);
+
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 1);
+  CHECK_BYTE(OP_RETURN);
+
+  PASS();
+}
+
 static void compiles_if_expr_no_else() {
   COMPILER_INIT();
 
@@ -405,6 +445,8 @@ void test_compiler_suite() {
   compiles_named_let();
   compiles_if_expr();
   compiles_if_expr_no_else();
+  compiles_or_expr();
+  compiles_and_expr();
   compiles_lambda_rest_keyword_args();
   compiles_tail_call_basic();
   compiles_tail_call_begin();

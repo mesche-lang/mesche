@@ -76,10 +76,6 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_simple_instr("OP_MODULO", offset);
   case OP_NEGATE:
     return mesche_disasm_simple_instr("OP_NEGATE", offset);
-  case OP_AND:
-    return mesche_disasm_simple_instr("OP_AND", offset);
-  case OP_OR:
-    return mesche_disasm_simple_instr("OP_OR", offset);
   case OP_NOT:
     return mesche_disasm_simple_instr("OP_NOT", offset);
   case OP_GREATER_THAN:

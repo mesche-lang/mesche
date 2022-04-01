@@ -15,8 +15,6 @@ typedef enum {
   OP_DIVIDE,
   OP_MODULO,
   OP_NEGATE, // TODO: Remove in favor of SUBTRACT!
-  OP_AND,
-  OP_OR,
   OP_NOT,
   OP_GREATER_THAN,
   OP_GREATER_EQUAL,

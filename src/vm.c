@@ -894,12 +894,6 @@ InterpretResult mesche_vm_run(VM *vm) {
       mesche_vm_stack_push(vm, NUMBER_VAL(a % b));
       break;
     }
-    case OP_AND:
-      BINARY_OP(BOOL_VAL, IS_ANY, AS_BOOL, &&);
-      break;
-    case OP_OR:
-      BINARY_OP(BOOL_VAL, IS_ANY, AS_BOOL, ||);
-      break;
     case OP_NOT:
       mesche_vm_stack_push(vm, IS_NIL(mesche_vm_stack_pop(vm)) ? T_VAL : NIL_VAL);
       break;

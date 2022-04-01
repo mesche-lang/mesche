@@ -13,6 +13,7 @@
 #include "vm.h"
 
 #define UINT8_COUNT (UINT8_MAX + 1)
+#define MAX_AND_OR_EXPRS 100
 
 // NOTE: Enable this for diagnostic purposes
 /* #define DEBUG_PRINT_CODE */
@@ -65,11 +66,7 @@ typedef struct {
   ObjectString *doc_string;
 } DefineAttributes;
 
-typedef enum {
-  ARG_POSITIONAL,
-  ARG_REST,
-  ARG_KEYWORD
-} ArgType;
+typedef enum { ARG_POSITIONAL, ARG_REST, ARG_KEYWORD } ArgType;
 
 void mesche_compiler_mark_roots(void *target) {
   CompilerContext *ctx = (CompilerContext *)target;
@@ -708,7 +705,8 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name
 
       if (arg_type == ARG_REST) {
         if (func_ctx.function->rest_arg_index > 0) {
-          compiler_error_at_current(&func_ctx, "Function cannot have more than one :rest argument.");
+          compiler_error_at_current(&func_ctx,
+                                    "Function cannot have more than one :rest argument.");
         }
 
         func_ctx.function->rest_arg_index = func_ctx.function->arity;
@@ -961,6 +959,88 @@ static void compiler_parse_if(CompilerContext *ctx) {
   compiler_consume(ctx, TokenKindRightParen, "Expected right paren to end 'if' expression");
 }
 
+static void compiler_parse_or(CompilerContext *ctx) {
+  int prev_jump = -1;
+  int expr_count = 0;
+  int end_jumps[MAX_AND_OR_EXPRS];
+
+  for (;;) {
+    // Exit if we've reached the end of the expressions
+    if (ctx->parser->current.kind == TokenKindRightParen) {
+      compiler_advance(ctx);
+      break;
+    }
+
+    if (expr_count > 0) {
+      // If it evaluates to false, jump to the next expression
+      prev_jump = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
+
+      // If it evaluates to true, jump to the end of the expression list
+      end_jumps[expr_count - 1] = compiler_emit_jump(ctx, OP_JUMP);
+
+      // Patch the previous expression's jump
+      compiler_patch_jump(ctx, prev_jump);
+
+      // Emit a pop to remove the previous expression value from the stack
+      compiler_emit_byte(ctx, OP_POP);
+    }
+
+    // Parse the expression
+    compiler_parse_expr(ctx);
+    expr_count++;
+
+    if (expr_count == MAX_AND_OR_EXPRS) {
+      compiler_error(ctx, "Exceeded the maximum number of expressions in an `and`.");
+    }
+  }
+
+  // The last expression is a tail site
+  compiler_log_tail_site(ctx);
+
+  for (int i = 0; i < expr_count - 1; i++) {
+    // Patch all the jumps to the end location
+    compiler_patch_jump(ctx, end_jumps[i]);
+  }
+}
+
+static void compiler_parse_and(CompilerContext *ctx) {
+  int prev_jump = -1;
+  int expr_count = 0;
+  int end_jumps[MAX_AND_OR_EXPRS];
+
+  for (;;) {
+    // Exit if we've reached the end of the expressions
+    if (ctx->parser->current.kind == TokenKindRightParen) {
+      compiler_advance(ctx);
+      break;
+    }
+
+    if (expr_count > 0) {
+      // If it evaluates to false, jump to the end of the expression list
+      end_jumps[expr_count - 1] = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
+
+      // Emit a pop to remove the previous expression value from the stack
+      compiler_emit_byte(ctx, OP_POP);
+    }
+
+    // Parse the expression
+    compiler_parse_expr(ctx);
+    expr_count++;
+
+    if (expr_count == MAX_AND_OR_EXPRS) {
+      compiler_error(ctx, "Exceeded the maximum number of expressions in an `and`.");
+    }
+  }
+
+  // The last expression is a tail site
+  compiler_log_tail_site(ctx);
+
+  for (int i = 0; i < expr_count - 1; i++) {
+    // Patch all the jumps to the end location
+    compiler_patch_jump(ctx, end_jumps[i]);
+  }
+}
+
 static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token,
                                          uint8_t operand_count) {
   TokenKind operator= call_token->sub_kind;
@@ -979,12 +1059,6 @@ static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token
     break;
   case TokenKindPercent:
     compiler_emit_byte(ctx, OP_MODULO);
-    break;
-  case TokenKindAnd:
-    compiler_emit_byte(ctx, OP_AND);
-    break;
-  case TokenKindOr:
-    compiler_emit_byte(ctx, OP_OR);
     break;
   case TokenKindNot:
     compiler_emit_byte(ctx, OP_NOT);
@@ -1045,6 +1119,12 @@ static void compiler_parse_load_file(CompilerContext *ctx) {
 static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token) {
   TokenKind operator= call_token->sub_kind;
   switch (operator) {
+  case TokenKindOr:
+    compiler_parse_or(ctx);
+    break;
+  case TokenKindAnd:
+    compiler_parse_and(ctx);
+    break;
   case TokenKindBegin:
     compiler_parse_block(ctx, true);
     break;

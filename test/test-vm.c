@@ -53,7 +53,8 @@ static void calls_function_with_rest_args() {
   VM_EVAL("(module-import (mesche list))"
           "(define (with-rest x :rest args)"
           "  (car (cdr (cdr args))))"
-          "(with-rest 1 2 3 4)", INTERPRET_OK);
+          "(with-rest 1 2 3 4)",
+          INTERPRET_OK);
 
   value = *vm.stack_top;
   ASSERT_KIND(value.kind, VALUE_NUMBER);
@@ -61,14 +62,16 @@ static void calls_function_with_rest_args() {
   VM_EVAL("(module-import (mesche list))"
           "(define (with-rest x :rest args :keys key)"
           "  (car (cdr (cdr args))))"
-          "(with-rest 4 5 6 7 8)", INTERPRET_OK);
+          "(with-rest 4 5 6 7 8)",
+          INTERPRET_OK);
 
   value = *vm.stack_top;
   ASSERT_KIND(value.kind, VALUE_NUMBER);
 
   VM_EVAL("(define (with-rest x :rest args :keys key)"
           "  args)"
-          "(with-rest 4 :key 'foo)", INTERPRET_OK);
+          "(with-rest 4 :key 'foo)",
+          INTERPRET_OK);
 
   value = *vm.stack_top;
   ASSERT_KIND(value.kind, VALUE_NIL);
@@ -85,6 +88,25 @@ static void imports_modules() {
           INTERPRET_OK);
   value = *vm.stack_top;
   ASSERT_OBJECT(value, ObjectKindString);
+
+  PASS();
+}
+
+static void evaluates_and_or() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(or (and nil 2 3)"
+          "    (and 3 2 nil)"
+          "    (and 2 3 4)"
+          "    nil)",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 4) {
+    FAIL("It wasn't 4!");
+  }
 
   PASS();
 }
@@ -155,6 +177,7 @@ void test_vm_suite() {
   returns_basic_values();
   calls_function_with_rest_args();
   imports_modules();
+  evaluates_and_or();
   evaluates_let();
   evaluates_tail_calls();
   evaluates_tail_calls_named_let();
