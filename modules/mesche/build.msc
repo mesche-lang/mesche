@@ -219,32 +219,24 @@
 (define (build-project project-path :keys target-name config-name) :export
   (lambda (project config outputs)
     ;; By default, use the name of the current project configuration
-    (if (not config-name) (set! config-name (project-config-name config)))
     (build-project-inner project-path
                          target-name
-                         config-name)))
+                         (or config-name (project-config-name config)))))
 
 (define (compile-source :keys source-files src-path mesche-main) :export
   ;; TODO: Use mesche-main to generate a main.c file that invokes it
   (lambda (project config outputs)
     (let ((out-path (project-config-output-path config))
-          (c-compiler (project-config-c-compiler config))
-          (c-flags (project-config-c-flags config))
-          (c-libs (project-config-c-libs config)))
+          (c-compiler (or (project-config-c-compiler config) "gcc"))
+          (c-flags (or (project-config-c-flags config) ""))
+          (c-libs (or (project-config-c-libs config) "")))
 
-      ;; TODO: Need `or` and default keyword values!
-      (if (not source-files) (set! source-files '()))
-      (if (not src-path) (set! src-path "./src"))
-      (if (not c-compiler) (set! c-compiler "gcc"))
-      (if (not c-flags) (set! c-flags ""))
-      (if (not c-libs) (set! c-libs ""))
-
-      (let compile-next ((input-files source-files)
+      (let compile-next ((input-files (or source-files '()))
                          (output-files '()))
         (if (pair? input-files)
             (begin
               (if (equal? "c" (file-extension (car input-files)))
-                  (let ((source-file (string-append src-path "/" (car input-files)))
+                  (let ((source-file (string-append (or src-path "./src") "/" (car input-files)))
                         (output-file (string-append out-path "/" (file-name (car input-files)) ".o")))
 
                     ;; Ensure the output path exists
@@ -275,14 +267,9 @@
   (lambda (project config outputs)
     (let ((output-path (string-append (path-ensure (project-config-output-path config))
                                       "/" output-file))
-          (c-compiler (project-config-c-compiler config))
-          (c-flags (project-config-c-flags config))
-          (c-libs (project-config-c-libs config)))
-
-      ;; TODO: Need `or` and default keyword values!
-      (if (not c-compiler) (set! c-compiler "gcc"))
-      (if (not c-flags) (set! c-flags ""))
-      (if (not c-libs) (set! c-libs ""))
+          (c-compiler (or (project-config-c-compiler config) "gcc"))
+          (c-flags (or (project-config-c-flags config) ""))
+          (c-libs (or (project-config-c-libs config) "")))
 
       ;; TODO: Error if no output file is specified
       ;; TODO: Ensure that the previous output came from a compiler
