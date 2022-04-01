@@ -193,7 +193,42 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
   // The last argument must be null so that execvp knows when to stop
   argv[i] = NULL;
 
-  char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_INHERIT};
+  // Configure pipe settings
+  int keyword_start = 1; // TODO: Update this once real args are handled
+  char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_FD};
+  for (int i = keyword_start; i < arg_count;) {
+    if (IS_KEYWORD(args[i])) {
+      // Which keyword argument is it?
+      ObjectKeyword *keyword = AS_KEYWORD(args[i]);
+      int stream_index = -1;
+      if (memcmp(keyword->string.chars, "stdin", 5) == 0) {
+        stream_index = 0;
+      } else if (memcmp(keyword->string.chars, "stdout", 6) == 0) {
+        stream_index = 1;
+      } else if (memcmp(keyword->string.chars, "stderr", 6) == 0) {
+        stream_index = 2;
+      }
+
+      // Now read up the symbol to configure the stream
+      if (IS_SYMBOL(args[++i])) {
+        ObjectSymbol *value = AS_SYMBOL(args[i]);
+        if (memcmp(value->string.chars, "pipe", 4) == 0) {
+          pipe_config[stream_index] = PIPE_FD;
+        } else if (memcmp(value->string.chars, "inherit", 7) == 0) {
+          pipe_config[stream_index] = PIPE_INHERIT;
+        }
+
+        i++;
+      } else {
+        // TODO: Runtime error
+        PANIC("Unexpected value for `process-start` keyword argument.\n");
+      }
+    } else {
+      // TODO: Runtime error
+      PANIC("Unexpected argument to `process-start`.\n");
+    }
+  }
+
   MescheProcess *process = mesche_process_start(argv[0], argv, pipe_config);
   free(command_str);
 
