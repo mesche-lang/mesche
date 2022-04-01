@@ -37,22 +37,26 @@
 
 (define (git-clone repo-url local-path) :export
   (process-start-sync (string-append "git clone "
-                                repo-url
-                                " "
-                                local-path)))
+                                     repo-url
+                                     " "
+                                     local-path)
+                      :stderr 'inherit))
 
 (define (download-url url local-path) :export
+  (display (string-append "Downloading URL: " url " to " local-path "...\n"))
   (process-start-sync (string-append "wget "
-                                url
-                                " "
-                                " -O "
-                                local-path)))
+                                     url
+                                     " -q -O "
+                                     local-path)
+                      :stderr 'inherit))
 
 (define (unpack-tar-gz archive-path output-path) :export
   (process-start-sync (string-append "tar -zxvf "
-                                archive-path
-                                " -C "
-                                output-path)))
+                                     archive-path
+                                     " -C "
+                                     output-path)
+                      :stdout 'inherit
+                      :stderr 'inherit))
 
 (define (download-musl dep) :export
   ;; TODO: Parameterize this
@@ -63,8 +67,10 @@
                   "./deps/musl.tar.gz")
     (unpack-tar-gz "./deps/musl.tar.gz" "./deps")
     ;; TODO: Library functions for this
-    (process-start-sync (string-append "mv " (path-resolve (string-append "./deps/" build)) " " local-path))
-    (process-start-sync "rm ./deps/musl.tar.gz")))
+    (process-start-sync (string-append "mv " (path-resolve (string-append "./deps/" build)) " " local-path)
+                        :stderr 'inherit)
+    (process-start-sync "rm ./deps/musl.tar.gz"
+                        :stderr 'inherit)))
 
 (define (musl-gcc config deps outputs) :export
   ;; TODO: Generate this from the dep info
@@ -108,7 +114,8 @@
   (let ((process (process-start-sync (string-append "pkg-config "
                                                     name
                                                     (if exclude-cflags "" " --cflags")
-                                                    (if exclude-libs "" " --libs")))))
+                                                    (if exclude-libs "" " --libs"))
+                                     :stderr 'inherit)))
     ;; TODO: Throw error if library not found?
     (if (equal? (process-exit-code process) 0)
         (read-all-text (process-stdout process))
@@ -252,12 +259,14 @@
                           (display " to ") (display output-file)
                           (display "...\n")
                           (process-start-sync (string-append c-compiler
-                                                        " -c "
-                                                        source-file
-                                                        " -o "
-                                                        output-file
-                                                        " "
-                                                        c-flags))))
+                                                             " -c "
+                                                             source-file
+                                                             " -o "
+                                                             output-file
+                                                             " "
+                                                             c-flags)
+
+                                              :stderr 'inherit)))
                     (set! output-files (cons output-file output-files))))
               (compile-next (cdr input-files) output-files))
             (make-build-output :type 'object
@@ -278,17 +287,19 @@
       (display (string-append "Linking " output-file "\n"))
       (let ((object-files (string-join (gather-object-files outputs) " ")))
         (process-start-sync (string-append c-compiler
-                                      " -o "
-                                      output-path
-                                      " "
-                                      object-files
-                                      " "
-                                      c-flags
-                                      " "
-                                      c-libs)))
+                                           " -o "
+                                           output-path
+                                           " "
+                                           object-files
+                                           " "
+                                           c-flags
+                                           " "
+                                           c-libs)
+                            :stderr 'inherit))
 
       ;; Make the file executable
-      (process-start-sync (string-append "chmod +x " output-path))
+      (process-start-sync (string-append "chmod +x " output-path)
+                          :stderr 'inherit)
 
       ;; Return the build output details
       (make-build-output :type 'program
@@ -301,9 +312,10 @@
       ;; Run the linker
       (display (string-append "Creating static library " output-file "\n"))
       (process-start-sync (string-append "ar rcs "
-                                    output-path
-                                    " "
-                                    (string-join (gather-object-files outputs) " ")))
+                                         output-path
+                                         " "
+                                         (string-join (gather-object-files outputs) " "))
+                          :stderr 'inherit)
 
       ;; Return the build output details
       (make-build-output :type 'static-library
