@@ -193,7 +193,7 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
   // The last argument must be null so that execvp knows when to stop
   argv[i] = NULL;
 
-  char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_FD};
+  char pipe_config[3] = {PIPE_FD, PIPE_FD, PIPE_INHERIT};
   MescheProcess *process = mesche_process_start(argv[0], argv, pipe_config);
   free(command_str);
 
