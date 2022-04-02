@@ -238,6 +238,8 @@
           (c-flags (or (project-config-c-flags config) ""))
           (c-libs (or (project-config-c-libs config) "")))
 
+      (display (string-append "WORKING DIRECTORY: " (process-directory) "\n"))
+
       (let compile-next ((input-files (or source-files '()))
                          (output-files '()))
         (if (pair? input-files)
@@ -258,6 +260,16 @@
                           (display "Compiling: ") (display source-file)
                           (display " to ") (display output-file)
                           (display "...\n")
+                          (display
+                           (string-append  "VERBOSE: "
+                                           c-compiler
+                                           " -c "
+                                           source-file
+                                           " -o "
+                                           output-file
+                                           " "
+                                           c-flags
+                                           "\n"))
                           (process-start-sync (string-append c-compiler
                                                              " -c "
                                                              source-file
