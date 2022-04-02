@@ -174,18 +174,24 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
   char *command_str = strdup(AS_CSTRING(args[0]));
   char *arg = strtok(command_str, " ");
 
+  printf("PROCESS START: ");
+
   do {
     // TODO: Remove this filthy hack!
     int j = 0;
     while (arg[j] != '\0') {
-      if (arg[j] == '\r') arg[j] = '\0';
-      if (arg[j] == '\n') arg[j] = '\0';
+      if (arg[j] == '\r')
+        arg[j] = '\0';
+      if (arg[j] == '\n')
+        arg[j] = '\0';
       j++;
     }
 
+    printf("%s ", arg);
+
     argv[i++] = arg;
     arg = strtok(NULL, " ");
-  } while(arg != NULL);
+  } while (arg != NULL);
 
   // for (int i = 0; i < arg_count; i++) {
   //   // TODO: Verify type
@@ -232,6 +238,8 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
       PANIC("Unexpected argument to `process-start`.\n");
     }
   }
+
+  printf("\n");
 
   MescheProcess *process = mesche_process_start(argv[0], argv, pipe_config);
   free(command_str);
