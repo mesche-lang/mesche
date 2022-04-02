@@ -271,7 +271,7 @@
                                            c-flags
                                            "\n"))
                           (process-start-sync (string-append c-compiler
-                                                             " -c "
+                                                             " -v -c "
                                                              source-file
                                                              " -o "
                                                              output-file
