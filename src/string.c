@@ -104,7 +104,8 @@ Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
 
 Value string_number_to_string_msc(MescheMemory *mem, int arg_count, Value *args) {
   char buffer[256];
-  sprintf(buffer, "%.3f", AS_NUMBER(args[0]));
+  int decimal_places = arg_count > 1 ? (int)AS_NUMBER(args[1]) : 0;
+  sprintf(buffer, "%.*f", decimal_places, AS_NUMBER(args[0]));
   return OBJECT_VAL(mesche_object_make_string((VM *)mem, buffer, strlen(buffer)));
 }
 
