@@ -253,6 +253,11 @@
                     (path-ensure (file-directory output-file))
                     (path-ensure (file-directory output-file))
 
+                    ;; Does the source file exist?
+                    (if (path-exists? source-file)
+                        (display (string-append "PATH EXISTS: " (path-resolve source-file) "\n"))
+                        (display (string-append "PATH DOES NOT EXIST: " source-file "\n")))
+
                     ;; Compile the file if the source is newer than the output file
                     (if (>= (file-modified-time source-file)
                             (file-modified-time output-file))
