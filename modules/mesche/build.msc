@@ -51,7 +51,7 @@
                       :stderr 'inherit))
 
 (define (unpack-tar-gz archive-path output-path) :export
-  (process-start-sync (string-append "tar -zxvf "
+  (process-start-sync (string-append "tar -zxf "
                                      archive-path
                                      " -C "
                                      output-path)
