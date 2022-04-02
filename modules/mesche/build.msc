@@ -238,8 +238,6 @@
           (c-flags (or (project-config-c-flags config) ""))
           (c-libs (or (project-config-c-libs config) "")))
 
-      (display (string-append "WORKING DIRECTORY: " (process-directory) "\n"))
-
       (let compile-next ((input-files (or source-files '()))
                          (output-files '()))
         (if (pair? input-files)
@@ -253,11 +251,6 @@
                     (path-ensure (file-directory output-file))
                     (path-ensure (file-directory output-file))
 
-                    ;; Does the source file exist?
-                    (if (path-exists? source-file)
-                        (display (string-append "PATH EXISTS: " (path-resolve source-file) "\n"))
-                        (display (string-append "PATH DOES NOT EXIST: " source-file "\n")))
-
                     ;; Compile the file if the source is newer than the output file
                     (if (>= (file-modified-time source-file)
                             (file-modified-time output-file))
@@ -265,18 +258,8 @@
                           (display "Compiling: ") (display source-file)
                           (display " to ") (display output-file)
                           (display "...\n")
-                          (display
-                           (string-append  "VERBOSE: "
-                                           c-compiler
-                                           " -c "
-                                           source-file
-                                           " -o "
-                                           output-file
-                                           " "
-                                           c-flags
-                                           "\n"))
                           (process-start-sync (string-append c-compiler
-                                                             " -v -c "
+                                                             " -c "
                                                              source-file
                                                              " -o "
                                                              output-file
