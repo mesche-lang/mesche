@@ -174,7 +174,7 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
   char *command_str = strdup(AS_CSTRING(args[0]));
   char *arg = strtok(command_str, " ");
 
-  printf("PROCESS START:\n");
+  /* printf("PROCESS START:\n"); */
 
   do {
     // TODO: Remove this filthy hack!
@@ -187,9 +187,14 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
       j++;
     }
 
-    printf("ARG: =%s=\n", arg);
+    /* printf("ARG: =%s=\n", arg); */
 
-    argv[i++] = arg;
+    // Don't add the arg string if it's empty (like if there were 2 spaces)
+    if (strlen(arg) > 0) {
+      argv[i++] = arg;
+    }
+
+    // Find the next token
     arg = strtok(NULL, " ");
   } while (arg != NULL);
 
