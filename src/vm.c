@@ -319,6 +319,7 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
 
   vm->is_running = false;
   vm->objects = NULL;
+  vm->load_paths = NULL;
   vm->current_compiler = NULL;
   vm_reset_stack(vm);
   mesche_table_init(&vm->strings);
@@ -331,7 +332,6 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->root_module = mesche_object_make_module(vm, module_name);
   mesche_vm_stack_push(vm, OBJECT_VAL(vm->root_module));
   vm->current_module = vm->root_module;
-  vm->load_paths = NULL;
   mesche_table_set((MescheMemory *)vm, &vm->modules, vm->root_module->name,
                    OBJECT_VAL(vm->root_module));
 
@@ -834,9 +834,15 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     }
     case OP_CONS: {
-      Value cdr = mesche_vm_stack_pop(vm);
-      Value car = mesche_vm_stack_pop(vm);
-      mesche_vm_stack_push(vm, OBJECT_VAL(mesche_object_make_cons(vm, car, cdr)));
+      Value car = vm_stack_peek(vm, 1);
+      Value cdr = vm_stack_peek(vm, 0);
+      Value cons = OBJECT_VAL(mesche_object_make_cons(vm, car, cdr));
+
+      // Pop the car and cdr values off of the stack and push the cons
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_push(vm, cons);
+
       break;
     }
     case OP_LIST: {
@@ -1197,7 +1203,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       uint8_t keyword_count = READ_BYTE();
       if (!vm_call_value(vm, vm_stack_peek(vm, arg_count + (keyword_count * 2)), arg_count,
                          keyword_count, false)) {
-        return INTERPRET_COMPILE_ERROR;
+        return INTERPRET_RUNTIME_ERROR;
       }
 
       // Set the current frame to the new call frame
@@ -1210,7 +1216,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       uint8_t keyword_count = READ_BYTE();
       if (!vm_call_value(vm, vm_stack_peek(vm, arg_count + (keyword_count * 2)), arg_count,
                          keyword_count, true)) {
-        return INTERPRET_COMPILE_ERROR;
+        return INTERPRET_RUNTIME_ERROR;
       }
 
       // Retain the current call frame, it has already been updated
