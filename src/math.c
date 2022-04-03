@@ -20,6 +20,15 @@ Value math_rand_int_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(rand() % (int)AS_NUMBER(args[0]));
 }
 
+Value math_sin_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (arg_count != 1) {
+    PANIC("Function requires 1 parameter.");
+  }
+
+  // TODO: Add type checks
+  return NUMBER_VAL(sin(AS_NUMBER(args[0])));
+}
+
 Value math_min_msc(MescheMemory *mem, int arg_count, Value *args) {
   if (arg_count != 2) {
     PANIC("Function requires 2 parameters.");
@@ -44,6 +53,7 @@ void mesche_math_module_init(VM *vm) {
 
   mesche_vm_define_native_funcs(vm, "mesche math",
                                 (MescheNativeFuncDetails[]){{"floor", math_floor_msc, true},
+                                                            {"sin", math_sin_msc, true},
                                                             {"min", math_min_msc, true},
                                                             {"max", math_max_msc, true},
                                                             {"rand-int", math_rand_int_msc, true},
