@@ -174,7 +174,7 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
   char *command_str = strdup(AS_CSTRING(args[0]));
   char *arg = strtok(command_str, " ");
 
-  printf("PROCESS START: ");
+  printf("PROCESS START:\n");
 
   do {
     // TODO: Remove this filthy hack!
@@ -187,7 +187,7 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
       j++;
     }
 
-    printf("%s ", arg);
+    printf("ARG: =%s=\n", arg);
 
     argv[i++] = arg;
     arg = strtok(NULL, " ");
@@ -238,8 +238,6 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
       PANIC("Unexpected argument to `process-start`.\n");
     }
   }
-
-  printf("\n");
 
   MescheProcess *process = mesche_process_start(argv[0], argv, pipe_config);
   free(command_str);
