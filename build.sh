@@ -32,8 +32,8 @@ if [ ! -d "./musl" ]; then
 
   # Download the latest package into a tmp folder and unpack it
   mkdir -p tmp
-  wget https://musl.cc/x86_64-linux-musl-native.tgz -O tmp/musl.tar.gz
-  tar -zxvf tmp/musl.tar.gz -C tmp
+  wget https://musl.cc/x86_64-linux-musl-native.tgz -q -O tmp/musl.tar.gz
+  tar -zxf tmp/musl.tar.gz -C tmp
 
   # Move the files into a predictable location
   mv tmp/x86_64* ./musl
