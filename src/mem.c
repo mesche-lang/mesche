@@ -19,7 +19,7 @@ void mesche_mem_init(MescheMemory *mem, MescheMemoryCollectGarbageFunc collect_g
 
 void *mesche_mem_realloc(MescheMemory *mem, void *mem_ptr, size_t old_size, size_t new_size) {
   // Adjust the memory allocation amount
-  mem->bytes_allocated += new_size - old_size;
+  mem->bytes_allocated += (int)new_size - (int)old_size;
 
   // Decide whether to collect garbage
   if (new_size > old_size) {
