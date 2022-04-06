@@ -802,7 +802,6 @@ InterpretResult mesche_vm_run(VM *vm) {
 #endif
 
     uint8_t instr;
-    uint8_t offset;
     Value value;
     ObjectString *name;
     uint8_t slot = 0;
@@ -924,16 +923,18 @@ InterpretResult mesche_vm_run(VM *vm) {
       mesche_vm_stack_push(vm, BOOL_VAL(mesche_value_equalp(a, b)));
       break;
     }
-    case OP_JUMP:
-      offset = READ_SHORT();
+    case OP_JUMP: {
+      uint16_t offset = READ_SHORT();
       frame->ip += offset;
       break;
-    case OP_JUMP_IF_FALSE:
-      offset = READ_SHORT();
+    }
+    case OP_JUMP_IF_FALSE: {
+      uint16_t offset = READ_SHORT();
       if (IS_FALSEY(vm_stack_peek(vm, 0))) {
         frame->ip += offset;
       }
       break;
+    }
     case OP_RETURN:
       // Hold on to the function result value before we manipulate the stack
       value = mesche_vm_stack_pop(vm);
