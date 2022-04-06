@@ -81,19 +81,19 @@ ObjectString *mesche_object_make_string(VM *vm, const char *chars, int length) {
   length = length - offset;
   string->chars[length] = '\0';
 
-  // Is the string already interned?
+  // Finish initializing the string
+  // TODO: Resize the string buffer in memory to reduce waste
   uint32_t hash = object_string_hash(string->chars, length);
+  string->length = length;
+  string->hash = hash;
+
+  // Is the string already interned?
   ObjectString *interned_string = mesche_table_find_key(&vm->strings, chars, length, hash);
   if (interned_string != NULL) {
     // Return the interned string and don't explicitly free the one we allocated
     // since it will get cleaned up by the GC
     return interned_string;
   }
-
-  // Finish initializing the string
-  // TODO: Resize the string buffer in memory to reduce waste
-  string->length = length;
-  string->hash = hash;
 
   // Push the string onto the stack temporarily to avoid GC
   mesche_vm_stack_push(vm, OBJECT_VAL(string));
