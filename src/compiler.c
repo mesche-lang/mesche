@@ -7,6 +7,7 @@
 #include "disasm.h"
 #include "mem.h"
 #include "object.h"
+#include "string.h"
 #include "op.h"
 #include "scanner.h"
 #include "util.h"
@@ -49,6 +50,7 @@ typedef struct CompilerContext {
   Parser *parser;
   Scanner *scanner;
 
+  ObjectModule *module; // NOTE: Might be null if not compiling module
   ObjectFunction *function;
   FunctionType function_type;
 
@@ -73,6 +75,11 @@ void mesche_compiler_mark_roots(void *target) {
 
   while (ctx != NULL) {
     mesche_mem_mark_object(ctx->vm, (Object *)ctx->function);
+
+    if (ctx->module != NULL) {
+      mesche_mem_mark_object(ctx->vm, (Object *)ctx->module);
+    }
+
     ctx = ctx->parent;
   }
 }
@@ -495,7 +502,14 @@ static uint8_t compiler_define_variable_ex(CompilerContext *ctx, uint8_t variabl
 
   if (define_attributes) {
     if (define_attributes->is_export) {
-      compiler_emit_bytes(ctx, OP_EXPORT_SYMBOL, variable_constant);
+      // Add the binding to the module
+      if (ctx->module != NULL) {
+        mesche_value_array_write((MescheMemory *)ctx->vm, &ctx->module->exports,
+                                ctx->function->chunk.constants.values[variable_constant]);
+      }
+
+      // TODO: Convert to OP_CREATE_BINDING?
+      /* compiler_emit_bytes(ctx, OP_EXPORT_SYMBOL, variable_constant); */
     }
   }
 
@@ -813,19 +827,41 @@ static void compiler_parse_define(CompilerContext *ctx) {
   compiler_define_variable_ex(ctx, variable_constant, &define_attributes);
 }
 
-static void compiler_parse_module_symbol_list(CompilerContext *ctx) {
+static void compiler_parse_module_name(CompilerContext *ctx) {
+  char *module_name = NULL;
   uint8_t symbol_count = 0;
+
   for (;;) {
     // Bail out when we hit the closing parentheses
     if (ctx->parser->current.kind == TokenKindRightParen) {
-      // Emit opcode
       compiler_advance(ctx);
-      compiler_emit_bytes(ctx, OP_LIST, symbol_count);
+      if (module_name != NULL) {
+        // If a module name was parsed, emit the constant module name string
+        ObjectString *module_name_str = mesche_object_make_string(ctx->vm, module_name, strlen(module_name));
+        compiler_emit_constant(ctx, OBJECT_VAL(module_name_str));
+
+        // The module name has been copied, so free the temporary string
+        free(module_name);
+      } else {
+        compiler_error(ctx, "No symbols were found where module name was expected.");
+      }
+
       return;
     }
 
     compiler_consume(ctx, TokenKindSymbol, "Module names can only be comprised of symbols.");
-    compiler_parse_symbol_literal(ctx);
+
+    // Create the module name string from all subsequent symbols
+    if (symbol_count == 0) {
+      module_name = malloc(sizeof(char) * (ctx->parser->previous.length + 1));
+      memcpy(module_name, ctx->parser->previous.start, sizeof(char) * ctx->parser->previous.length);
+      module_name[ctx->parser->previous.length] = '\0';
+    } else {
+      char *prev_name = module_name;
+      module_name = mesche_cstring_join(module_name, strlen(module_name), ctx->parser->previous.start, ctx->parser->previous.length, " ");
+      free(prev_name);
+    }
+
     symbol_count++;
   }
 }
@@ -834,8 +870,13 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
   compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'define-module'");
 
   // Read the symbol list for the module path
-  compiler_parse_module_symbol_list(ctx);
+  compiler_parse_module_name(ctx);
   compiler_emit_byte(ctx, OP_DEFINE_MODULE);
+
+  // Store the module name if we're currently parsing a module file
+  if (ctx->module) {
+    ctx->module->name = AS_STRING(ctx->function->chunk.constants.values[ctx->function->chunk.constants.count - 1]);
+  }
 
   // Check for a possible 'import' expression
   if (ctx->parser->current.kind == TokenKindLeftParen) {
@@ -852,7 +893,7 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
 
       compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'import'");
 
-      compiler_parse_module_symbol_list(ctx);
+      compiler_parse_module_name(ctx);
       compiler_emit_byte(ctx, OP_RESOLVE_MODULE);
       compiler_emit_byte(ctx, OP_IMPORT_MODULE);
       compiler_emit_byte(ctx, OP_POP);
@@ -1097,7 +1138,7 @@ static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token
 
 static void compiler_parse_module_import(CompilerContext *ctx) {
   compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'module-import'");
-  compiler_parse_module_symbol_list(ctx);
+  compiler_parse_module_name(ctx);
   compiler_emit_byte(ctx, OP_RESOLVE_MODULE);
   compiler_emit_byte(ctx, OP_IMPORT_MODULE);
   compiler_consume(ctx, TokenKindRightParen, "Expected right paren to complete 'module-import'");
@@ -1105,7 +1146,7 @@ static void compiler_parse_module_import(CompilerContext *ctx) {
 
 static void compiler_parse_module_enter(CompilerContext *ctx) {
   compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'module-enter'");
-  compiler_parse_module_symbol_list(ctx);
+  compiler_parse_module_name(ctx);
   compiler_emit_byte(ctx, OP_ENTER_MODULE);
   compiler_consume(ctx, TokenKindRightParen, "Expected right paren to complete 'module-enter'");
 }
@@ -1377,10 +1418,50 @@ ObjectFunction *mesche_compile_source(VM *vm, const char *script_source) {
   compiler_parse_block(&ctx, false);
   compiler_consume(&ctx, TokenKindEOF, "Expected end of expression.");
 
+  // Retrieve the final function
+  ObjectFunction *function = compiler_end(&ctx);
+
   // Clear the VM's pointer to this compiler
   vm->current_compiler = NULL;
 
-  // Retrieve the final function and return it if there were no parse errors
-  ObjectFunction *function = compiler_end(&ctx);
+  // Return the compiled function if there were no parse errors
   return parser.had_error ? NULL : function;
+}
+
+ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, const char *module_source) {
+  // TODO: Deduplicate implementation code!
+  Parser parser;
+  Scanner scanner;
+  mesche_scanner_init(&scanner, module_source);
+
+  // Set up the context
+  CompilerContext ctx = {.vm = vm, .parser = &parser, .scanner = &scanner, .module = module};
+  compiler_init_context(&ctx, NULL, TYPE_SCRIPT);
+
+  // Reset parser error state
+  parser.had_error = false;
+  parser.panic_mode = false;
+
+  // Find the first legitimate token and then start parsing until
+  // we reach the end of the source
+  compiler_advance(&ctx);
+  compiler_parse_block(&ctx, false);
+  compiler_consume(&ctx, TokenKindEOF, "Expected end of expression.");
+
+  // Retrieve the final function and assign it to the module
+  ObjectFunction *function = compiler_end(&ctx);
+
+  // Ensure the user defined a module in the file
+  // TODO: How can we tell if the name is already set?
+  if (ctx.module->name == NULL) {
+    compiler_error(&ctx, "A valid module definition was not found in the source file.");
+  }
+
+  // Assign the function as the module's top-level body
+  ctx.module->init_function = function;
+
+  // Clear the VM's pointer to this compiler
+  vm->current_compiler = NULL;
+
+  return parser.had_error ? NULL : ctx.module;
 }

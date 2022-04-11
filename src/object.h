@@ -151,8 +151,10 @@ struct ObjectClosure {
 struct ObjectModule {
   Object object;
   Table locals;
+  ValueArray imports;
   ValueArray exports;
   ObjectString *name;
+  ObjectFunction *init_function;
 };
 
 struct ObjectRecordFieldAccessor {

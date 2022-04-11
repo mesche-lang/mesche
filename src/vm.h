@@ -75,7 +75,7 @@ void mesche_vm_free(VM *vm);
 InterpretResult mesche_vm_run(VM *vm);
 InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string);
 InterpretResult mesche_vm_load_file(VM *vm, const char *file_path);
-InterpretResult mesche_vm_load_module(VM *vm, const char *module_path);
+InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *module_path);
 void mesche_vm_stack_push(VM *vm, Value value);
 Value mesche_vm_stack_pop(VM *vm);
 void mesche_vm_define_native(VM *vm, ObjectModule *module, const char *name, FunctionPtr function,
