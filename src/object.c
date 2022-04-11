@@ -246,9 +246,11 @@ ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, ObjectPointerT
 ObjectModule *mesche_object_make_module(VM *vm, ObjectString *name) {
   ObjectModule *module = ALLOC_OBJECT(vm, ObjectModule, ObjectKindModule);
   module->name = name;
+  module->init_function = NULL;
 
   // Initialize binding tables
   mesche_table_init(&module->locals);
+  mesche_value_array_init(&module->imports);
   mesche_value_array_init(&module->exports);
 
   return module;
@@ -364,6 +366,7 @@ void mesche_object_free(VM *vm, Object *object) {
   case ObjectKindModule: {
     ObjectModule *module = (ObjectModule *)object;
     mesche_table_free((MescheMemory *)vm, &module->locals);
+    mesche_value_array_free((MescheMemory *)vm, &module->imports);
     mesche_value_array_free((MescheMemory *)vm, &module->exports);
     FREE(vm, ObjectModule, object);
     break;

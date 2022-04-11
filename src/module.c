@@ -54,52 +54,31 @@ char *mesche_module_find_module_path(VM *vm, const char *module_name) {
   return NULL;
 }
 
-ObjectString *mesche_module_name_from_symbol_list(VM *vm, ObjectCons *list) {
-  ObjectString *module_name = AS_STRING(list->car);
-  ObjectString *current_name = module_name;
-  bool pushed_string = false;
-
-  while (IS_CONS(list->cdr)) {
-    list = AS_CONS(list->cdr);
-    current_name = AS_STRING(list->car);
-    module_name = mesche_string_join(vm, module_name, current_name, " ");
-
-    // Push the string to the stack to avoid GC
-    if (pushed_string) {
-      mesche_vm_stack_pop(vm);
-    }
-    mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
-    pushed_string = true;
-  }
-
-  // Pop the final name from the stack
-  if (pushed_string) {
-    mesche_vm_stack_pop(vm);
-  }
-
-  return module_name;
-}
-
-static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_name) {
+ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_name) {
   // First, check if the module is already loaded, return it if so
   // Then check the load path to see if a module file exists
   // If no file exists, create a new module with the name
 
+  bool name_popped = false;
+  Value module_val = NIL_VAL;
+  ObjectModule *module = NULL;
+
   // Push the module name string onto the stack to prevent garbage collection
   mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
 
-  Value module_val;
-  ObjectModule *module = NULL;
-  bool loaded_module = false;
-  if (!mesche_table_get(&vm->modules, module_name, &module_val)) {
-    // Create an empty module and push it on the stack temporarily to avoid collection
-    loaded_module = true;
+  // Has the module already been created somehow?
+  if (mesche_table_get(&vm->modules, module_name, &module_val)) {
+    module = AS_MODULE(module_val);
+  } else {
+    // Create a new module and add it to the table but push to stack first to
+    // avoid collection
     module = mesche_object_make_module(vm, module_name);
     mesche_vm_stack_push(vm, OBJECT_VAL(module));
     mesche_table_set((MescheMemory *)vm, &vm->modules, module_name, OBJECT_VAL(module));
     mesche_vm_stack_pop(vm);
 
-    // Pop the module name from the stack since the module has it now
+    // Pop the module name since the module now has a reference to it
+    name_popped = true;
     mesche_vm_stack_pop(vm);
 
     // Look up the module in the load path
@@ -107,7 +86,7 @@ static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_
     if (module_path) {
       // Load the module file to populate the empty module
       // TODO: Guard against circular module loads!
-      InterpretResult result = mesche_vm_load_module(vm, module_path);
+      InterpretResult result = mesche_vm_load_module(vm, module, module_path);
 
       if (result != INTERPRET_OK) {
         PANIC("Error while loading module path %s\n", module_path)
@@ -115,12 +94,10 @@ static ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_
 
       free(module_path);
     }
-  } else {
-    module = AS_MODULE(module_val);
   }
 
-  // Pop the value string from the stack if we didn't need to load the module
-  if (!loaded_module) {
+  // Pop the name string from the stack if it hasn't been already
+  if (!name_popped) {
     mesche_vm_stack_pop(vm);
   }
 
@@ -135,19 +112,11 @@ ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_na
   return module;
 }
 
-ObjectModule *mesche_module_resolve_by_path(VM *vm, ObjectCons *list) {
-  // Allocate the name string and push it to the stack temporarily to avoid GC
-  ObjectString *module_name = mesche_module_name_from_symbol_list(vm, list);
-  ObjectModule *module = mesche_module_resolve_by_name(vm, module_name);
-
-  return module;
-}
-
 void mesche_module_import(VM *vm, ObjectModule *from_module, ObjectModule *to_module) {
   // TODO: Warn or error on shadowing?
   // Look up the value for each exported symbol and bind it in the current module
   for (int i = 0; i < from_module->exports.count; i++) {
-    Value export_value;
+    Value export_value = NIL_VAL;
     ObjectString *export_name = AS_STRING(from_module->exports.values[i]);
     mesche_table_get(&from_module->locals, export_name, &export_value);
     mesche_table_set((MescheMemory *)vm, &to_module->locals, export_name, export_value);

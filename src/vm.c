@@ -133,12 +133,6 @@ static void mem_mark_table(VM *vm, Table *table) {
   }
 }
 
-static void mem_mark_module(VM *vm, struct ObjectModule *module) {
-  mem_mark_value(vm, OBJECT_VAL(module->name));
-  mem_mark_table(vm, &module->locals);
-  mem_mark_array(vm, &module->exports);
-}
-
 static void mem_mark_roots(void *target) {
   VM *vm = (VM *)target;
   for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
@@ -208,9 +202,15 @@ static void mem_darken_object(VM *vm, Object *object) {
   case ObjectKindUpvalue:
     mem_mark_value(vm, ((ObjectUpvalue *)object)->closed);
     break;
-  case ObjectKindModule:
-    mem_mark_module(vm, ((ObjectModule *)object));
+  case ObjectKindModule: {
+    ObjectModule *module = (ObjectModule *)object;
+    mesche_mem_mark_object(vm, (Object *)module->name);
+    mem_mark_table(vm, &module->locals);
+    mem_mark_array(vm, &module->imports);
+    mem_mark_array(vm, &module->exports);
+    mesche_mem_mark_object(vm, (Object *)module->init_function);
     break;
+  }
   case ObjectKindRecord: {
     ObjectRecord *record = (ObjectRecord *)object;
     mesche_mem_mark_object(vm, (Object *)record->name);
@@ -1092,12 +1092,9 @@ InterpretResult mesche_vm_run(VM *vm) {
       // This works because scripts are compiled into functions with
       // their own closure, so a `define-module` will cause that to
       // be set.
-      ObjectCons *list = AS_CONS(vm_stack_peek(vm, 0));
+      ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
       // TODO: Error if module is already set?
-      frame->closure->module = mesche_module_resolve_by_path(vm, list);
-
-      // Pop the module path symbol list off of the stack
-      mesche_vm_stack_pop(vm);
+      frame->closure->module = mesche_module_resolve_by_name(vm, module_name);
 
       // Push the defined module onto the stack
       mesche_vm_stack_push(vm, OBJECT_VAL(frame->closure->module));
@@ -1105,8 +1102,8 @@ InterpretResult mesche_vm_run(VM *vm) {
     }
     case OP_RESOLVE_MODULE: {
       // Resolve the module based on the given path
-      ObjectCons *list = AS_CONS(vm_stack_peek(vm, 0));
-      ObjectModule *resolved_module = mesche_module_resolve_by_path(vm, list);
+      ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
+      ObjectModule *resolved_module = mesche_module_resolve_by_name(vm, module_name);
 
       // Compiling the module file will push its closure onto the stack
       if (IS_CLOSURE(vm_stack_peek(vm, 0))) {
@@ -1118,9 +1115,8 @@ InterpretResult mesche_vm_run(VM *vm) {
           frame = &vm->frames[vm->frame_count - 1];
         }
 
-        // Pop the module path list off the stack and push the module on in its
-        // place so that it can be imported after the closure finishes executing
-        mesche_vm_stack_pop(vm);
+        // Pop the closure off the stack and push the module on before it so
+        // that it can be imported after the closure finishes executing
         mesche_vm_stack_pop(vm);
         mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
         mesche_vm_stack_push(vm, OBJECT_VAL(closure));
@@ -1130,7 +1126,6 @@ InterpretResult mesche_vm_run(VM *vm) {
         // a module to keep the stack handling consistent, so push the resolved
         // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
         // stack first!
-        mesche_vm_stack_pop(vm); // Pop the module path list
         mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
         mesche_vm_stack_push(vm, NIL_VAL);
       }
@@ -1157,8 +1152,8 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     }
     case OP_ENTER_MODULE: {
-      ObjectCons *list = AS_CONS(mesche_vm_stack_pop(vm));
-      ObjectModule *module = mesche_module_resolve_by_path(vm, list);
+      ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
+      ObjectModule *module = mesche_module_resolve_by_name(vm, module_name);
       vm->current_module = module;
       mesche_vm_stack_push(vm, OBJECT_VAL(module));
       break;
@@ -1360,24 +1355,23 @@ InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string) {
   }
 }
 
-InterpretResult mesche_vm_load_module(VM *vm, const char *module_path) {
+InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *module_path) {
   char *source = mesche_fs_file_read_all(module_path);
   if (source == NULL) {
     // TODO: Report and fail gracefully
     PANIC("ERROR: Could not load script file: %s\n\n", module_path);
   }
 
-  ObjectFunction *function = mesche_compile_source(vm, source);
-  if (function == NULL) {
+  module = mesche_compile_module(vm, module, source);
+  if (module == NULL) {
     return INTERPRET_COMPILE_ERROR;
   }
 
   // Push the top-level function as a closure but do not execute it yet!
   // The OP_IMPORT_MODULE instruction will check for a new script closure
   // at the top of the value stack and will execute it if found.
-  mesche_vm_stack_push(vm, OBJECT_VAL(function));
-  ObjectClosure *closure = mesche_object_make_closure(vm, function, NULL);
-  mesche_vm_stack_pop(vm);
+  ObjectClosure *closure = mesche_object_make_closure(vm, module->init_function, NULL);
+  closure->module = module;
   mesche_vm_stack_push(vm, OBJECT_VAL(closure));
 
   // Free the module source
