@@ -93,9 +93,11 @@ void mesche_mem_mark_object(VM *vm, Object *object) {
   object->is_marked = true;
 
   // Add the object to the gray stack if it has references to trace
-  if (object->kind != ObjectKindString && object->kind != ObjectKindSymbol &&
-      object->kind != ObjectKindKeyword && object->kind != ObjectKindNativeFunction &&
-      object->kind != ObjectKindPointer) {
+  if ((object->kind != ObjectKindString && object->kind != ObjectKindSymbol &&
+       object->kind != ObjectKindKeyword && object->kind != ObjectKindNativeFunction &&
+       object->kind != ObjectKindPointer) ||
+      (object->kind == ObjectKindPointer && ((ObjectPointer *)object)->type != NULL &&
+       ((ObjectPointer *)object)->type->mark_func != NULL)) {
     // Resize the gray stack if necessary (tracks visited objects)
     if (vm->gray_capacity < vm->gray_count + 1) {
       vm->gray_capacity = GROW_CAPACITY(vm->gray_capacity);
@@ -194,7 +196,13 @@ static void mem_darken_object(VM *vm, Object *object) {
     for (int i = 0; i < function->keyword_args.count; i++) {
       mesche_mem_mark_object(vm, (Object *)function->keyword_args.args[i].name);
     }
-
+    break;
+  }
+  case ObjectKindPointer: {
+    ObjectPointer *pointer = (ObjectPointer *)object;
+    if (pointer->type != NULL && pointer->type->mark_func != NULL) {
+      pointer->type->mark_func(vm, pointer->ptr);
+    }
     break;
   }
   case ObjectKindUpvalue:

@@ -349,15 +349,12 @@ void mesche_object_free(VM *vm, Object *object) {
   case ObjectKindPointer: {
     ObjectPointer *pointer = (ObjectPointer *)object;
     if (pointer->ptr != NULL && pointer->is_managed) {
-      // TODO: Call free function for type
-      free(pointer->ptr);
-
-      // TODO: Figure out why the following line is crashing!
-      /* if (pointer->type != NULL && pointer->type->free_func != NULL) { */
-      /*   pointer->type->free_func((MescheMemory *)vm, (Object *)pointer->ptr); */
-      /* } else { */
-      /*   free(pointer->ptr); */
-      /* } */
+      // Call the pointer's own free function if there is one
+      if (pointer->type != NULL && pointer->type->free_func != NULL) {
+        pointer->type->free_func((MescheMemory *)vm, pointer->ptr);
+      } else {
+        free(pointer->ptr);
+      }
 
       pointer->ptr = NULL;
     }

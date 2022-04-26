@@ -194,6 +194,7 @@ typedef struct {
 typedef struct {
   const char *name;
   ObjectFreePtr free_func;
+  ObjectMarkFuncPtr mark_func;
 } ObjectPointerType;
 
 typedef struct {
