@@ -13,7 +13,8 @@ void mesche_module_print_name(ObjectModule *module) { printf("(%s)", module->nam
 // (mesche io) -> modules/mesche/io.msc
 // (substratic graphics texture) -> deps/substratic/graphics/texture.msc
 
-char *mesche_module_make_path(const char *base_path, const char *module_name) {
+char *mesche_module_check_path(const char *base_path, const char *module_name,
+                               const char *extension) {
   int start_index = strlen(base_path);
   char *module_path = malloc(sizeof(char) * 1000);
 
@@ -25,26 +26,40 @@ char *mesche_module_make_path(const char *base_path, const char *module_name) {
   }
 
   // Add the file extension to the last part of the path
-  memcpy(module_path + start_index, ".msc", 4);
+  memcpy(module_path + start_index, extension, 4);
   module_path[start_index + 4] = 0;
+
+  // If the path does not exist, return NULL
+  if (!mesche_fs_path_exists_p(module_path)) {
+    free(module_path);
+    return NULL;
+  }
 
   return module_path;
 }
 
 char *mesche_module_find_module_path(VM *vm, const char *module_name) {
-  // TODO: Check for path variations --
-  // mesche/io.msc
-  // mesche/io/module.msc
-
   ObjectCons *load_path_entry = vm->load_paths;
   while (load_path_entry) {
-    char *module_path = mesche_module_make_path(AS_CSTRING(load_path_entry->car), module_name);
-    if (mesche_fs_path_exists_p(module_path)) {
-      return module_path;
-    }
+    char *source_path =
+        mesche_module_check_path(AS_CSTRING(load_path_entry->car), module_name, ".msc");
+    char *bytecode_path =
+        mesche_module_check_path(AS_CSTRING(load_path_entry->car), module_name, ".msb");
 
-    if (module_path) {
-      free(module_path);
+    if (source_path && bytecode_path) {
+      // If both exist, return the newer file of the two
+      if (mesche_fs_path_modified_time(bytecode_path) >=
+          mesche_fs_path_modified_time(source_path)) {
+        free(source_path);
+        return bytecode_path;
+      } else {
+        free(bytecode_path);
+        return source_path;
+      }
+    } else if (source_path) {
+      return source_path;
+    } else if (bytecode_path) {
+      return bytecode_path;
     }
 
     // Search the next load path
@@ -115,10 +130,14 @@ ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_na
 void mesche_module_import(VM *vm, ObjectModule *from_module, ObjectModule *to_module) {
   // TODO: Warn or error on shadowing?
   // Look up the value for each exported symbol and bind it in the current module
+  /* printf("TO %s FROM %s\n", to_module->name->chars, from_module->name->chars); */
   for (int i = 0; i < from_module->exports.count; i++) {
     Value export_value = NIL_VAL;
     ObjectString *export_name = AS_STRING(from_module->exports.values[i]);
     mesche_table_get(&from_module->locals, export_name, &export_value);
+    /* printf("  IMPORT %s %d: ", export_name->chars, export_value.kind); */
+    /* mesche_value_print(export_value); */
+    /* printf("\n"); */
     mesche_table_set((MescheMemory *)vm, &to_module->locals, export_name, export_value);
   }
 }

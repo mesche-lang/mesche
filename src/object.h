@@ -148,11 +148,14 @@ struct ObjectClosure {
   int upvalue_count;
 };
 
+typedef enum { MODULE_CREATED, MODULE_LOADING, MODULE_DEFINED, MODULE_INITIALIZED } ModuleState;
+
 struct ObjectModule {
   Object object;
   Table locals;
   ValueArray imports;
   ValueArray exports;
+  ModuleState state;
   ObjectString *name;
   ObjectFunction *init_function;
 };

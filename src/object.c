@@ -246,6 +246,7 @@ ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, ObjectPointerT
 ObjectModule *mesche_object_make_module(VM *vm, ObjectString *name) {
   ObjectModule *module = ALLOC_OBJECT(vm, ObjectModule, ObjectKindModule);
   module->name = name;
+  module->state = MODULE_DEFINED;
   module->init_function = NULL;
 
   // Initialize binding tables

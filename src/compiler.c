@@ -12,6 +12,7 @@
 #include "scanner.h"
 #include "util.h"
 #include "vm.h"
+#include "module.h"
 
 #define UINT8_COUNT (UINT8_MAX + 1)
 #define MAX_AND_OR_EXPRS 100
@@ -1428,6 +1429,18 @@ ObjectFunction *mesche_compile_source(VM *vm, const char *script_source) {
   return parser.had_error ? NULL : function;
 }
 
+// WHAT PROBLEM AM I TRYING TO SOLVE?
+// - Precompilation of .msc files without running
+// - Should imports be followed?  No. 
+// - `mesche build` will check for a newer `.msc` file and build `.msb`
+// - `mesche compiler` module will expose `compile-module`
+// - We don't know module name at compilation time!  We only have file path
+
+// MILESTONES
+// 1. Create .msb files when .msc are loaded
+// 2. Load .msb files instead of .msc files when newer
+// 3. Compile .msb files into target application
+
 ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, const char *module_source) {
   // TODO: Deduplicate implementation code!
   Parser parser;
@@ -1464,4 +1477,23 @@ ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, const char *mo
   vm->current_compiler = NULL;
 
   return parser.had_error ? NULL : ctx.module;
+}
+
+Value compiler_compile_module_msc(MescheMemory *mem, int arg_count, Value *args) {
+  char *module_name = AS_CSTRING(args[0]);
+  char *output_path = AS_CSTRING(args[1]);
+  ObjectCons *load_paths = AS_CSTRING(args[2]);
+
+  // TODO: The Process:
+  // - Convert load_paths into array of strings
+  // - 
+
+  return T_VAL;
+}
+
+void mesche_compiler_module_init(VM *vm) {
+  mesche_vm_define_native_funcs(
+      vm, "mesche compiler",
+      (MescheNativeFuncDetails[]){{"compile-module", compiler_compile_module_msc, true},
+                                  {NULL, NULL, false}});
 }

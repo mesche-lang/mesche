@@ -16,6 +16,16 @@ bool mesche_fs_path_exists_p(const char *fs_path) { return access(fs_path, F_OK)
 
 bool mesche_fs_path_absolute_p(const char *fs_path) { return fs_path[0] == '/'; }
 
+long mesche_fs_path_modified_time(const char *fs_path) {
+  struct stat file_stat;
+
+  if (stat(fs_path, &file_stat) != 0) {
+    return 0;
+  }
+
+  return file_stat.st_mtime;
+}
+
 // NOTE: Caller must free the result string!
 char *mesche_fs_resolve_path(const char *fs_path) {
   // Allocate a buffer and make it an empty string
@@ -140,7 +150,7 @@ Value fs_file_modified_time_msc(MescheMemory *mem, int arg_count, Value *args) {
     return NUMBER_VAL(0);
   }
 
-  return NUMBER_VAL(file_stat.st_mtime);
+  return NUMBER_VAL(mesche_fs_path_modified_time(AS_CSTRING(args[0])));
 }
 
 int fs_directory_create(const char *dir_path) {

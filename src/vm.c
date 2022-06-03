@@ -1097,6 +1097,10 @@ InterpretResult mesche_vm_run(VM *vm) {
       ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
       ObjectModule *resolved_module = mesche_module_resolve_by_name(vm, module_name);
 
+      /* printf("TOP OF STACK: "); */
+      /* mesche_value_print(vm_stack_peek(vm, 0)); */
+      /* printf("\n"); */
+
       // Compiling the module file will push its closure onto the stack
       if (IS_CLOSURE(vm_stack_peek(vm, 0))) {
         ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
@@ -1347,6 +1351,297 @@ InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string) {
   }
 }
 
+void *mesche_object_save_string(FILE *file, ObjectString *string) {
+  if (string == NULL) {
+    int length = -1;
+    fwrite(&length, sizeof(int), 1, file);
+  } else {
+    fwrite(&string->length, sizeof(int), 1, file);
+    fwrite(string->chars, sizeof(char), string->length + 1, file);
+  }
+}
+
+ObjectString *mesche_object_load_string(FILE *file, VM *vm) {
+  int length = 0;
+  fread(&length, sizeof(int), 1, file);
+  if (length > -1) {
+    char *chars = malloc(sizeof(char) * (length + 1));
+    fread(chars, sizeof(char), length + 1, file);
+
+    // Allocate the string object and free the temp string
+    ObjectString *str_object = mesche_object_make_string(vm, chars, length);
+    free(chars);
+
+    return str_object;
+  } else {
+    return NULL;
+  }
+}
+
+void *mesche_object_save_symbol(FILE *file, ObjectSymbol *symbol) {
+  fwrite(&symbol->string.length, sizeof(int), 1, file);
+  fwrite(symbol->string.chars, sizeof(char), symbol->string.length + 1, file);
+}
+
+ObjectString *mesche_object_load_symbol(FILE *file, VM *vm) {
+  int length = 0;
+  fread(&length, sizeof(int), 1, file);
+
+  char *chars = malloc(sizeof(char) * (length + 1));
+  fread(chars, sizeof(char), length + 1, file);
+
+  // Allocate the symbol object and free the temp string
+  ObjectSymbol *symbol = mesche_object_make_symbol(vm, chars, length);
+  free(chars);
+
+  return symbol;
+}
+
+void *mesche_object_save_keyword(FILE *file, ObjectKeyword *keyword) {
+  fwrite(&keyword->string.length, sizeof(int), 1, file);
+  fwrite(keyword->string.chars, sizeof(char), keyword->string.length + 1, file);
+}
+
+ObjectString *mesche_object_load_keyword(FILE *file, VM *vm) {
+  int length = 0;
+  fread(&length, sizeof(int), 1, file);
+
+  char *chars = malloc(sizeof(char) * (length + 1));
+  fread(chars, sizeof(char), length + 1, file);
+
+  // Allocate the keyword object and free the temp string
+  ObjectKeyword *keyword = mesche_object_make_keyword(vm, chars, length);
+  free(chars);
+
+  return keyword;
+}
+
+void mesche_chunk_save(FILE *file, Chunk *chunk) {
+  fwrite(&chunk->count, sizeof(int), 1, file);
+  fwrite(chunk->code, sizeof(uint8_t), chunk->count, file);
+  fwrite(chunk->lines, sizeof(int), chunk->count, file);
+  mesche_value_array_save(file, &chunk->constants);
+}
+
+void mesche_chunk_load(FILE *file, VM *vm, Chunk *chunk) {
+  chunk->capacity = 0; // capacity is only used during compilation
+  fread(&chunk->count, sizeof(int), 1, file);
+
+  chunk->code = malloc(sizeof(uint8_t) * chunk->count);
+  fread(chunk->code, sizeof(uint8_t), chunk->count, file);
+
+  chunk->lines = malloc(sizeof(int) * chunk->count);
+  fread(chunk->lines, sizeof(int), chunk->count, file);
+
+  mesche_value_array_load(file, vm, &chunk->constants);
+}
+
+void *mesche_object_save_function(FILE *file, ObjectFunction *function) {
+  // Write 4 integers in a row
+  fwrite(&function->type, sizeof(int), 4, file);
+
+  // Write the keyword arguments
+  fwrite(&function->keyword_args.count, sizeof(int), 1, file);
+  for (int i = 0; i < function->keyword_args.count; i++) {
+    KeywordArgument *arg = &function->keyword_args.args[i];
+    fwrite(&arg->default_index, sizeof(uint8_t), 1, file);
+    mesche_object_save_string(file, arg->name);
+  }
+
+  // Write the function's name
+  mesche_object_save_string(file, function->name);
+
+  // Write the function's chunk
+  mesche_chunk_save(file, &function->chunk);
+}
+
+ObjectFunction *mesche_object_load_function(FILE *file, VM *vm) {
+  // Read the type first so that we can create the function
+  FunctionType type = TYPE_SCRIPT;
+  fread(&type, sizeof(FunctionType), 1, file);
+
+  // Make the function and read argument counters
+  ObjectFunction *function = mesche_object_make_function(vm, type);
+  fread(&function->arity, sizeof(int), 3, file);
+
+  // Read the keyword arguments
+  fread(&function->keyword_args.count, sizeof(int), 1, file);
+  function->keyword_args.args = malloc(sizeof(KeywordArgument) * function->keyword_args.count);
+  for (int i = 0; i < function->keyword_args.count; i++) {
+    KeywordArgument *arg = &function->keyword_args.args[i];
+    fread(&arg->default_index, sizeof(uint8_t), 1, file);
+    arg->name = mesche_object_load_string(file, vm);
+  }
+
+  // Read the function name
+  function->name = mesche_object_load_string(file, vm);
+
+  // Read the function's chunk
+  mesche_chunk_load(file, vm, &function->chunk);
+
+  return function;
+}
+
+void mesche_object_save(FILE *file, Object *object) {
+  fwrite(&object->kind, sizeof(ObjectKind), 1, file);
+
+  switch (object->kind) {
+  case ObjectKindString:
+    mesche_object_save_string(file, (ObjectString *)object);
+    break;
+  case ObjectKindSymbol:
+    mesche_object_save_symbol(file, (ObjectSymbol *)object);
+    break;
+  case ObjectKindKeyword:
+    mesche_object_save_keyword(file, (ObjectKeyword *)object);
+    break;
+  case ObjectKindFunction:
+    mesche_object_save_function(file, (ObjectFunction *)object);
+    break;
+  default:
+    mesche_value_print(OBJECT_VAL(object));
+    printf("\n");
+    PANIC("OBJECT KIND NOT SUPPORTED: %d\n", object->kind);
+    break;
+  }
+}
+
+Value mesche_object_load(FILE *file, VM *vm) {
+  ObjectKind kind = ObjectKindCons;
+  fread(&kind, sizeof(ObjectKind), 1, file);
+
+  switch (kind) {
+  case ObjectKindString:
+    return OBJECT_VAL(mesche_object_load_string(file, vm));
+  case ObjectKindSymbol:
+    return OBJECT_VAL(mesche_object_load_symbol(file, vm));
+  case ObjectKindKeyword:
+    return OBJECT_VAL(mesche_object_load_keyword(file, vm));
+  case ObjectKindFunction:
+    return OBJECT_VAL(mesche_object_load_function(file, vm));
+  default:
+    PANIC("OBJECT KIND NOT SUPPORTED: %d\n", kind);
+  }
+}
+
+void mesche_value_save(FILE *file, Value value) {
+  fwrite(&value.kind, sizeof(ValueKind), 1, file);
+
+  switch (value.kind) {
+  case VALUE_NUMBER:
+    fwrite(&value.as.number, sizeof(double), 1, file);
+    break;
+  case VALUE_OBJECT:
+    mesche_object_save(file, value.as.object);
+    break;
+  default:
+    // Other value types need no special handling
+    break;
+  }
+}
+
+Value mesche_value_load(FILE *file, VM *vm) {
+  Value value = NIL_VAL;
+  fread(&value, sizeof(ValueKind), 1, file);
+
+  switch (value.kind) {
+  case VALUE_NUMBER:
+    fread(&value.as.number, sizeof(double), 1, file);
+    break;
+  case VALUE_OBJECT:
+    value = mesche_object_load(file, vm);
+    break;
+  default:
+    // Other value types need no special handling
+    break;
+  }
+
+  return value;
+}
+
+void mesche_value_array_save(FILE *file, ValueArray *value_array) {
+  fwrite(&value_array->count, sizeof(int), 1, file);
+
+  for (int i = 0; i < value_array->count; i++) {
+    /* printf("WRITE VALUE: "); */
+    /* mesche_value_print(value_array->values[i]); */
+    /* printf("\n"); */
+    mesche_value_save(file, value_array->values[i]);
+  }
+}
+
+void mesche_value_array_load(FILE *file, VM *vm, ValueArray *value_array) {
+  int count = 0;
+  fread(&count, sizeof(int), 1, file);
+  mesche_value_array_init(value_array);
+
+  for (int i = 0; i < count; i++) {
+    Value value = mesche_value_load(file, vm);
+    /* printf("READ VALUE: "); */
+    /* mesche_value_print(value); */
+    /* printf("\n"); */
+    mesche_value_array_write((MescheMemory *)vm, value_array, value);
+  }
+}
+
+ObjectModule *mesche_module_load(VM *vm, const char *module_path) {
+  FILE *file = fopen(module_path, "rb");
+
+  // TODO: Use a less catastrophic error report
+  if (file == NULL) {
+    PANIC("Could not open file \"%s\"!\n", module_path);
+  }
+
+  // Read the "msb" header
+  char header[3];
+  fread(&header, sizeof(char), 3, file);
+  if (memcmp("msb", header, 3) != 0) {
+    // TODO: Real error?
+    PANIC("NOT VALID FILE!\n");
+  }
+
+  ObjectString *name = mesche_object_load_string(file, vm);
+  /* printf("READ NAME: %s\n", name->chars); */
+
+  ObjectModule *module = mesche_object_make_module(vm, name);
+
+  // Read import and export lists
+  mesche_value_array_load(file, vm, &module->imports);
+  mesche_value_array_load(file, vm, &module->exports);
+
+  // Read the init function
+  module->init_function = mesche_object_load_function(file, vm);
+
+  return module;
+}
+
+void mesche_module_save(ObjectModule *module, const char *output_path) {
+  FILE *file = fopen(output_path, "wb");
+
+  // TODO: Use a less catastrophic error report
+  if (file == NULL) {
+    PANIC("Could not open file \"%s\"!\n", output_path);
+  }
+
+  // Write the header
+  fwrite("msb", sizeof(char), 3, file);
+
+  // Write the module name
+  fwrite(&module->name->length, sizeof(int), 1, file);
+  fwrite(module->name->chars, sizeof(char), module->name->length + 1, file);
+
+  // Write import and export lists
+  mesche_value_array_save(file, &module->imports);
+  mesche_value_array_save(file, &module->exports);
+
+  // Write the function
+  mesche_object_save_function(file, module->init_function);
+
+  // Flush and close the file
+  fflush(file);
+  fclose(file);
+}
+
 InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *module_path) {
   char *source = mesche_fs_file_read_all(module_path);
   if (source == NULL) {
@@ -1354,10 +1649,41 @@ InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *
     PANIC("ERROR: Could not load script file: %s\n\n", module_path);
   }
 
+  // When a module is imported:
+  // - Check if module is fully loaded already and return it
+  // - If not fully loaded, load imports and execute init_function if there is one, or set it to
+  //   having been loaded
+  // - If module doesn't exist in module table yet, resolve module path
+
+  // When a module is imported:
+  // - Load all imports (including compilation, etc)
+  // - Execute init_function
+
+  // - User imports module by name
+  // - Resolve module path based on name
+
+  // If module state is not in the module table:
+  // - Ask compiler to compile module file
+  // - Compiler creates module and stores it
+
+  // If module state is not MODULE_INITIALIZED:
+  // - Execute init_function
+
+  // TODO: Is the module already initialized?
+
   module = mesche_compile_module(vm, module, source);
   if (module == NULL) {
     return INTERPRET_COMPILE_ERROR;
   }
+
+  // TODO: REMOVE THIS
+  mesche_module_save(module, "temp.msb");
+  /* ObjectModule *module_new = mesche_module_load(vm, "temp.msb"); */
+  module = mesche_module_load(vm, "temp.msb");
+
+  // TODO: Throw error if module_name is not the same as the module's name?
+
+  //  ---- AFTER THIS POINT, SAME IMPLEMENTATION DESPITE BYTECODE FILE ----
 
   // Push the top-level function as a closure but do not execute it yet!
   // The OP_IMPORT_MODULE instruction will check for a new script closure
@@ -1379,6 +1705,9 @@ InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *
     // OP_IMPORT_MODULE instruction at runtime.  Thus, pop the name string off
     // of the value stack.
     mesche_vm_stack_pop(vm);
+
+    // The module is now initialized
+    module->state = MODULE_INITIALIZED;
 
     return result;
   }
