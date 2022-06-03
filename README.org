@@ -6,30 +6,38 @@ It is used as a high-performance scripting language to drive C applications and 
 
 * Goals
 
-- Simplicity: The compiler and runtime should be easy to understand and debug.
-- Extensible: The language will be extensible through macros and Mesche modules and also through easy registration of C functions into the runtime.
-- Useful: Provides tools to build C/C++ projects that use Mesche (`mesche build`) and also manage project dependencies, especially those containing Mesche modules.
+- *Simple:* The compiler and runtime should be easy to understand and debug.
+- *Extensible:* The language will be extensible through macros and Mesche modules and also through easy registration of C functions into the runtime.
+- *Practical:* Provides tools to build C/C++ projects that use Mesche (`mesche build`) and also manage project dependencies, especially those containing Mesche modules.
+
+* Use cases
+
+- Developing hackable tools for creative work (video and music production, writing, task management)
+- Game development with the [[https://github.com/substratic/engine][Substratic Engine]]
+- Mobile application development (in the future)
 
 * Should I use this?
 
-This project is in a very early stage of development, it's not ready for general use.  However, if you find the idea interesting and would like to try it, I would certainly be happy to have your feedback!
+Probably not, this project is highly experimental and will probably change frequently.  However, if you find the idea interesting and would like to try it, I would certainly be happy to have your feedback!
 
 * Features
 
 - Compiles directly to bytecode running on a custom VM
 - First-class functions with closures
+- Tail-call optimization for recursive algorithms and loops
 - Modules that can be defined and loaded into Mesche projects
+- Record types with fast setter and accessor functions
 - Native function registration for integrating with C APIs
-- Supports running a VM per OS thread
+- Supports running a VM per OS thread (theoretically, but not tested)
+- Cross-platform build orchestration, dependency management, and release builds with =mesche build= and =mesche cli=: https://github.com/mesche-lang/cli
 
 * Future Features
 
-- Unhygenic (and possibly hygenic) macro definitions
-- Defining structure types in Mesche
-- Automatic generation of bindings to C functions and structures by reading in C headers
+- Support for Windows, macOS, and Android
+- Continuations support to enable more interesting control flow patterns (exceptions, channels, etc)
+- Hygenic macro definitions following Scheme's design
+- Authoring C API bindings directly in Mesche code to generate C wrappers
 - APIs for working with dynamic arrays of C structures
-- Cross-platform build orchestration, dependency management, and release builds with =mesche build=
-- /Maybe/ support for continuations if doesn't complicate the compiler design significantly
 
 * License
 
