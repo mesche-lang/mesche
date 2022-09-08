@@ -152,12 +152,14 @@ ObjectCons *mesche_object_make_cons(VM *vm, Value car, Value cdr) {
   ObjectCons *cons = ALLOC_OBJECT(vm, ObjectCons, ObjectKindCons);
   cons->car = car;
   cons->cdr = cdr;
+
   return cons;
 }
 
 ObjectArray *mesche_object_make_array(VM *vm) {
   ObjectArray *array = ALLOC_OBJECT(vm, ObjectArray, ObjectKindArray);
   mesche_value_array_init(&array->objects);
+
   return array;
 }
 
@@ -166,6 +168,7 @@ ObjectUpvalue *mesche_object_make_upvalue(VM *vm, Value *slot) {
   upvalue->location = slot;
   upvalue->next = NULL;
   upvalue->closed = NIL_VAL;
+
   return upvalue;
 }
 
@@ -218,12 +221,52 @@ ObjectClosure *mesche_object_make_closure(VM *vm, ObjectFunction *function, Obje
   closure->module = module;
   closure->upvalues = upvalues;
   closure->upvalue_count = function->upvalue_count;
+
   return closure;
+}
+
+ObjectContinuation *mesche_object_make_continuation(VM *vm, CallFrame *frame_start,
+                                                    uint8_t frame_count, Value *stack_start,
+                                                    uint8_t stack_count) {
+  ObjectContinuation *continuation = ALLOC_OBJECT(vm, ObjectContinuation, ObjectKindContinuation);
+
+  // Pre-initialize frames and values to 0 so that the arrays don't get walked
+  // if GC tries to mark this object
+  continuation->frame_count = 0;
+  continuation->stack_count = 0;
+
+  // Since we have to allocate arrays, temporarily push the continuation onto
+  // the stack to make sure we don't free it halfway through this function
+  mesche_vm_stack_push(vm, OBJECT_VAL(continuation));
+
+  // Copy the call frames and stack values in the specified range
+  continuation->frames = GROW_ARRAY((MescheMemory *)vm, CallFrame, NULL, 0, frame_count);
+  continuation->frame_count = frame_count;
+  memcpy(continuation->frames, frame_start, sizeof(CallFrame) * frame_count);
+
+  continuation->stack = GROW_ARRAY((MescheMemory *)vm, Value, NULL, 0, stack_count);
+  continuation->stack_count = stack_count;
+  memcpy(continuation->stack, stack_start, sizeof(Value) * stack_count);
+
+  // Pop the continuation
+  mesche_vm_stack_pop(vm);
+
+  return continuation;
+}
+
+ObjectStackMarker *mesche_object_make_stack_marker(VM *vm, StackMarkerKind kind,
+                                                   uint8_t frame_index) {
+  ObjectStackMarker *marker = ALLOC_OBJECT(vm, ObjectStackMarker, ObjectKindStackMarker);
+  marker->kind = kind;
+  marker->frame_index = frame_index;
+
+  return marker;
 }
 
 ObjectNativeFunction *mesche_object_make_native_function(VM *vm, FunctionPtr function) {
   ObjectNativeFunction *native = ALLOC_OBJECT(vm, ObjectNativeFunction, ObjectKindNativeFunction);
   native->function = function;
+
   return native;
 }
 
@@ -232,6 +275,7 @@ ObjectPointer *mesche_object_make_pointer(VM *vm, void *ptr, bool is_managed) {
   pointer->ptr = ptr;
   pointer->is_managed = is_managed;
   pointer->type = NULL;
+
   return pointer;
 }
 
@@ -240,6 +284,7 @@ ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, ObjectPointerT
   pointer->ptr = ptr;
   pointer->is_managed = true;
   pointer->type = type;
+
   return pointer;
 }
 
@@ -260,6 +305,7 @@ ObjectRecord *mesche_object_make_record(VM *vm, ObjectString *name) {
   ObjectRecord *record = ALLOC_OBJECT(vm, ObjectRecord, ObjectKindRecord);
   record->name = name;
   mesche_value_array_init(&record->fields);
+
   return record;
 }
 
@@ -268,6 +314,7 @@ ObjectRecordField *mesche_object_make_record_field(VM *vm, ObjectString *name,
   ObjectRecordField *field = ALLOC_OBJECT(vm, ObjectRecordField, ObjectKindRecordField);
   field->name = name;
   field->default_value = default_value;
+
   return field;
 }
 
@@ -277,6 +324,7 @@ ObjectRecordFieldAccessor *mesche_object_make_record_accessor(VM *vm, ObjectReco
       ALLOC_OBJECT(vm, ObjectRecordFieldAccessor, ObjectKindRecordFieldAccessor);
   accessor->record_type = record_type;
   accessor->field_index = field_index;
+
   return accessor;
 }
 
@@ -286,6 +334,7 @@ ObjectRecordFieldSetter *mesche_object_make_record_setter(VM *vm, ObjectRecord *
       ALLOC_OBJECT(vm, ObjectRecordFieldSetter, ObjectKindRecordFieldSetter);
   setter->record_type = record_type;
   setter->field_index = field_index;
+
   return setter;
 }
 
@@ -293,6 +342,7 @@ ObjectRecordInstance *mesche_object_make_record_instance(VM *vm, ObjectRecord *r
   ObjectRecordInstance *instance = ALLOC_OBJECT(vm, ObjectRecordInstance, ObjectKindRecordInstance);
   instance->record_type = record_type;
   mesche_value_array_init(&instance->field_values);
+
   return instance;
 }
 
@@ -343,6 +393,18 @@ void mesche_object_free(VM *vm, Object *object) {
     ObjectClosure *closure = (ObjectClosure *)object;
     FREE_ARRAY(vm, ObjectUpvalue *, closure->upvalues, closure->upvalue_count);
     FREE(vm, ObjectClosure, object);
+    break;
+  }
+  case ObjectKindContinuation: {
+    ObjectContinuation *continuation = (ObjectContinuation *)object;
+    FREE_ARRAY(vm, CallFrame *, continuation->frames, continuation->frame_count);
+    FREE_ARRAY(vm, Value *, continuation->stack, continuation->stack_count);
+    FREE(vm, ObjectContinuation, object);
+    break;
+  }
+  case ObjectKindStackMarker: {
+    ObjectStackMarker *marker = (ObjectStackMarker *)object;
+    FREE(vm, ObjectStackMarker, object);
     break;
   }
   case ObjectKindNativeFunction:
@@ -455,6 +517,18 @@ void mesche_object_print(Value value) {
   case ObjectKindClosure:
     print_function(AS_CLOSURE(value)->function);
     break;
+  case ObjectKindContinuation: {
+    ObjectContinuation *continuation = AS_CONTINUATION(value);
+    printf("<continuation frames: %d, values: %d>", continuation->frame_count,
+           continuation->stack_count);
+    break;
+  }
+  case ObjectKindStackMarker: {
+    ObjectStackMarker *marker = AS_STACK_MARKER(value);
+    printf("<stack marker: %s @ %d %p>", marker->kind == STACK_MARKER_RESET ? "reset" : "shift",
+           marker->frame_index, AS_OBJECT(value));
+    break;
+  }
   case ObjectKindNativeFunction:
     printf("<native fn>");
     break;

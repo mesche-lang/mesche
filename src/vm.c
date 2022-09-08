@@ -45,6 +45,8 @@ static void vm_reset_stack(VM *vm) {
   vm->stack_top = vm->stack;
   vm->frame_count = 0;
   vm->open_upvalues = NULL;
+  vm->current_reset_marker =
+      mesche_object_make_stack_marker(vm, STACK_MARKER_RESET, vm->frame_count);
 }
 
 static void vm_runtime_error(VM *vm, const char *format, ...) {
@@ -95,7 +97,7 @@ void mesche_mem_mark_object(VM *vm, Object *object) {
   // Add the object to the gray stack if it has references to trace
   if ((object->kind != ObjectKindString && object->kind != ObjectKindSymbol &&
        object->kind != ObjectKindKeyword && object->kind != ObjectKindNativeFunction &&
-       object->kind != ObjectKindPointer) ||
+       object->kind != ObjectKindPointer && object->kind != ObjectKindStackMarker) ||
       (object->kind == ObjectKindPointer && ((ObjectPointer *)object)->type != NULL &&
        ((ObjectPointer *)object)->type->mark_func != NULL)) {
     // Resize the gray stack if necessary (tracks visited objects)
@@ -147,6 +149,9 @@ static void mem_mark_roots(void *target) {
     mesche_mem_mark_object(vm, (Object *)upvalue);
   }
 
+  // Mark the current reset stack marker
+  mesche_mem_mark_object(vm, (Object *)vm->current_reset_marker);
+
   // Mark the load path list
   mem_mark_value(vm, OBJECT_VAL(vm->load_paths));
 
@@ -179,6 +184,23 @@ static void mem_darken_object(VM *vm, Object *object) {
     for (int i = 0; i < closure->upvalue_count; i++) {
       mesche_mem_mark_object(vm, (Object *)closure->upvalues[i]);
     }
+    break;
+  }
+  case ObjectKindContinuation: {
+    ObjectContinuation *continuation = (ObjectContinuation *)object;
+
+    // We could be marking the continuation before it's fully initialized, so be
+    // careful
+    if (continuation->frame_count > 0) {
+      for (int i = 0; i < continuation->frame_count; i++) {
+        mesche_mem_mark_object(vm, (Object *)continuation->frames[i].closure);
+      }
+
+      for (int i = 0; i < continuation->stack_count; i++) {
+        mem_mark_value(vm, continuation->stack[i]);
+      }
+    }
+
     break;
   }
   case ObjectKindFunction: {
@@ -797,16 +819,47 @@ InterpretResult mesche_vm_run(VM *vm) {
 
   for (;;) {
 #ifdef DEBUG_TRACE_EXECUTION
-    printf("\n");
-    for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
-      printf("  %3d: ", abs(slot - vm->stack_top));
-      mesche_value_print(*slot);
+    bool TRACE_THIS = false;
+    const bool TRACE_ALL = true;
+    const int TRACE_INSTRUCTIONS[] = {OP_RESET,     OP_SHIFT,  OP_REIFY, OP_CALL,
+                                      OP_TAIL_CALL, OP_RETURN, -1};
+
+    if (!TRACE_ALL) {
+      TRACE_THIS = false;
+      for (int i = 0; TRACE_INSTRUCTIONS[i] != -1; i++) {
+        if (*frame->ip == TRACE_INSTRUCTIONS[i]) {
+          TRACE_THIS = true;
+          break;
+        }
+      }
+    }
+
+    if (TRACE_ALL || TRACE_THIS) {
+      printf("\nValue Stack:\n");
+      for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
+        printf("  %3d: ", abs(slot - vm->stack_top));
+        mesche_value_print(*slot);
+        printf("\n");
+      }
+      printf("\n");
+
+      printf("Call Stack:\n");
+      for (int i = 0; i < vm->frame_count; i++) {
+        printf("  %3d: ", i);
+        mesche_value_print(OBJECT_VAL(vm->frames[i].closure));
+        if (i == vm->current_reset_marker->frame_index) {
+          printf(" [reset]");
+        }
+        printf("\n");
+      }
+
+      printf("\n");
+
+      printf("Executing:\n");
+      mesche_disasm_instr(&frame->closure->function->chunk,
+                          (int)(frame->ip - frame->closure->function->chunk.code));
       printf("\n");
     }
-    printf("\n");
-
-    mesche_disasm_instr(&frame->closure->function->chunk,
-                        (int)(frame->ip - frame->closure->function->chunk.code));
 #endif
 
     uint8_t instr;
@@ -815,6 +868,9 @@ InterpretResult mesche_vm_run(VM *vm) {
     uint8_t slot = 0;
 
     switch (instr = READ_BYTE()) {
+    case OP_NOP:
+      // Do nothing!
+      break;
     case OP_CONSTANT:
       value = READ_CONSTANT();
       mesche_vm_stack_push(vm, value);
@@ -943,6 +999,136 @@ InterpretResult mesche_vm_run(VM *vm) {
       }
       break;
     }
+    case OP_RESET: {
+      // Store the previous reset marker, if any, on the value stack
+      mesche_vm_stack_push(vm, OBJECT_VAL(vm->current_reset_marker));
+
+      // Create a new stack marker at the current call frame
+      vm->current_reset_marker =
+          mesche_object_make_stack_marker(vm, STACK_MARKER_RESET, vm->frame_count - 1);
+
+      break;
+    }
+    case OP_SHIFT: {
+      // Find the most recent reset marker
+      // TODO: Add support for shift markers for optimizations?
+      ObjectStackMarker *reset_marker = vm->current_reset_marker;
+
+      // Locate the reset frame and close out the upvalues of its closure so
+      // that they are available when the body is reified later.  We look at
+      // the frame *after* the marker's frame_index
+      int start_index = reset_marker->frame_index + 1;
+      CallFrame *reset_frame = &vm->frames[start_index];
+      vm_close_upvalues(vm, reset_frame->slots);
+
+      // Copy frames and values from the marker up to this location into a new
+      // continuation object.  Subtract 1 from the slots count so that we don't
+      // capture the shift body function which is on the top of the stack!
+      ObjectContinuation *continuation = mesche_object_make_continuation(
+          vm, reset_frame, vm->frame_count - start_index, reset_frame->slots,
+          vm->stack_top - reset_frame->slots - 1);
+
+      // Pop shift body function off the stack before we manipulate it
+      Value shift_body_func = mesche_vm_stack_pop(vm);
+
+      // Reset the call and value stacks to the location where OP_RESET was invoked (not including
+      // the reset body function)
+      vm->frame_count = start_index;
+      vm->stack_top = reset_frame->slots;
+
+      // Push the shift body function and continuation object back onto the stack
+      mesche_vm_stack_push(vm, shift_body_func);
+      mesche_vm_stack_push(vm, OBJECT_VAL(continuation));
+
+      // Create a new unary function that will reify the continuation
+      ObjectFunction *function = mesche_object_make_function(vm, TYPE_FUNCTION);
+      function->arity = 1;
+      mesche_vm_stack_push(vm, OBJECT_VAL(function));
+
+      // Add the continuation as a constant in the function
+      int constant =
+          mesche_chunk_constant_add((MescheMemory *)vm, &function->chunk, OBJECT_VAL(continuation));
+
+      // Now that the continuation is stored, pop it out of the stack
+      mesche_vm_stack_pop(vm);                        // Pop the new function
+      mesche_vm_stack_pop(vm);                        // Pop the continuation object
+      mesche_vm_stack_push(vm, OBJECT_VAL(function)); // Push the function back
+
+      // Create a new reset context before reifying the continuation so that
+      // new OP_SHIFT invocations don't escape it
+      mesche_chunk_write((MescheMemory *)vm, &function->chunk, OP_RESET, 0);
+
+      // Load the continuation object from the function constants
+      mesche_chunk_write((MescheMemory *)vm, &function->chunk, OP_CONSTANT, 0);
+      mesche_chunk_write((MescheMemory *)vm, &function->chunk, 0, 0);
+
+      // Reify the stored continuation where execution will continue
+      mesche_chunk_write((MescheMemory *)vm, &function->chunk, OP_REIFY, 0);
+
+      // Return the continuation value normally
+      mesche_chunk_write((MescheMemory *)vm, &function->chunk, OP_RETURN, 0);
+
+      // Create a closure for the function since we don't currently support
+      // invoking raw functions not wrapped in a closure
+      ObjectClosure *closure = mesche_object_make_closure(vm, function, NULL);
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_push(vm, OBJECT_VAL(closure));
+
+      break;
+    }
+    case OP_REIFY: {
+      // Pull the continuation off the top of the stack and find the continuation
+      // parameter so that it can be pushed back onto the stack later
+      ObjectContinuation *continuation = AS_CONTINUATION(mesche_vm_stack_pop(vm));
+      Value marker = mesche_vm_stack_pop(vm);
+      Value param = mesche_vm_stack_pop(vm);
+
+      // Put the stack marker and parameter back onto the stack since we found the
+      // parameter value now
+      mesche_vm_stack_push(vm, param);
+      mesche_vm_stack_push(vm, marker);
+
+      // Reify the call stack on top of the current context, including the
+      // continuation function itself.  This helps preserve the proper reset
+      // context when the reified continuation frames fully return.
+      int target_frame_index = vm->frame_count;
+      memcpy(&vm->frames[target_frame_index], continuation->frames,
+             sizeof(CallFrame) * continuation->frame_count);
+      vm->frame_count += continuation->frame_count;
+
+      // Move the instruction pointer of the topmost call frame ahead to skip
+      // the OP_CALL instruction after OP_SHIFT.  Why doesn't the OP_CALL move
+      // past this on its own?
+      vm->frames[vm->frame_count - 1].ip += 3;
+
+      // Append the reified value stack to the stack top
+      if (continuation->stack_count > 0) {
+        // Calculate the stack offset before we mess with the top pointer
+        int stack_offset = vm->stack_top - continuation->frames[0].slots;
+
+        // Copy the continuation values and move the top pointer
+        memcpy(vm->stack_top, continuation->stack, sizeof(Value) * continuation->stack_count);
+        vm->stack_top += continuation->stack_count;
+
+        // Adjust the slot start pointer of each of the reified frames to ensure
+        // that they look for values in the right locations.  Since we're adding
+        // the frames to the top of the stack, calculate the offset based on how
+        // many values have been added since the first frame was called last.
+        for (int i = 0; i < continuation->frame_count; i++) {
+          Value *old_value = vm->frames[target_frame_index + i].slots;
+          vm->frames[target_frame_index + i].slots += stack_offset;
+        }
+      }
+
+      // Push the continuation parameter back on the stack again before continuing
+      // so that it gets consumed by the topmost frame.
+      mesche_vm_stack_push(vm, param);
+
+      // Update the active frame for the next cycle
+      frame = &vm->frames[vm->frame_count - 1];
+
+      break;
+    }
     case OP_RETURN:
       // Hold on to the function result value before we manipulate the stack
       value = mesche_vm_stack_pop(vm);
@@ -976,6 +1162,12 @@ InterpretResult mesche_vm_run(VM *vm) {
       // Restore the previous result value, call frame, and value stack pointer
       // before continuing execution
       mesche_vm_stack_pop(vm); // Pop the closure before restoring result
+
+      // Restore any previous reset marker that was pushed to the stack
+      if (IS_RESET_MARKER(vm_stack_peek(vm, 0))) {
+        vm->current_reset_marker = AS_STACK_MARKER(mesche_vm_stack_pop(vm));
+      }
+
       mesche_vm_stack_push(vm, value);
       frame = &vm->frames[vm->frame_count - 1];
       break;
@@ -1224,6 +1416,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       }
 
       // Retain the current call frame, it has already been updated
+      frame = &vm->frames[vm->frame_count - 1];
       break;
     }
     case OP_CLOSURE: {
@@ -1260,6 +1453,30 @@ InterpretResult mesche_vm_run(VM *vm) {
 
       break;
     }
+
+#ifdef DEBUG_TRACE_EXECUTION
+    if (TRACE_THIS) {
+      printf("Value Stack After:\n");
+      for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
+        printf("  %3d: ", abs(slot - vm->stack_top));
+        mesche_value_print(*slot);
+        printf("\n");
+      }
+      printf("\n");
+
+      printf("Call Stack After:\n");
+      for (int i = 0; i < vm->frame_count; i++) {
+        printf("  %3d: ", i);
+        mesche_value_print(OBJECT_VAL(vm->frames[i].closure));
+        if (i == vm->current_reset_marker->frame_index) {
+          printf(" [reset]");
+        }
+        printf("\n");
+      }
+
+      printf("\n--- end of instr --- \n");
+    }
+#endif
   }
 
   vm->is_running = false;

@@ -145,6 +145,9 @@ static void compiles_if_expr() {
 
   COMPILE("(if t (+ 3 1) 2)");
 
+  // Whenever a function gets called, as part of call initialization we also
+  // need to store the continuation function.
+
   CHECK_BYTE(OP_T);
   CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 13);
   CHECK_BYTE(OP_POP);

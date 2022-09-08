@@ -35,6 +35,17 @@
 #define IS_CLOSURE(value) mesche_object_is_kind(value, ObjectKindClosure)
 #define AS_CLOSURE(value) ((ObjectClosure *)AS_OBJECT(value))
 
+#define IS_CONTINUATION(value) mesche_object_is_kind(value, ObjectKindContinuation)
+#define AS_CONTINUATION(value) ((ObjectContinuation *)AS_OBJECT(value))
+
+#define AS_STACK_MARKER(value) ((ObjectStackMarker *)AS_OBJECT(value))
+#define IS_RESET_MARKER(value)                                                                     \
+  mesche_object_is_kind(value, ObjectKindStackMarker) &&                                           \
+      (AS_STACK_MARKER(value)->kind == STACK_MARKER_RESET)
+#define IS_SHIFT_MARKER(value)                                                                     \
+  mesche_object_is_kind(value, ObjectKindStackMarker) &&                                           \
+      (AS_STACK_MARKER(value)->kind == STACK_MARKER_SHIFT)
+
 #define IS_RECORD_TYPE(value) mesche_object_is_kind(value, ObjectKindRecord)
 #define AS_RECORD_TYPE(value) ((ObjectRecord *)AS_OBJECT(value))
 
@@ -65,6 +76,8 @@ typedef enum {
   ObjectKindUpvalue,
   ObjectKindFunction,
   ObjectKindClosure,
+  ObjectKindContinuation,
+  ObjectKindStackMarker,
   ObjectKindNativeFunction,
   ObjectKindPointer,
   ObjectKindModule,
@@ -148,6 +161,23 @@ struct ObjectClosure {
   int upvalue_count;
 };
 
+struct ObjectContinuation {
+  Object object;
+  CallFrame *frames;
+  uint8_t frame_count;
+
+  Value *stack;
+  uint8_t stack_count;
+};
+
+typedef enum { STACK_MARKER_RESET, STACK_MARKER_SHIFT } StackMarkerKind;
+
+struct ObjectStackMarker {
+  Object object;
+  StackMarkerKind kind;
+  uint8_t frame_index;
+};
+
 struct ObjectModule {
   Object object;
   Table locals;
@@ -216,6 +246,11 @@ ObjectFunction *mesche_object_make_function(VM *vm, FunctionType type);
 void mesche_object_function_keyword_add(MescheMemory *mem, ObjectFunction *function,
                                         KeywordArgument keyword_arg);
 ObjectClosure *mesche_object_make_closure(VM *vm, ObjectFunction *function, ObjectModule *module);
+ObjectContinuation *mesche_object_make_continuation(VM *vm, CallFrame *frame_start,
+                                                    uint8_t frame_count, Value *stack_start,
+                                                    uint8_t stack_count);
+ObjectStackMarker *mesche_object_make_stack_marker(VM *vm, StackMarkerKind kind,
+                                                   uint8_t frame_index);
 ObjectNativeFunction *mesche_object_make_native_function(VM *vm, FunctionPtr function);
 ObjectPointer *mesche_object_make_pointer(VM *vm, void *ptr, bool is_managed);
 ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, ObjectPointerType *type);

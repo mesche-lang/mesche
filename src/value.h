@@ -11,6 +11,8 @@ typedef struct ObjectCons ObjectCons;
 typedef struct ObjectArray ObjectArray;
 typedef struct ObjectFunction ObjectFunction;
 typedef struct ObjectClosure ObjectClosure;
+typedef struct ObjectContinuation ObjectContinuation;
+typedef struct ObjectStackMarker ObjectStackMarker;
 typedef struct ObjectUpvalue ObjectUpvalue;
 typedef struct ObjectModule ObjectModule;
 typedef struct ObjectRecord ObjectRecord;

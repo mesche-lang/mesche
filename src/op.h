@@ -2,6 +2,7 @@
 #define mesche_op_h
 
 typedef enum {
+  OP_NOP,
   OP_CONSTANT,
   OP_NIL,
   OP_T,
@@ -43,6 +44,9 @@ typedef enum {
   OP_CLOSURE,
   OP_CLOSE_UPVALUE,
   OP_DISPLAY,
+  OP_RESET,
+  OP_SHIFT,
+  OP_REIFY,
   OP_RETURN
 } MescheOpCode;
 

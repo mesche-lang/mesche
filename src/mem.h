@@ -4,9 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 
-// If this is defined, the GC will be run frequently
-/* #define DEBUG_STRESS_GC */
-
 // Log when garbage collection occurs
 /* #define DEBUG_LOG_GC */
 

@@ -7,9 +7,9 @@
 #include "disasm.h"
 #include "mem.h"
 #include "object.h"
-#include "string.h"
 #include "op.h"
 #include "scanner.h"
+#include "string.h"
 #include "util.h"
 #include "vm.h"
 
@@ -505,7 +505,7 @@ static uint8_t compiler_define_variable_ex(CompilerContext *ctx, uint8_t variabl
       // Add the binding to the module
       if (ctx->module != NULL) {
         mesche_value_array_write((MescheMemory *)ctx->vm, &ctx->module->exports,
-                                ctx->function->chunk.constants.values[variable_constant]);
+                                 ctx->function->chunk.constants.values[variable_constant]);
       }
 
       // TODO: Convert to OP_CREATE_BINDING?
@@ -795,6 +795,42 @@ static void compiler_parse_lambda(CompilerContext *ctx) {
   compiler_parse_lambda_inner(ctx, NULL, NULL);
 }
 
+static void compiler_parse_reset(CompilerContext *ctx) {
+  // `reset` requires a lambda expression with no arguments
+  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to begin argument list.");
+  compiler_consume(ctx, TokenKindSymbol, "Expected lambda expression.");
+  if (ctx->parser->previous.sub_kind != TokenKindLambda) {
+    compiler_error(ctx, "Expected lambda expression after 'reset'.");
+  }
+
+  // Parse the lambda body of the reset expression *after* emitting OP_RESET so
+  // that we can set the new reset context before adding the closure to the
+  // stack.
+  compiler_emit_byte(ctx, OP_RESET);
+  compiler_parse_lambda(ctx);
+  compiler_emit_call(ctx, 0, 0);
+  compiler_emit_byte(ctx, OP_NOP); // Avoid turning this into a tail call!
+  compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
+}
+
+static void compiler_parse_shift(CompilerContext *ctx) {
+  // `shift` requires a lambda expression with one arguments
+  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to begin argument list.");
+  compiler_consume(ctx, TokenKindSymbol, "Expected lambda expression.");
+  if (ctx->parser->previous.sub_kind != TokenKindLambda) {
+    compiler_error(ctx, "Expected lambda expression after 'shift'.");
+  }
+
+  // Parse the lambda body of the reset expression *before* emitting OP_SHIFT so
+  // that the shift body will be invoked with the continuation function as its
+  // parameter.
+  compiler_parse_lambda(ctx);
+  compiler_emit_byte(ctx, OP_SHIFT);
+  compiler_emit_call(ctx, 1, 0);
+  compiler_emit_byte(ctx, OP_NOP); // Avoid turning this into a tail call!
+  compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
+}
+
 static void compiler_parse_define(CompilerContext *ctx) {
   DefineAttributes define_attributes;
   define_attributes.is_export = false;
@@ -837,7 +873,8 @@ static void compiler_parse_module_name(CompilerContext *ctx) {
       compiler_advance(ctx);
       if (module_name != NULL) {
         // If a module name was parsed, emit the constant module name string
-        ObjectString *module_name_str = mesche_object_make_string(ctx->vm, module_name, strlen(module_name));
+        ObjectString *module_name_str =
+            mesche_object_make_string(ctx->vm, module_name, strlen(module_name));
         compiler_emit_constant(ctx, OBJECT_VAL(module_name_str));
 
         // The module name has been copied, so free the temporary string
@@ -858,7 +895,9 @@ static void compiler_parse_module_name(CompilerContext *ctx) {
       module_name[ctx->parser->previous.length] = '\0';
     } else {
       char *prev_name = module_name;
-      module_name = mesche_cstring_join(module_name, strlen(module_name), ctx->parser->previous.start, ctx->parser->previous.length, " ");
+      module_name =
+          mesche_cstring_join(module_name, strlen(module_name), ctx->parser->previous.start,
+                              ctx->parser->previous.length, " ");
       free(prev_name);
     }
 
@@ -875,7 +914,8 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
 
   // Store the module name if we're currently parsing a module file
   if (ctx->module) {
-    ctx->module->name = AS_STRING(ctx->function->chunk.constants.values[ctx->function->chunk.constants.count - 1]);
+    ctx->module->name =
+        AS_STRING(ctx->function->chunk.constants.values[ctx->function->chunk.constants.count - 1]);
   }
 
   // Check for a possible 'import' expression
@@ -1199,6 +1239,12 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
   case TokenKindLambda:
     compiler_parse_lambda(ctx);
     break;
+  case TokenKindReset:
+    compiler_parse_reset(ctx);
+    break;
+  case TokenKindShift:
+    compiler_parse_shift(ctx);
+    break;
   default:
     return false; // No special form found
   }
@@ -1344,14 +1390,6 @@ static void compiler_parse_list(CompilerContext *ctx) {
 void (*ParserFunc)(CompilerContext *ctx);
 
 static void compiler_parse_expr(CompilerContext *ctx) {
-  /* static const ParserFunc[TokenKindEOF] = [NULL, */
-  /*                                          NULL, // TokenKindParen */
-  /*                                          compiler_parse_list, //
-   * TokenKindLeftParen, */
-  /*                                          NULL,              //
-   * TokenKindRightParen, */
-  /* ]; */
-
   if (ctx->parser->current.kind == TokenKindEOF) {
     return;
   }

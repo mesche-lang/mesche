@@ -36,6 +36,9 @@ typedef struct {
   ObjectModule *current_module;
   ObjectCons *load_paths;
 
+  // The most recent reset marker
+  ObjectStackMarker *current_reset_marker;
+
   ObjectUpvalue *open_upvalues;
   Object *objects;
 

@@ -50,6 +50,8 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
 
   uint8_t instr = chunk->code[offset];
   switch (instr) {
+  case OP_NOP:
+    return mesche_disasm_simple_instr("OP_NOP", offset);
   case OP_CONSTANT:
     return mesche_disasm_const_instr("OP_CONSTANT", chunk, offset);
   case OP_NIL:
@@ -92,6 +94,12 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_simple_instr("OP_EQUAL", offset);
   case OP_RETURN:
     return mesche_disasm_simple_instr("OP_RETURN", offset);
+  case OP_RESET:
+    return mesche_disasm_simple_instr("OP_RESET", offset);
+  case OP_SHIFT:
+    return mesche_disasm_simple_instr("OP_SHIFT", offset);
+  case OP_REIFY:
+    return mesche_disasm_simple_instr("OP_REIFY", offset);
   case OP_DISPLAY:
     return mesche_disasm_simple_instr("OP_DISPLAY", offset);
   case OP_LOAD_FILE:

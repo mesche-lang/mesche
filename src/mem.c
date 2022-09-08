@@ -11,6 +11,9 @@
 // The factor by which the heap limit will be extended after a sweep
 #define GC_HEAP_GROW_FACTOR 2;
 
+// If this is defined, the GC will be run frequently
+/* #define DEBUG_STRESS_GC 1 */
+
 void mesche_mem_init(MescheMemory *mem, MescheMemoryCollectGarbageFunc collect_garbage_func) {
   mem->collect_garbage_func = collect_garbage_func;
   mem->bytes_allocated = 0;

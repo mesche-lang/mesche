@@ -1,0 +1,110 @@
+(define-module (mesche test samples continuations-channels)
+  (import (mesche list)
+          (mesche string)))
+
+;; NOTE: This will soon turn into a real implementation of coroutines and
+;; channels for Mesche!
+
+(define dispatcher-function-queue '())
+
+(define (dispatcher-queue continuation)
+  (set! dispatcher-function-queue
+        (append dispatcher-function-queue (list continuation))))
+
+(define (dispatcher-start)
+  ;; Start executing the queue of functions
+  (let loop ()
+    (if (pair? dispatcher-function-queue)
+        (let ((next (car dispatcher-function-queue)))
+          ;; Check the result because the coroutine might be yielding control
+          (set! dispatcher-function-queue (cdr dispatcher-function-queue))
+          (let ((result (reset (lambda () (next)))))
+            (if (and (pair? result)
+                     (equal? (car result) 'coroutine-yield))
+                ;; Queue for the next dispatcher frame
+                (dispatcher-queue (cdr result))
+                nil))
+
+          ;; Dispatch the next continuation
+          (loop))
+        nil)))
+
+(define (yield)
+  (shift (lambda (k)
+           (cons 'coroutine-yield
+                 (lambda ()
+                   ;; Send a null parameter
+                   (k '()))))))
+
+;; Push a function into the execution queue
+(define (start func)
+  (dispatcher-queue func))
+
+;; An example of sending messages between channels
+(define-record-type channel
+  (fields senders receivers))
+
+(define (channel-send channel message)
+  (if (and (not (pair? (channel-senders channel)))
+           (pair? (channel-receivers channel)))
+      ;; If a receiver is waiting and no other senders are waiting, send the value
+      (let ((receiver (car (channel-receivers channel)))
+            (remaining (cdr (channel-receivers channel))))
+        ;; Remove the receiver and invoke its continuation to send the value
+        (channel-receivers-set! channel remaining)
+        (receiver message))
+
+      ;; If no receiver is waiting, create a continuation for the sender and store it
+      (shift (lambda (k)
+               (channel-senders-set! channel
+                                     (append (channel-senders channel)
+                                             (list (lambda ()
+                                                     ;; Queue the continuation on the dispatcher so that it gets
+                                                     ;; resumed later then return the message value directly
+                                                     (dispatcher-queue (lambda () (k t)))
+                                                     message))))))))
+
+(define (channel-read channel)
+  (if (and (not (pair? (channel-receivers channel)))
+           (pair? (channel-senders channel)))
+      ;; If a sender is waiting and no other receivers are waiting, read its value
+      (let ((sender (car (channel-senders channel)))
+            (remaining (cdr (channel-senders channel))))
+        ;; Remove the sender and invoke its stored lambda to receive the value
+        (channel-senders-set! channel remaining)
+        (sender))
+
+      ;; If no sender is waiting, create a continuation for the receiver and store it
+      (shift (lambda (k)
+               (channel-receivers-set! channel
+                                       (append (channel-receivers channel)
+                                               (list (lambda (message)
+                                                       (dispatcher-queue (lambda () (k message)))))))))))
+
+(define c (make-channel :senders '() :receivers '()))
+
+(define max-value 100)
+(define received-value nil)
+
+(start (lambda ()
+         (let loop ((value 1))
+           ;; (display (string-append "Sending: " (number->string value) "\n"))
+           (channel-send c value)
+           (if (< value max-value)
+               (loop (+ value 1))
+               (channel-send c 'done)))))
+
+(start (lambda ()
+         (let loop ((value 1))
+           (set! value (channel-read c))
+           (if (not (equal? value 'done))
+               (begin
+                 (set! received-value value)
+                 ;; (display (string-append "Received: " (number->string received-value) "\n"))
+                 (loop nil))
+               nil))))
+
+(dispatcher-start)
+
+;; Return the last received value
+received-value

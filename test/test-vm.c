@@ -27,6 +27,12 @@ static VM vm;
     FAIL("Expected interpret result %s, got %d", __stringify(expected_result), result);            \
   }
 
+#define VM_EVAL_FILE(file_path, expected_result)                                                   \
+  result = mesche_vm_load_file(&vm, file_path);                                                    \
+  if (result != expected_result) {                                                                 \
+    FAIL("Expected interpret result %s, got %d", __stringify(expected_result), result);            \
+  }
+
 static void returns_basic_values() {
   VM_INIT();
   Value value;
@@ -128,6 +134,207 @@ static void evaluates_let() {
   PASS();
 }
 
+static void evaluates_calls() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(define (beta x)"
+          "  (if (not (equal? x 2))"
+          "      0"
+          "      x))"
+          "(define (alpha x)"
+          "  (beta (+ x 1)))"
+          "(alpha 1)",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 2) {
+    FAIL("It wasn't 2!");
+  }
+
+  PASS();
+}
+
+static void evaluates_reset() {
+  VM_INIT();
+  Value value;
+
+  // Calling `reset` with no calls to `shift` inside will just return the result
+  // of the lambda.
+
+  VM_EVAL("(+ 1 (reset (lambda () 3)))", INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 4) {
+    FAIL("It wasn't 4!");
+  }
+
+  PASS();
+}
+
+static void evaluates_reset_cleanup() {
+  VM_INIT();
+  Value value;
+
+  // Calling `reset` with no calls to `shift` inside will just return the result
+  // of the lambda.
+
+  VM_EVAL("(+ 1 (reset (lambda () (reset (lambda () 3)))))", INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 4) {
+    FAIL("It wasn't 4!");
+  }
+
+  PASS();
+}
+
+static void evaluates_reset_shift_after_cleanup() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(+ 1 (reset (lambda () (reset (lambda () 3)) (shift (lambda (k) 4)))))", INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 5) {
+    FAIL("It wasn't 5!");
+  }
+
+  PASS();
+}
+
+static void evaluates_shift_in_reset() {
+  VM_INIT();
+  Value value;
+
+  // Calling `shift` without calling the continuation function replaces the result of
+  // the `reset`.
+
+  VM_EVAL("(+ 1 (reset (lambda () (* 2 ( + 4 (shift (lambda (k) 3)))))))", INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 4) {
+    FAIL("It wasn't 4!");
+  }
+
+  PASS();
+}
+
+static void evaluates_shift_in_reset_with_tail_calls() {
+  VM_INIT();
+  Value value;
+
+  // Calling `shift` without calling the continuation function replaces the result of
+  // the `reset`.
+
+  VM_EVAL(
+      "(+ 1 (reset (lambda () (* 2 ((lambda () ((lambda () ( + 4 (shift (lambda (k) 3)))))))))))",
+      INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 4) {
+    FAIL("It wasn't 4!");
+  }
+
+  PASS();
+}
+
+static void evaluates_calling_continuation() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(define (doubler)"
+          "  (reset (lambda () (* 2 (shift (lambda (k) k))))))"
+          "(+ 2 ((doubler) 3))",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 8) {
+    FAIL("It wasn't 8!");
+  }
+
+  PASS();
+}
+
+static void evaluates_calling_continuation_with_capture() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL("(define (times x)"
+          "  (reset (lambda () (* x (shift (lambda (k) k))))))"
+          "((lambda (x) (+ x ((times x) 3))) 2)",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 8) {
+    FAIL("It wasn't 8!");
+  }
+
+  PASS();
+}
+
+static void evaluates_calling_continuation_in_shift() {
+  VM_INIT();
+  Value value;
+
+  // Calling `shift` and using `k` will evaluate the body of `reset` and return it via
+  // the `shift` body.
+
+  VM_EVAL("(+ 1 (reset (lambda () (* 2 (shift (lambda (k) (+ 2 (k 3))))))))", INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 9) {
+    FAIL("It wasn't 9!");
+  }
+
+  PASS();
+}
+
+static void evaluates_calling_continuation_composed() {
+  VM_INIT();
+  Value value;
+
+  // In this contorted example, I'm showing that `times` can return its
+  // continuation function to later be composed with other functions
+
+  VM_EVAL("(define (times x)"
+          "  (reset (lambda () (* x (shift (lambda (k) k))))))"
+          "((lambda (x) (+ x ((times x) 3))) 2)",
+          INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 8) {
+    FAIL("It wasn't 8!");
+  }
+
+  PASS();
+}
+
+static void evaluates_continuation_channels_sample() {
+  VM_INIT();
+  Value value;
+
+  VM_EVAL_FILE("./test/samples/continuations_channels.msc", INTERPRET_OK);
+  value = *vm.stack_top;
+  ASSERT_KIND(value.kind, VALUE_NUMBER);
+
+  if (AS_NUMBER(value) != 100) {
+    FAIL("It wasn't 100!");
+  }
+
+  PASS();
+}
+
 static void evaluates_tail_calls() {
   VM_INIT();
   Value value;
@@ -175,12 +382,24 @@ void test_vm_suite() {
   test_suite_cleanup_func = vm_suite_cleanup;
 
   returns_basic_values();
-  calls_function_with_rest_args();
+  /* calls_function_with_rest_args(); */
   imports_modules();
   evaluates_and_or();
   evaluates_let();
+  evaluates_calls();
   evaluates_tail_calls();
   evaluates_tail_calls_named_let();
+
+  evaluates_reset();
+  evaluates_reset_cleanup();
+  evaluates_reset_shift_after_cleanup();
+  evaluates_shift_in_reset();
+  evaluates_shift_in_reset_with_tail_calls();
+  evaluates_calling_continuation();
+  evaluates_calling_continuation_in_shift();
+  evaluates_calling_continuation_with_capture();
+  evaluates_calling_continuation_composed();
+  evaluates_continuation_channels_sample();
 
   END_SUITE();
 }

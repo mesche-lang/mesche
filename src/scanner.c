@@ -164,8 +164,16 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
     }
     break;
   }
-  case 's':
-    return scanner_check_keyword(scanner, 1, 3, "et!", TokenKindSet);
+  case 's': {
+    switch (scanner->start[1]) {
+    case 'e':
+      return scanner_check_keyword(scanner, 2, 2, "t!", TokenKindSet);
+    case 'h':
+      return scanner_check_keyword(scanner, 2, 3, "ift", TokenKindShift);
+    }
+  }
+  case 'r':
+    return scanner_check_keyword(scanner, 1, 4, "eset", TokenKindReset);
   case 'l': {
     switch (scanner->start[1]) {
     case 'e':
