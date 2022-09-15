@@ -79,8 +79,6 @@ static void compiles_module_import() {
   COMPILE("(module-import (test alpha))");
 
   CHECK_BYTES(OP_CONSTANT, 0);
-  CHECK_BYTES(OP_CONSTANT, 1);
-  CHECK_BYTES(OP_LIST, 2);
   CHECK_BYTE(OP_RESOLVE_MODULE);
   CHECK_BYTE(OP_IMPORT_MODULE);
   CHECK_BYTE(OP_RETURN);

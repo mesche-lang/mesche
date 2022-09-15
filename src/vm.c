@@ -1297,29 +1297,38 @@ InterpretResult mesche_vm_run(VM *vm) {
       ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
       ObjectModule *resolved_module = mesche_module_resolve_by_name(vm, module_name);
 
-      // Compiling the module file will push its closure onto the stack
-      if (IS_CLOSURE(vm_stack_peek(vm, 0))) {
-        ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
-        if (closure->function->type == TYPE_SCRIPT) {
-          // Set up the module's closure for execution in the next VM loop and
-          // reset the frame back to the current one until the next cycle
-          vm_call(vm, closure, 0, 0, false);
-          frame = &vm->frames[vm->frame_count - 1];
-        }
+      // Compiling the module file will push its closure onto the stack, but we
+      // can't accept any closure, need to make sure it matches the one in the
+      // returned module
+      if (resolved_module) {
+        // If the module is resolved but doesn't have an init function to
+        // execute, handle it directly
+        if (!IS_CLOSURE(vm_stack_peek(vm, 0)) ||
+            AS_CLOSURE(vm_stack_peek(vm, 0))->function != resolved_module->init_function) {
+          // This case will happen when the module has previously been executed
+          // and was merely resolved this time.  We have to emulate the load of
+          // a module to keep the stack handling consistent, so push the resolved
+          // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
+          // stack first!
+          mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
+          mesche_vm_stack_push(vm, NIL_VAL);
+        } else {
+          ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
+          if (closure->function->type == TYPE_SCRIPT) {
+            // Set up the module's closure for execution in the next VM loop and
+            // reset the frame back to the current one until the next cycle
+            vm_call(vm, closure, 0, 0, false);
+            frame = &vm->frames[vm->frame_count - 1];
+          }
 
-        // Pop the closure off the stack and push the module on before it so
-        // that it can be imported after the closure finishes executing
-        mesche_vm_stack_pop(vm);
-        mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
-        mesche_vm_stack_push(vm, OBJECT_VAL(closure));
+          // Pop the closure off the stack and push the module on before it so
+          // that it can be imported after the closure finishes executing
+          mesche_vm_stack_pop(vm);
+          mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
+          mesche_vm_stack_push(vm, OBJECT_VAL(closure));
+        }
       } else {
-        // This case will happen when the module has previously been executed
-        // and was merely resolved this time.  We have to emulate the load of
-        // a module to keep the stack handling consistent, so push the resolved
-        // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
-        // stack first!
-        mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
-        mesche_vm_stack_push(vm, NIL_VAL);
+        // TODO: What if it didn't get resolved?  Will it ever happen?
       }
       break;
     }

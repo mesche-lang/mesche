@@ -382,7 +382,7 @@ void test_vm_suite() {
   test_suite_cleanup_func = vm_suite_cleanup;
 
   returns_basic_values();
-  /* calls_function_with_rest_args(); */
+  calls_function_with_rest_args();
   imports_modules();
   evaluates_and_or();
   evaluates_let();
