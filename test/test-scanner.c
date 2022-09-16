@@ -49,7 +49,7 @@ static void scanner_finds_lists_and_symbols() {
 static void scanner_finds_operations() {
   INIT_SCANNER("+ - / * and or eqv? equal?");
   CHECK_TOKEN(TokenKindPlus);
-  CHECK_TOKEN(TokenKindMinus);
+  CHECK_SYMBOL(TokenKindMinus);
   CHECK_TOKEN(TokenKindSlash);
   CHECK_TOKEN(TokenKindStar);
   CHECK_SYMBOL(TokenKindAnd);
@@ -74,6 +74,25 @@ static void scanner_matches_exact_tokens() {
   PASS();
 }
 
+static void scanner_finds_distinguishes_operators() {
+  INIT_SCANNER(">= > <= < <class> >fish <- -> - -- % %internal");
+  CHECK_SYMBOL(TokenKindGreaterEqual);
+  CHECK_SYMBOL(TokenKindGreaterThan);
+  CHECK_SYMBOL(TokenKindLessEqual);
+  CHECK_SYMBOL(TokenKindLessThan);
+  CHECK_TOKEN(TokenKindSymbol);
+  CHECK_TOKEN(TokenKindSymbol);
+  CHECK_TOKEN(TokenKindSymbol);
+  CHECK_TOKEN(TokenKindSymbol);
+  CHECK_SYMBOL(TokenKindMinus);
+  CHECK_TOKEN(TokenKindSymbol);
+  CHECK_SYMBOL(TokenKindPercent);
+  CHECK_TOKEN(TokenKindSymbol);
+
+  CHECK_TOKEN(TokenKindEOF);
+  PASS();
+}
+
 void test_scanner_suite() {
   SUITE();
 
@@ -81,4 +100,5 @@ void test_scanner_suite() {
   scanner_finds_lists_and_symbols();
   scanner_finds_operations();
   scanner_matches_exact_tokens();
+  scanner_finds_distinguishes_operators();
 }

@@ -99,6 +99,26 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
   switch (scanner->start[0]) {
   case ':':
     return TokenKindKeyword;
+  case '>': {
+    switch (scanner->start[1]) {
+    case '=':
+      return scanner_check_keyword(scanner, 1, 1, "=", TokenKindGreaterEqual);
+    }
+
+    return scanner_check_keyword(scanner, 1, 0, "", TokenKindGreaterThan);
+  }
+  case '<': {
+    switch (scanner->start[1]) {
+    case '=':
+      return scanner_check_keyword(scanner, 1, 1, "=", TokenKindLessEqual);
+    }
+
+    return scanner_check_keyword(scanner, 1, 0, "", TokenKindLessThan);
+  }
+  case '-':
+    return scanner_check_keyword(scanner, 1, 0, "", TokenKindMinus);
+  case '%':
+    return scanner_check_keyword(scanner, 1, 0, "", TokenKindPercent);
   case 't':
     return scanner_check_keyword(scanner, 1, 0, "", TokenKindTrue);
   case 'n': {
@@ -238,7 +258,9 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
 static Token scanner_read_identifier(Scanner *scanner) {
   while (scanner_is_alpha(scanner_peek(scanner)) || scanner_is_digit(scanner_peek(scanner)) ||
          scanner_peek(scanner) == '-' || scanner_peek(scanner) == '?' ||
-         scanner_peek(scanner) == '>' || scanner_peek(scanner) == '!') {
+         scanner_peek(scanner) == '<' || scanner_peek(scanner) == '>' ||
+         scanner_peek(scanner) == '=' || scanner_peek(scanner) == '!' ||
+         scanner_peek(scanner) == '%') {
     scanner_next_char(scanner);
   }
 
@@ -319,6 +341,8 @@ Token mesche_scanner_next_token(Scanner *scanner) {
     return scanner_make_token(scanner, TokenKindSplice);
   case ':':
     return scanner_read_identifier(scanner);
+  case '%':
+    return scanner_read_identifier(scanner);
   case '+':
     // TODO: Make sure this isn't the start of a symbol
     return scanner_make_token(scanner, TokenKindPlus);
@@ -327,29 +351,17 @@ Token mesche_scanner_next_token(Scanner *scanner) {
       return scanner_read_number(scanner);
     }
 
-    return scanner_make_token(scanner, TokenKindMinus);
+    return scanner_read_identifier(scanner);
   }
   case '*':
     return scanner_make_token(scanner, TokenKindStar);
   case '/':
     return scanner_make_token(scanner, TokenKindSlash);
-  case '%':
-    return scanner_make_token(scanner, TokenKindPercent);
   case '>': {
-    if (scanner_peek(scanner) == '=') {
-      scanner_next_char(scanner);
-      return scanner_make_token(scanner, TokenKindGreaterEqual);
-    }
-
-    return scanner_make_token(scanner, TokenKindGreaterThan);
+    return scanner_read_identifier(scanner);
   }
   case '<': {
-    if (scanner_peek(scanner) == '=') {
-      scanner_next_char(scanner);
-      return scanner_make_token(scanner, TokenKindLessEqual);
-    }
-
-    return scanner_make_token(scanner, TokenKindLessThan);
+    return scanner_read_identifier(scanner);
   }
   }
 
