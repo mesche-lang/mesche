@@ -1,0 +1,9 @@
+(define-module (mesche string))
+
+(define (make-string string count) :export
+  (let loop ((final-string "")
+             (current 0))
+    (if (< current count)
+        (loop (string-append final-string string)
+              (+ current 1))
+        final-string)))
