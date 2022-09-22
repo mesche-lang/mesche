@@ -1,0 +1,43 @@
+(define-module (mesche core))
+
+;; The challenge of this module is only depending on things defined inside of
+;; itself!  It gets loaded before any other module in the system so it must be
+;; self-contained.
+
+(define (length list)
+  (let loop ((remaining list)
+             (count 0))
+    (if (pair? remaining)
+        (loop (cdr remaining)
+              (+ count 1))
+        count)))
+
+(define (foldr combine-func items)
+  (let loop ((remaining items)
+             (result '()))
+    (if (pair? remaining)
+        (loop (cdr remaining)
+              (combine-func (car remaining)
+                            result))
+        result)))
+
+(define (map func items)
+  (foldr (lambda (item result)
+           ;; TODO: This could be made more efficient
+           (append result
+                   (list (func item))))
+         items))
+
+(define (filter func items)
+  (foldr (lambda (item result)
+           (if (func item)
+               ;; TODO: This could be made more efficient
+               (append result
+                       (list item))
+               result))
+         items))
+
+(define (reverse items)
+  (foldr (lambda (item result)
+           (cons item result))
+         items))

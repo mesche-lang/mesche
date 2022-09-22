@@ -19,7 +19,7 @@ static VM vm;
   InterpretResult result;                                                                          \
   mesche_vm_init(&vm, 0, NULL);                                                                    \
   mesche_vm_load_path_add(&vm, "./test/modules");                                                  \
-  mesche_vm_register_core_modules(&vm);
+  mesche_vm_register_core_modules(&vm, "./modules");
 
 #define VM_EVAL(source, expected_result)                                                           \
   result = mesche_vm_eval_string(&vm, source);                                                     \

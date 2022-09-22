@@ -28,28 +28,9 @@ Value list_nth_msc(MescheMemory *mem, int arg_count, Value *args) {
   return mesche_list_nth((VM *)mem, AS_CONS(args[0]), (int)AS_NUMBER(args[1]));
 }
 
-Value list_car_msc(MescheMemory *mem, int arg_count, Value *args) {
-  if (!IS_CONS(args[0])) {
-    PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
-  }
 
-  ObjectCons *current_cons = AS_CONS(args[0]);
-  return current_cons->car;
-}
 
-Value list_cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
-  if (!IS_CONS(args[0])) {
-    PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
-  }
 
-  ObjectCons *current_cons = AS_CONS(args[0]);
-  return current_cons->cdr;
-}
-
-Value list_pair_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // TODO: Ensure single argument
-  return BOOL_VAL(mesche_object_is_kind(args[0], ObjectKindCons));
-}
 
 Value list_append_msc(MescheMemory *mem, int arg_count, Value *args) {
   // We can just return the second parameter if the first is an empty list
@@ -75,9 +56,6 @@ Value list_append_msc(MescheMemory *mem, int arg_count, Value *args) {
 void mesche_list_module_init(VM *vm) {
   mesche_vm_define_native_funcs(vm, "mesche list",
                                 (MescheNativeFuncDetails[]){{"list-nth", list_nth_msc, true},
-                                                            {"pair?", list_pair_p_msc, true},
-                                                            {"car", list_car_msc, true},
-                                                            {"cdr", list_cdr_msc, true},
                                                             {"append", list_append_msc, true},
                                                             {NULL, NULL, false}});
 }

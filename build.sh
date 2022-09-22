@@ -13,6 +13,7 @@ SOURCE_DIR=src
 OUTPUT_DIR=bin
 
 source_files=(
+    "core.c"
     "chunk.c"
     "compiler.c"
     "disasm.c"

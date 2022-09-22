@@ -33,6 +33,7 @@ typedef struct {
 
   Table modules;
   ObjectModule *root_module;
+  ObjectModule *core_module;
   ObjectModule *current_module;
   ObjectCons *load_paths;
 
@@ -88,6 +89,6 @@ void mesche_vm_define_native_funcs(VM *vm, const char *module_name,
                                    MescheNativeFuncDetails *func_array);
 void mesche_mem_mark_object(VM *vm, Object *object);
 void mesche_vm_load_path_add(VM *vm, const char *load_path);
-void mesche_vm_register_core_modules(VM *vm);
+void mesche_vm_register_core_modules(VM *vm, char *module_path);
 
 #endif

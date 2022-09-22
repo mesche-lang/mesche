@@ -6,6 +6,7 @@
 #include "array.h"
 #include "chunk.h"
 #include "compiler.h"
+#include "core.h"
 #include "disasm.h"
 #include "fs.h"
 #include "io.h"
@@ -327,7 +328,11 @@ static void mem_collect_garbage(MescheMemory *mem) {
   mem_sweep_objects(vm);
 }
 
-void mesche_vm_register_core_modules(VM *vm) {
+void mesche_vm_register_core_modules(VM *vm, char *module_path) {
+  // Add the module path first so that native functions are loaded in that context
+  mesche_vm_load_path_add(vm, module_path);
+
+  mesche_core_module_init(vm);
   mesche_io_module_init(vm);
   mesche_fs_module_init(vm);
   mesche_list_module_init(vm);
@@ -336,6 +341,19 @@ void mesche_vm_register_core_modules(VM *vm) {
   mesche_array_module_init(vm);
   mesche_string_module_init(vm);
   mesche_process_module_init(vm);
+
+  // Load the `mesche core` module to serve as the global scope
+  if (mesche_vm_eval_string(vm, "(module-import (mesche core))") != INTERPRET_OK) {
+    PANIC("ERROR: Could not load `mesche core` from module path: %s\n\n", module_path);
+  }
+
+  Value core_module = mesche_vm_stack_pop(vm);
+  if (!IS_MODULE(core_module)) {
+    PANIC("ERROR: Unexpected problem loading `mesche core` from module path: %s\n\n", module_path);
+  }
+
+  // Store the core module to use in variable lookups
+  vm->core_module = AS_MODULE(core_module);
 }
 
 void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
@@ -1370,11 +1388,16 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     case OP_READ_GLOBAL:
       name = READ_STRING();
-      Table *globals = &CURRENT_MODULE()->locals;
-      if (!mesche_table_get(globals, name, &value)) {
-        vm_runtime_error(vm, "Undefined variable '%s'.", name->chars);
-        return INTERPRET_RUNTIME_ERROR;
+
+      // First, try to loop up the variable in the current module's locals
+      if (!mesche_table_get(&CURRENT_MODULE()->locals, name, &value)) {
+        // Then, look up the variable in the core module's locals
+        if (!mesche_table_get(&vm->core_module->locals, name, &value)) {
+          vm_runtime_error(vm, "Undefined variable '%s'.", name->chars);
+          return INTERPRET_RUNTIME_ERROR;
+        }
       }
+
       mesche_vm_stack_push(vm, value);
       break;
     case OP_READ_UPVALUE:
