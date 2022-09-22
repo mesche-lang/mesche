@@ -62,6 +62,9 @@ ObjectString *mesche_object_make_string(VM *vm, const char *chars, int length) {
       case 'n':
         string->chars[i - offset] = '\n';
         continue;
+      case 'e':
+        string->chars[i - offset] = '\e';
+        continue;
       case 't':
         string->chars[i - offset] = '\t';
         continue;
