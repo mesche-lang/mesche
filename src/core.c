@@ -7,22 +7,22 @@
 #include "value.h"
 #include "vm.h"
 
-Value pair_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_pair_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   // TODO: Ensure single argument
   return BOOL_VAL(IS_CONS(args[0]));
 }
 
-Value symbol_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_symbol_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   // TODO: Ensure single argument
   return BOOL_VAL(IS_SYMBOL(args[0]));
 }
 
-Value function_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_function_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   // TODO: Ensure single argument
   return BOOL_VAL(IS_CLOSURE(args[0]) || IS_FUNCTION(args[0]) || IS_NATIVE_FUNC(args[0]));
 }
 
-Value array_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_array_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
@@ -30,7 +30,7 @@ Value array_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_ARRAY(args[0]));
 }
 
-Value car_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_car_msc(MescheMemory *mem, int arg_count, Value *args) {
   if (!IS_CONS(args[0])) {
     PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
   }
@@ -39,7 +39,7 @@ Value car_msc(MescheMemory *mem, int arg_count, Value *args) {
   return current_cons->car;
 }
 
-Value cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
   if (!IS_CONS(args[0])) {
     PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
   }
@@ -48,7 +48,7 @@ Value cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
   return current_cons->cdr;
 }
 
-Value append_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_append_msc(MescheMemory *mem, int arg_count, Value *args) {
   Value result = EMPTY_VAL;
 
   // Is there at least one argument?
@@ -106,13 +106,14 @@ Value append_msc(MescheMemory *mem, int arg_count, Value *args) {
 }
 
 void mesche_core_module_init(VM *vm) {
-  mesche_vm_define_native_funcs(vm, "mesche core",
-                                (MescheNativeFuncDetails[]){{"pair?", pair_p_msc, true},
-                                                            {"symbol?", symbol_p_msc, true},
-                                                            {"array?", array_p_msc, true},
-                                                            {"function?", function_p_msc, true},
-                                                            {"car", car_msc, true},
-                                                            {"cdr", cdr_msc, true},
-                                                            {"append", append_msc, true},
-                                                            {NULL, NULL, false}});
+  mesche_vm_define_native_funcs(
+      vm, "mesche core",
+      (MescheNativeFuncDetails[]){{"pair?", core_pair_p_msc, true},
+                                  {"symbol?", core_symbol_p_msc, true},
+                                  {"array?", core_array_p_msc, true},
+                                  {"function?", core_function_p_msc, true},
+                                  {"car", core_car_msc, true},
+                                  {"cdr", core_cdr_msc, true},
+                                  {"append", core_append_msc, true},
+                                  {NULL, NULL, false}});
 }
