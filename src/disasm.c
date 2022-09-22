@@ -94,6 +94,8 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_simple_instr("OP_EQUAL", offset);
   case OP_RETURN:
     return mesche_disasm_simple_instr("OP_RETURN", offset);
+  case OP_APPLY:
+    return mesche_disasm_simple_instr("OP_APPLY", offset);
   case OP_RESET:
     return mesche_disasm_simple_instr("OP_RESET", offset);
   case OP_SHIFT:

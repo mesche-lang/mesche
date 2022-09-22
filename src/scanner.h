@@ -43,6 +43,7 @@ typedef enum {
   TokenKindLet,
   TokenKindIf,
   TokenKindLambda,
+  TokenKindApply,
   TokenKindReset,
   TokenKindShift,
   TokenKindDisplay,

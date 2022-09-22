@@ -795,6 +795,17 @@ static void compiler_parse_lambda(CompilerContext *ctx) {
   compiler_parse_lambda_inner(ctx, NULL, NULL);
 }
 
+static void compiler_parse_apply(CompilerContext *ctx) {
+  // Apply is very simple, it just takes two expressions, one for the function and the other
+  // for the list.
+
+  compiler_parse_expr(ctx);
+  compiler_parse_expr(ctx);
+  compiler_emit_byte(ctx, OP_APPLY);
+
+  compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
+}
+
 static void compiler_parse_reset(CompilerContext *ctx) {
   // `reset` requires a lambda expression with no arguments
   compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to begin argument list.");
@@ -1238,6 +1249,9 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
     break;
   case TokenKindLambda:
     compiler_parse_lambda(ctx);
+    break;
+  case TokenKindApply:
+    compiler_parse_apply(ctx);
     break;
   case TokenKindReset:
     compiler_parse_reset(ctx);

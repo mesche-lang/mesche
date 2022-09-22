@@ -143,8 +143,14 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
     }
     break;
   }
-  case 'a':
-    return scanner_check_keyword(scanner, 1, 2, "nd", TokenKindAnd);
+  case 'a': {
+    switch (scanner->start[1]) {
+    case 'n':
+      return scanner_check_keyword(scanner, 2, 1, "d", TokenKindAnd);
+    case 'p':
+      return scanner_check_keyword(scanner, 2, 3, "ply", TokenKindApply);
+    }
+  }
   case 'o':
     return scanner_check_keyword(scanner, 1, 1, "r", TokenKindOr);
   case 'd': {

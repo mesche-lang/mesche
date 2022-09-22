@@ -1448,7 +1448,7 @@ InterpretResult mesche_vm_run(VM *vm) {
 
       break;
     }
-    case OP_CLOSE_UPVALUE:
+    case OP_CLOSE_UPVALUE: {
       // NOTE: This opcode gets issued when a scope block is ending (usually
       // from a `let` or `begin` expression with multiple body expressions)
       // so skip the topmost value on the stack (the last expression result)
@@ -1461,6 +1461,51 @@ InterpretResult mesche_vm_run(VM *vm) {
       mesche_vm_stack_push(vm, result);
 
       break;
+    }
+    case OP_APPLY: {
+      // Grab the function to call and the list to call it on
+      Value func_value = vm_stack_peek(vm, 1);
+      Value list_value = vm_stack_peek(vm, 0);
+
+      // Are they the expected types?
+      if (!IS_CLOSURE(func_value) && !IS_NATIVE_FUNC(func_value)) {
+        vm_runtime_error(vm, "Cannot apply non-function value.");
+        return INTERPRET_RUNTIME_ERROR;
+      } else if (!IS_CONS(list_value)) {
+        vm_runtime_error(vm, "Cannot apply function to non-list value.");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      // Store the list value location so that we can overwrite it after
+      // unrolling the values.  We do this to ensure the list doesn't get freed
+      // during a GC pass that might occur while pushing the individual values
+      // to the stack.
+      int arg_count = 0;
+      Value *list_value_slot = vm->stack_top - 1;
+
+      // Unroll the list onto the stack
+      while (IS_CONS(list_value)) {
+        ObjectCons *cons = AS_CONS(list_value);
+        mesche_vm_stack_push(vm, cons->car);
+        arg_count++;
+        list_value = cons->cdr;
+      }
+
+      // Remove the original list value by shifting all new values down by 1
+      memmove(list_value_slot, list_value_slot + 1, sizeof(Value) * arg_count);
+      vm->stack_top--;
+
+      // Call the function with the unrolled argument list
+      // TODO: Can we make this a tail call?
+      if (!vm_call_value(vm, func_value, arg_count, 0, false)) {
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      // Set the current frame to the new call frame
+      frame = &vm->frames[vm->frame_count - 1];
+
+      break;
+    }
     }
 
 #ifdef DEBUG_TRACE_EXECUTION

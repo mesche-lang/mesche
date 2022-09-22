@@ -43,6 +43,7 @@ typedef enum {
   OP_TAIL_CALL,
   OP_CLOSURE,
   OP_CLOSE_UPVALUE,
+  OP_APPLY,
   OP_DISPLAY,
   OP_RESET,
   OP_SHIFT,
