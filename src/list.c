@@ -28,29 +28,61 @@ Value list_nth_msc(MescheMemory *mem, int arg_count, Value *args) {
   return mesche_list_nth((VM *)mem, AS_CONS(args[0]), (int)AS_NUMBER(args[1]));
 }
 
-
-
-
-
 Value list_append_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // We can just return the second parameter if the first is an empty list
-  if (IS_EMPTY(args[0])) {
-    return args[1];
-  }
+  Value result = EMPTY_VAL;
 
-  // Loop to the end of the first cons and set its cdr to the second cons
-  Value current = args[0];
-  while (IS_CONS(current)) {
-    ObjectCons *cons = AS_CONS(current);
-    if (IS_EMPTY(cons->cdr)) {
-      cons->cdr = args[1];
-      break;
+  // Is there at least one argument?
+  if (arg_count > 1) {
+    // Walk all of the list arguments to append them together
+    int arg_index = 0;
+    Value result = EMPTY_VAL;
+    Value prev_list_end = EMPTY_VAL;
+    while (arg_index < arg_count) {
+      Value current_list = args[arg_index];
+      if (IS_EMPTY(current_list)) {
+        // Move to the next argument
+        arg_index++;
+      } else if (IS_CONS(current_list)) {
+        // The first legitimate list is the result
+        if (IS_EMPTY(result)) {
+          result = current_list;
+        }
+
+        // Should we attach the list to the previous list?
+        if (IS_CONS(prev_list_end)) {
+          AS_CONS(prev_list_end)->cdr = current_list;
+          prev_list_end = EMPTY_VAL;
+        }
+
+        // Find the end of the list
+        Value current_cons = current_list;
+        while (IS_CONS(current_cons)) {
+          if (IS_EMPTY(AS_CONS(current_cons)->cdr)) {
+            // The current cons is the last position of the current list,
+            // the next list or value will go in the cdr of this cell
+            prev_list_end = current_cons;
+            break;
+          } else {
+            // TODO: Error if not cons or empty!
+          }
+
+          current_cons = AS_CONS(current_cons)->cdr;
+        }
+
+        // Move to the next argument
+        arg_index++;
+      } else {
+        // Argument is invalid if it's not the last argument and isn't a cons.
+        // For now just skip it.
+        arg_index++;
+      }
     }
 
-    current = cons->cdr;
+    return result;
   }
 
-  return args[0];
+  // If no arguments are passed, return the empty list
+  return EMPTY_VAL;
 }
 
 void mesche_list_module_init(VM *vm) {
