@@ -115,9 +115,22 @@
   (assert-if? (eqv? expected actual)
               "Objects were not equivalent!"))
 
+(define (compare-cons expected actual)
+  (if (pair? actual)
+      (and (compare-objects (car expected)
+                            (car actual))
+           (compare-objects (cdr expected)
+                            (cdr actual)))
+      nil))
+
+(define (compare-objects expected actual)
+  (if (pair? expected)
+      (compare-cons expected actual)
+      (equal? expected actual)))
+
 (define (assert-equal? expected actual) :export
   ;; TODO: A more in-depth check will be needed
-  (assert-if? (equal? expected actual)
+  (assert-if? (compare-objects expected actual)
               "Objects were not equal!"))
 
 (define (run-test test level)
