@@ -1,0 +1,16 @@
+(define-module (test core)
+  (import (mesche list)
+          (mesche test)))
+
+(suite "(mesche core)"
+  (lambda ()
+
+    (suite "append:"
+      (lambda ()
+
+        (verify "appends two lists"
+          (lambda ()
+            (assert-equal? '(1 2 3 4 5)
+                           (append '(1 2) '(3) '(4 5))))))))
+
+)

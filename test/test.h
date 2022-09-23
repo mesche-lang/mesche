@@ -26,7 +26,7 @@ extern char fail_message[2048];
 
 #define SKIP()                                                                                     \
   tests_skipped++;                                                                                 \
-  printf("\e[1;33m 🛇 SKIP\e[0m %s\n", __func__);                                                \
+  printf("\e[1;33m ᠅ SKIP\e[0m %s\n", __func__);                                                   \
   return;
 
 #define FAIL(message, ...)                                                                         \

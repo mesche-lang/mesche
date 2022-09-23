@@ -1,0 +1,206 @@
+(define-module (mesche test)
+  (import (mesche list)
+          (mesche string)))
+
+;; TODO: Use classes instead!
+
+(define-record-type test
+  (fields description
+          tags
+          function))
+
+(define-record-type suite
+  (fields description
+          enabled
+          sub-suites
+          tests))
+
+(define all-suites '())
+(define suite-stack '())
+(define tag-stack '())
+(define current-suite nil)
+
+(define pass-count 0)
+(define fail-count 0)
+(define skip-count 0)
+
+(define indent-string "   ")
+
+(define test-filter (lambda (desc tags) t))
+
+(define (test-filter-set! filter) :export
+  (set! test-filter filter))
+
+(define (suite description :rest args) :export
+  (let ((suite-func nil)
+        (tags '()))
+    (let loop ((rest args))
+      (if (pair? rest)
+          (if (symbol? (car rest))
+              ;; Save the tag and continue looping
+              (begin
+                (set! tags (cons (car rest) tags))
+                (loop (cdr rest)))
+
+              ;; If it's not a symbol, maybe it's the test function
+              (if (function? (car rest))
+                  (set! suite-func (car rest))))))
+
+    (let ((parent-suite current-suite)
+          (new-suite (make-suite :description description
+                                 :tests '()
+                                 :sub-suites '())))
+      ;; Set the current suite for tests and sub-suites to execute
+      (set! current-suite new-suite)
+      (set! suite-stack (cons current-suite suite-stack))
+      (set! tag-stack (cons tags tag-stack))
+
+      ;; Execute the suite function to gather its tests
+      (suite-func)
+
+      ;; Only add the suite if it contains tests or sub-suites
+      (if (or (pair? (suite-tests current-suite))
+              (pair? (suite-sub-suites current-suite)))
+          (if parent-suite
+              (suite-sub-suites-set! parent-suite
+                                     (append (suite-sub-suites parent-suite)
+                                             (list current-suite)))
+              (set! all-suites (append all-suites (list current-suite)))))
+
+      ;; Pop the previous suite back to current
+      (set! suite-stack (cdr suite-stack))
+      (set! tag-stack (cdr tag-stack))
+      (set! current-suite (if (pair? suite-stack)
+                              (car suite-stack))))))
+
+(define (suite-test-add! suite test)
+  (suite-tests-set! suite
+                    (append (suite-tests suite)
+                            (list test))))
+
+(define (verify description :rest args) :export
+  ;; Loop over the args to gather tags and find the test function
+  (let ((tags '())
+        (test-func nil))
+    (let loop ((rest args))
+      (if (pair? rest)
+          (if (symbol? (car rest))
+              ;; Save the tag and continue looping
+              (begin
+                (set! tags (cons (car rest) tags))
+                (loop (cdr rest)))
+
+              ;; If it's not a symbol, maybe it's the test function
+              (if (function? (car rest))
+                  (set! test-func (car rest))))))
+
+    ;; See if the test should be filtered out
+    (let ((all-tags (apply append (cons tags tag-stack))))
+      (if (test-filter description all-tags)
+          (suite-test-add! current-suite
+                           (make-test :description description
+                                      :tags all-tags
+                                      :function test-func))))))
+
+(define (fail message) :export
+  (shift (lambda (k) `(mesche-test-failed ,message))))
+
+(define (skip message) :export
+  (shift (lambda (k) `(mesche-test-skipped ,message))))
+
+(define (assert-if? value message) :export
+  (if value t (fail message)))
+
+(define (assert-eqv? expected actual) :export
+  (assert-if? (eqv? expected actual)
+              "Objects were not equivalent!"))
+
+(define (assert-equal? expected actual) :export
+  ;; TODO: A more in-depth check will be needed
+  (assert-if? (equal? expected actual)
+              "Objects were not equal!"))
+
+(define (run-test test level)
+  ;; TODO: Need a flush function to flush output before newline
+  (display (string-append (make-string indent-string (+ level 1))
+                          (test-description test)))
+
+  ;; Execute the test function wrapped in a continuation context
+  (let ((result (reset (lambda ()
+                         ((test-function test))))))
+    (if (pair? result)
+        (if (eqv? (car result) 'mesche-test-failed)
+            (begin
+              (set! fail-count (+ fail-count 1))
+              (display "\e[1;91m  ✗ FAIL\e[0m\n")
+              (display (string-append (make-string indent-string (+ level 2))
+                                      (car (cdr result))
+                                      "\n\n")))
+            (if (eqv? (car result) 'mesche-test-skipped)
+                (begin
+                  (set! skip-count (+ skip-count 1))
+                  (display "\e[1;33m  ᠅ SKIP\e[0m\n")
+                  (display (string-append (make-string indent-string (+ level 2))
+                                          (car (cdr result))
+                                          "\n\n")))))
+        (begin
+          (set! pass-count (+ pass-count 1))
+          (display "\e[1;92m  ✓ PASS\e[0m\n")))))
+
+(define (run-suite suite level)
+  (display (string-append "\n\e[1;93m"
+                          (make-string indent-string (+ level 1))
+                          (suite-description suite)
+                          "\e[0m\n"))
+
+  ;; Execute all tests
+  (let loop ((tests (suite-tests suite)))
+    (if (pair? tests)
+        (begin
+          (run-test (car tests) (+ level 1))
+          (loop (cdr tests)))))
+
+  ;; Execute all sub-suites
+  (let loop ((suites (suite-sub-suites suite)))
+    (if (pair? suites)
+        (begin
+          (run-suite (car suites) (+ level 1))
+          (loop (cdr suites))))))
+
+(define (run-test-suites :keys print-report) :export
+  ;; Reset the test environment
+  (set! pass-count 0)
+  (set! fail-count 0)
+  (set! skip-count 0)
+
+  ;; Loop over all suites and execute contained tests
+  ;; TODO: Use map or foreach instead
+  (let loop ((suites all-suites))
+    (if (pair? suites)
+        (begin
+          (run-suite (car suites) 0)
+          (loop (cdr suites)))))
+
+  (if print-report
+      (begin
+        (display "\nRESULTS:\n")
+
+        (display (string-append " \e[1;92m ✓ "
+                                (number->string pass-count)
+                                " passed\n"))
+        (display (string-append " \e[1;91m ✗ "
+                                (number->string fail-count)
+                                " failed\n"))
+        (display (string-append " \e[1;33m ᠅ "
+                                (number->string skip-count)
+                                " skipped\n"))
+        (display "\e[0m")))
+
+  ;; Return the number of passed, failed, and skipped tests
+  (list pass-count
+        fail-count
+        skip-count))
+
+(define (filter-by-tag tag) :export
+  (lambda (description tags)
+    (contains tag tags)))

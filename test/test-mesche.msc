@@ -1,0 +1,13 @@
+(module-import (mesche list))
+(module-import (mesche test))
+(module-import (mesche string))
+
+;; Set the test filter before loading test modules
+;; (test-filter-set! (filter-by-tag 'only))
+
+(module-import (test core))
+(module-import (test list))
+(module-import (test class))
+
+;; Run all registered suites
+(run-test-suites :print-report t)
