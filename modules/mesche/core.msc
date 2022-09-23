@@ -12,6 +12,14 @@
               (+ count 1))
         count)))
 
+(define (assq key alist)
+  (let loop ((rest alist))
+    (if (pair? rest)
+        (if (pair? (car rest))
+            (if (eqv? key (car (car rest)))
+                (car rest)
+                (loop (cdr rest)))))))
+
 (define (foldr combine-func items)
   (let loop ((remaining items)
              (result '()))
