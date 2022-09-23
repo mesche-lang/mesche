@@ -62,6 +62,6 @@ void mesche_value_array_init(ValueArray *array);
 void mesche_value_array_write(MescheMemory *mem, ValueArray *array, Value value);
 void mesche_value_array_free(MescheMemory *mem, ValueArray *array);
 void mesche_value_print(Value value);
-bool mesche_value_equalp(Value a, Value b);
+bool mesche_value_eqv_p(Value a, Value b);
 
 #endif

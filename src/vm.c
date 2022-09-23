@@ -1002,7 +1002,7 @@ InterpretResult mesche_vm_run(VM *vm) {
     case OP_EQV: {
       Value b = mesche_vm_stack_pop(vm);
       Value a = mesche_vm_stack_pop(vm);
-      mesche_vm_stack_push(vm, BOOL_VAL(mesche_value_equalp(a, b)));
+      mesche_vm_stack_push(vm, BOOL_VAL(mesche_value_eqv_p(a, b)));
       break;
     }
     case OP_JUMP: {

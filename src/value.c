@@ -2,8 +2,8 @@
 #include <string.h>
 
 #include "mem.h"
-#include "value.h"
 #include "object.h"
+#include "value.h"
 
 void mesche_value_array_init(ValueArray *array) {
   array->count = 0;
@@ -22,28 +22,46 @@ void mesche_value_array_write(MescheMemory *mem, ValueArray *array, Value value)
   array->count++;
 }
 
-void mesche_value_array_free(MescheMemory *mem, ValueArray* array) {
+void mesche_value_array_free(MescheMemory *mem, ValueArray *array) {
   FREE_ARRAY(mem, Value, array->values, array->capacity);
   mesche_value_array_init(array);
 }
 
 void mesche_value_print(Value value) {
   switch (value.kind) {
-  case VALUE_NUMBER: printf("%g", AS_NUMBER(value)); break;
-  case VALUE_NIL: printf("nil"); break;
-  case VALUE_TRUE: printf("t"); break;
-  case VALUE_EMPTY: printf("()"); break;
-  case VALUE_OBJECT: mesche_object_print(value); break;
+  case VALUE_NUMBER:
+    printf("%g", AS_NUMBER(value));
+    break;
+  case VALUE_NIL:
+    printf("nil");
+    break;
+  case VALUE_TRUE:
+    printf("t");
+    break;
+  case VALUE_EMPTY:
+    printf("()");
+    break;
+  case VALUE_OBJECT:
+    mesche_object_print(value);
+    break;
   }
 }
 
-bool mesche_value_equalp(Value a, Value b) {
+bool mesche_value_eqv_p(Value a, Value b) {
   // This check also covers comparison of t and nil
-  if (a.kind != b.kind) return false;
+  if (a.kind != b.kind)
+    return false;
 
-  switch(a.kind) {
-  case VALUE_NUMBER: return AS_NUMBER(a) == AS_NUMBER(b);
-  case VALUE_OBJECT: return AS_OBJECT(a) == AS_OBJECT(b);
-  default: return false;
+  switch (a.kind) {
+  case VALUE_NIL:
+  case VALUE_TRUE:
+  case VALUE_EMPTY:
+    return true;
+  case VALUE_NUMBER:
+    return AS_NUMBER(a) == AS_NUMBER(b);
+  case VALUE_OBJECT:
+    return AS_OBJECT(a) == AS_OBJECT(b);
+  default:
+    return false;
   }
 }

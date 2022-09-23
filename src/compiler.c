@@ -466,7 +466,7 @@ static uint8_t compiler_parse_symbol(CompilerContext *ctx, bool is_global) {
   bool value_found = false;
   Chunk *chunk = &ctx->function->chunk;
   for (int i = 0; i < chunk->constants.count; i++) {
-    if (mesche_value_equalp(chunk->constants.values[i], new_string)) {
+    if (mesche_value_eqv_p(chunk->constants.values[i], new_string)) {
       constant = i;
       value_found = true;
       break;
