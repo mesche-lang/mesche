@@ -1,0 +1,213 @@
+;; https://github.com/kstephens/tinyclos/blob/master/tiny-clos.scm
+(define-module (mesche class)
+  (import (mesche array)
+          (mesche string)))
+
+(define (%instance-class object)
+  (and (array? object)
+       (array-nth object 0)))
+
+(define (class-of object) :export
+  (let ((maybe-class (%instance-class object)))
+    (if maybe-class
+        maybe-class
+        nil)))
+
+(define (field-find class field-name) :export
+  (let ((accessors (if (eqv? class <class>)
+                       class-field-accessors
+                       (field-ref class 'field-accessors))))
+    (let ((accessor (assq field-name accessors)))
+      (if accessor
+          (cdr accessor)
+          (begin
+            ;; TODO: Throw an error here
+            (display "FIELD ACCESSORS NOT FOUND!\n")
+            nil)))))
+
+(define (field-set! object field-name value) :export
+  (let ((accessor (field-find (class-of object) field-name)))
+    (if accessor
+        ((car (cdr accessor)) object value)
+        (display "FIELD SETTER NOT FOUND!\n"))))
+
+(define (field-ref object field-name) :export
+  (let ((accessor (field-find (class-of object) field-name)))
+    (if accessor
+        ((car accessor) object)
+        (display "FIELD GETTER NOT FOUND!\n"))))
+
+(define (plist-ref plist key)
+  (let loop ((remaining plist))
+    (if (pair? remaining)
+        (if (eqv? (car remaining) key)
+            (car (cdr remaining))
+            (loop (cdr remaining)))
+        nil)))
+
+(define (%allocate-instance class num-fields)
+  ;; Create an array for the instance and stash the class at the front
+  (let ((instance (make-array (+ num-fields 1))))
+    (array-nth-set! instance 0 class)
+    instance))
+
+(define class-fields
+  '(direct-parents
+    precedence
+    direct-fields
+    all-fields
+    num-fields
+    field-initializers
+    field-accessors))
+
+(define class-field-accessors
+  (let ((index 0))
+    (map (lambda (field-name)
+           ;; Increment the index and make sure we don't capture the version of
+           ;; index that will be changed in future iterations!
+           (set! index (+ index 1))
+           (let ((closure-index index))
+             (list field-name
+                   (lambda (instance)
+                     (array-nth instance closure-index))
+                   (lambda (instance value)
+                     (array-nth-set! instance closure-index value)))))
+         class-fields)))
+
+;; Define the core class instance
+(define <class> (%allocate-instance nil (length class-fields)) :export)
+
+;; Ultimately this function should be generic, but initially define it so that
+;; it can be used for bootstrapping purposes
+;; TODO: Perhaps this shouldn't be exported!
+(define (make class :rest init-args) :export
+  (if (eqv? class <class>)
+      ;; Make a class instance using the fields
+      (let ((instance (%allocate-instance class
+                                          (length class-fields)))
+            (direct-parents (or (plist-ref init-args 'direct-parents) '()))
+            (direct-fields (or (plist-ref init-args 'direct-fields) '()))
+            (precedence '())
+            (num-fields 0)
+            (all-fields '())
+            (field-initializers '())
+            (field-accessors '()))
+
+        ;; Calculate the class precedence list
+        (set! precedence
+              (let loop ((parents direct-parents)
+                         (result (list instance)))
+                (if (pair? parents)
+                    (loop (class-direct-parents (car parents))
+                          (cons (car parents) result))
+                    (reverse result))))
+
+        ;; Calculate the class fields by appending the fields of all parent
+        ;; classes to the direct fields of this class
+        (set! all-fields
+              (apply append
+                     (cons direct-fields
+                           (map class-direct-fields
+                                (cdr precedence)))))
+
+        ;; The important thing here is to build a closure for the instance of
+        ;; the class to store all initialization information.  Then we return
+        ;; an instance of the class which has its own init function that can
+
+        (field-set! instance 'direct-fields direct-fields)
+        (field-set! instance 'all-fields all-fields)
+        (field-set! instance 'direct-parents direct-parents)
+        (field-set! instance 'precedence precedence)
+        (field-set! instance 'field-initializers field-initializers)
+        (field-set! instance 'field-accessors field-accessors)
+
+        ;; Return the finished instance
+        instance)
+
+      ;; TODO: Initialize other core types
+      nil))
+
+(define (class-direct-fields class) :export
+  (or (field-ref class 'direct-fields) '()))
+
+(define (class-direct-parents class) :export
+  (or (field-ref class 'direct-parents) '()))
+
+(define (class-fields class) :export
+  (or (field-ref class 'all-fields) '()))
+
+(define (class-precendence class) :export
+  (or (field-ref class 'precendence) '()))
+
+;; The top of the class hierarchy
+(define <top>
+  (make <class>
+    'direct-fields '()
+    'direct-parents '()) :export)
+
+;; The top of the class instance hierarchy
+(define <object>
+  (make <class>
+    'direct-fields '()
+    'direct-parents (list <top>)) :export)
+
+;; (display "CLASS IS: ")
+;; (display <class>)
+;; (display "\n")
+
+;; Set the <class>'s class type to itself
+(array-nth-set! <class> 0 <class>)
+
+;; Finish the definition of <class>
+(field-set! <class> 'direct-parents (list <object>))
+(field-set! <class> 'direct-fields class-fields)
+(field-set! <class> 'all-fields class-fields)
+(field-set! <class> 'precedence (list <class> <object> <top>))
+
+(define <generic>
+  (make <class>
+    'direct-fields '(methods)
+    'direct-parents (list <object>)) :export)
+
+(define <method>
+  (make <class>
+    'direct-fields '(signature function)
+    'direct-parents (list <object>)) :export)
+
+(define (make-instance class)
+  nil)
+
+(define <primitive-class>
+  (make <class>
+    'direct-fields '()
+    'direct-parents (list <class>)) :export)
+
+;;; TODO: Generic dispatch and `initialize` needs to be added before these will work!
+
+;; Defines a class with no information, just used as a sentinel
+(define (make-primitive-class) :export
+  (make <primitive-class>
+    'direct-fields '()
+    'direct-parents (list <top>)))
+
+(define <string> (make-primitive-class) :export)
+(define <number> (make-primitive-class) :export)
+
+;;; Helper methods
+
+;; (define (make-generic)
+;;   (make <generic>))
+
+;;; Initialize The Protocol
+
+;; (define initialize (make-generic))
+;; (define allocate-instance (make-generic))
+
+;;; Method Definitions
+
+;; (define (add-method! generic method)
+;;   ;; Add the method to the generic
+;;   ;; TODO: Detect and replace duplicates!
+;;   (field-set! generic
+;;              'methods
+;;              (cons method (field-ref generic 'methods))))

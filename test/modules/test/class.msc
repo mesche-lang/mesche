@@ -1,0 +1,23 @@
+(define-module (test class)
+  (import (mesche class)
+          (mesche test)))
+
+(suite "(mesche class)" 'only
+  (lambda ()
+
+    (suite "bootstrapping:"
+      (lambda ()
+
+        (verify "classes can be defined using low-level make"
+          (lambda ()
+            (let ((<foo> (make <class>
+                           'direct-fields '(bar baz)
+                           'direct-parents (list <object>))))
+              (assert-equal? '(bar baz)
+                             (field-ref <foo> 'direct-fields))
+              (assert-equal? (list <foo> <object> <top>)
+                             (field-ref <foo> 'precedence)))))
+
+        (verify "class instances can be created"
+          (lambda ()
+            (fail "Not implemented yet.")))))))
