@@ -25,6 +25,7 @@ void test_mesche_suite() {
   if (result != INTERPRET_OK) {
     FAIL("Expected interpret result %s, got %d", __stringify(expected_result), result);
   }
+  mesche_vm_free(&vm);
 }
 
 int main(void) {
