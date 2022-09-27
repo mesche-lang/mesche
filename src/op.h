@@ -48,6 +48,7 @@ typedef enum {
   OP_RESET,
   OP_SHIFT,
   OP_REIFY,
+  OP_BREAK,
   OP_RETURN
 } MescheOpCode;
 

@@ -1259,6 +1259,11 @@ static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token)
   case TokenKindShift:
     compiler_parse_shift(ctx);
     break;
+  case TokenKindBreak:
+    // Just emit OP_BREAK and be done
+    compiler_emit_byte(ctx, OP_BREAK);
+    compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
+    break;
   default:
     return false; // No special form found
   }

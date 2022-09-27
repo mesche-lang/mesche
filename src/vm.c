@@ -1189,6 +1189,34 @@ InterpretResult mesche_vm_run(VM *vm) {
       mesche_vm_stack_push(vm, value);
       frame = &vm->frames[vm->frame_count - 1];
       break;
+    case OP_BREAK:
+      // Print out diagnostics and end execution
+      printf("\nValue Stack:\n");
+      for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
+        printf("  %3d: ", abs(slot - vm->stack_top));
+        mesche_value_print(*slot);
+        printf("\n");
+      }
+      printf("\n");
+
+      printf("Call Stack:\n");
+      for (int i = 0; i < vm->frame_count; i++) {
+        printf("  %3d: ", i);
+        mesche_value_print(OBJECT_VAL(vm->frames[i].closure));
+        if (i == vm->current_reset_marker->frame_index) {
+          printf(" [reset]");
+        }
+        printf("\n");
+      }
+
+      printf("\n");
+
+      printf("Current Function:\n");
+      mesche_disasm_function(frame->closure->function);
+      printf("\n");
+
+      vm_runtime_error(vm, "Exiting due to `break`.");
+      return INTERPRET_RUNTIME_ERROR;
     case OP_DISPLAY:
       // Peek at the value on the stack
       mesche_value_print(vm_stack_peek(vm, 0));
