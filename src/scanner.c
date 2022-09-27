@@ -212,8 +212,14 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
       return scanner_check_keyword(scanner, 2, 7, "ad-file", TokenKindLoadFile);
     }
   }
-  case 'b':
-    return scanner_check_keyword(scanner, 1, 4, "egin", TokenKindBegin);
+  case 'b': {
+    switch (scanner->start[1]) {
+    case 'r':
+      return scanner_check_keyword(scanner, 2, 3, "eak", TokenKindBreak);
+    case 'e':
+      return scanner_check_keyword(scanner, 2, 3, "gin", TokenKindBegin);
+    }
+  }
   case 'i': {
     switch (scanner->start[1]) {
     case 'm':
