@@ -562,6 +562,8 @@ static void compiler_end_scope(CompilerContext *ctx) {
 }
 
 static void compiler_parse_let(CompilerContext *ctx) {
+  int previous_tail_count = ctx->tail_site_count;
+
   // Create a new compiler context for parsing the let body as an inline
   // function
   CompilerContext let_ctx;
@@ -615,6 +617,10 @@ static void compiler_parse_let(CompilerContext *ctx) {
     compiler_parse_expr(ctx);
 
     compiler_consume(&let_ctx, TokenKindRightParen, "Expected right paren to end binding pair");
+
+    // Reset the tail site count so that the binding expression will not be
+    // treated as a tail call site
+    ctx->tail_site_count = previous_tail_count;
   }
 
   // Parse the let body
