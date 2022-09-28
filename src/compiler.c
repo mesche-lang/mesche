@@ -1018,10 +1018,16 @@ static void compiler_patch_jump(CompilerContext *ctx, int offset) {
 }
 
 static void compiler_parse_if(CompilerContext *ctx) {
+  int previous_tail_count = ctx->tail_site_count;
+
   // Parse predicate and write out a jump instruction to the else code
   // path if the predicate evaluates to false
   compiler_parse_expr(ctx);
   int jump_origin = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
+
+  // Restore the tail count because the predicate expression should never
+  // produce a tail call
+  ctx->tail_site_count = previous_tail_count;
 
   // Include a pop so that the expression value gets removed from the stack in
   // the truth path
