@@ -32,10 +32,51 @@
 (define %allocate-instance-internal nil)
 (define %instance? nil)
 (define %instance-class nil)
+(define %instance-name nil)
 (define %instance-ref nil)
 (define %instance-set! nil)
 (define %set-instance-class-to-self nil)
 (define %set-instance-func! nil)
+
+;; This is nasty, but necessary because Mesche doesn't have errors yet!
+(define (error message)
+  (display "\nERROR: ")
+  (display message)
+  (display "\n")
+
+  ;; Invoke a runtime error to stop execution
+  (car "ERROR"))
+
+;; TODO: Remove this!
+(define (print object)
+  (let ((name (%instance-name object)))
+    (if name
+        (begin
+          (display "<")
+          (display name)
+          (display ">"))
+        (if (pair? object)
+            (begin
+              (display "(")
+              (print (car object))
+              (if (pair? (cdr object))
+                  (begin
+                    (display " ")
+                    (print (cdr object)))
+                  (if (not (null? (cdr object)))
+                      (begin
+                        (display " . ")
+                        (print (cdr object)))))
+              (display ")"))
+            (if (null? object)
+                (display "'()")
+                (display object))))))
+
+(define (debug message value)
+  (display message)
+  (print value)
+  (display "\n")
+  value)
 
 ;; NOTE: I have to do it this way because I don't have letrec yet.  However,
 ;; once I have macros I will implement a better approach which doesn't use this
@@ -50,26 +91,25 @@
             (if entry (cdr entry) nil))))
 
   (set! %allocate-instance-internal
-        (lambda (class lock func num-fields)
+        (lambda (class name lock func num-fields)
           ;; Create an array for the instance and stash the class at the front
           ;; (display "ALLOCATE INSTANCE WITH FIELDS ")
           ;; (display num-fields)
           ;; (display "\n")
-          (let ((instance (make-array (+ num-fields 3))))
+          (let ((instance (make-array (+ num-fields 4))))
             ;; Create the closure function that can be used to invoke the
             ;; instance (in the case of generic methods)
             (let ((closure (lambda (:rest args)
-                             (display "\nINVOKING CLOSURE FUNCTION!\n")
-                             (display (array-nth instance 0))
-                             (display "\n")
-                             (display args)
-                             (display "\n")
+                             ;; (display "INVOKING CLOSURE FUNCTION, ARGS: ")
+                             ;; (print args)
+                             ;; (display "\n")
                              (apply (array-nth instance 0) args))))
 
-              ;; Set the 3 most important fields for tracking instances
+              ;; Set the 4 most important fields for tracking instances
               (array-nth-set! instance 0 func)
               (array-nth-set! instance 1 lock)
               (array-nth-set! instance 2 class)
+              (array-nth-set! instance 3 name)
 
               ;; Add the instance to the internal list for lookup later
               (set! instances (cons (cons closure instance) instances))
@@ -86,6 +126,12 @@
           (let ((instance (get-instance closure)))
             (array-nth instance 2))))
 
+  (set! %instance-name
+        (lambda (closure)
+          (let ((instance (get-instance closure)))
+            (if instance
+                (array-nth instance 3)))))
+
   (set! %set-instance-class-to-self
         (lambda (closure)
           (let ((instance (get-instance closure)))
@@ -95,14 +141,10 @@
         (lambda (closure func)
           ;; Make sure this isn't a class instance already
           (let ((instance (get-instance closure)))
-            (display "INSTANCE FUNC BEFORE: ")
-            (display (array-nth instance 0))
-            (display "\nINSTANCE FUNC AFTER: ")
-            (display func)
-            (display "\n\n")
+            (debug "SETTING INSTANCE FUNC FOR: " (array-nth instance 3))
+            ;; (display "\n")
             (if (array-nth instance 1)
-                ;; TODO: This should be an error
-                (display "Can't set function of existing class instance.")
+                (error "Can't set function of existing class instance.")
                 (array-nth-set! instance 0 func)))))
 
   ;; TODO: Pre-calculate the index so that it's not necessary to do an addition
@@ -111,36 +153,38 @@
   (set! %instance-ref
         (lambda (closure field-index)
           (let ((instance (get-instance closure)))
-            (array-nth instance (+ field-index 3)))))
+            (array-nth instance (+ field-index 4)))))
 
   (set! %instance-set!
         (lambda (closure field-index new-value)
           (let ((instance (get-instance closure)))
-            (array-nth-set! instance (+ field-index 3) new-value)))))
+            (array-nth-set! instance (+ field-index 4) new-value)))))
 
 (define (class-of object) :export
   (let ((maybe-class (%instance-class object)))
     ;; TODO: Use cond for this when I have it
     ;; TODO: Predicates missing:
-    ;;  - boolean?
-    ;;  - number?
-    ;;  - string?
-    ;;  - function? or procedure?
-    ;;  - char?
     (if maybe-class
         maybe-class
-        (if (pair? object)
-            <pair>
-            (if (null? object)
-                <null>
-                (if (symbol? object)
-                    <symbol>
-                    (if (array? object)
-                        <array>
-                        ;; (if (string? object)
-                        ;;     <string>
-                        ;;     nil)
-                        )))))))
+        (if (string? object)
+            <string>
+            (if (function? object)
+                <function>
+                (if (number? object)
+                    <number>
+                    (if (boolean? object)
+                        <boolean>
+                        (if (pair? object)
+                            <pair>
+                            (if (array? object)
+                                <array>
+                                (if (null? object)
+                                    <null>
+                                    (if (symbol? object)
+                                        <symbol>
+                                        (if (keyword? object)
+                                            <keyword>
+                                            nil))))))))))))
 
 (define (field-find class field-name)
   (let ((accessors (if (eqv? class <class>)
@@ -160,25 +204,31 @@
   (let ((accessor (field-find (class-of object) field-name)))
     (if (pair? accessor)
         ((car (cdr accessor)) object value)
-        (display "FIELD SETTER NOT FOUND!\n"))))
+        (error (string-append "Field setter for '"
+                              (symbol->string field-name)
+                              "' not found.")))))
 
 (define (field-ref object field-name) :export
   (let ((accessor (field-find (class-of object) field-name)))
     (if (pair? accessor)
         ((car accessor) object)
-        (display "FIELD GETTER NOT FOUND!\n"))))
+        (error (string-append "Field getter for '"
+                              (symbol->string field-name)
+                              "' not found.")))))
 
-(define (%allocate-instance class num-fields)
+(define (%allocate-instance class name num-fields)
   (%allocate-instance-internal
    class
+   name
    t
    (lambda (:rest args)
      (error "An instance isn't a function -- can't apply it."))
    num-fields))
 
-(define (%allocate-entity class num-fields)
+(define (%allocate-entity class name num-fields)
   (%allocate-instance-internal
    class
+   name
    nil
    (lambda (:rest args)
      (error "Tried to call an entity before its proc is set."))
@@ -204,17 +254,18 @@
              class-standard-fields))
 
 ;; Define the core class instance
-(define <class> (%allocate-instance nil (length class-standard-fields)) :export)
+(define <class> (%allocate-instance nil '<class> (length class-standard-fields)) :export)
 
 ;; Ultimately this function should be generic, but initially define it so that
 ;; it can be used for bootstrapping purposes
-(define (make class :rest init-args) :export
+(define (make class name :rest init-args) :export
   ;; NOTE: This definition is being exported, but the real `make` function that
   ;; gets assigned toward the end of this file is what will really be exported.
   (if (or (eqv? class <class>)
           (eqv? class <entity-class>))
       ;; Make a class instance using the fields
       (let ((instance (%allocate-instance class
+                                          name
                                           (length class-standard-fields)))
             (direct-parents (or (plist-ref init-args 'direct-parents) '()))
             (direct-fields (map (lambda (f)
@@ -285,12 +336,14 @@
       ;; TODO: Initialize other core types
       (if (eqv? class <generic>)
           (let ((generic (%allocate-entity class
+                                           name
                                            (length (class-fields class)))))
             ;; Set the method list and return the new generic instance
             (field-set! generic 'methods '())
             generic)
           (if (eqv? class <method>)
               (let ((method (%allocate-instance class
+                                                nil
                                                 (length (class-fields class)))))
                 ;; Set the method details and return the new instance
                 (field-set! method 'signature (plist-ref init-args 'signature))
@@ -307,7 +360,7 @@
   (or (field-ref class 'all-fields) '()))
 
 (define (class-precedence class) :export
-  (or (field-ref class 'precedence) '()))
+  (debug "CPL: " (or (field-ref class 'precedence) '())))
 
 (define (generic-methods generic)
   (field-ref generic 'methods))
@@ -323,13 +376,13 @@
 
 ;; The top of the class hierarchy
 (define <top>
-  (make <class>
+  (make <class> '<top>
     'direct-fields '()
     'direct-parents '()) :export)
 
 ;; The top of the class instance hierarchy
 (define <object>
-  (make <class>
+  (make <class> '<object>
     'direct-fields '()
     'direct-parents (list <top>)) :export)
 
@@ -351,55 +404,59 @@
 (field-set! <class> 'num-fields (length class-standard-fields))
 
 (define <procedure-class>
-  (make <class>
+  (make <class> '<procedure-class>
 		'direct-parents (list <class>)
 		'direct-fields  (list)) :export)
 
 (define <entity-class>
-  (make <class>
+  (make <class> '<entity-class>
     'direct-parents (list <procedure-class>)
     'direct-fields (list)) :export)
 
 (define <generic>
-  (make <entity-class>
+  (make <entity-class> '<generic>
 		'direct-parents (list <object>)
 		'direct-fields  (list 'methods)) :export)
 
 (define <method>
-  (make <class>
+  (make <class> '<method>
     'direct-parents (list <object>)
     'direct-fields '(signature function)) :export)
 
 (define <primitive-class>
-  (make <class>
+  (make <class> '<primitive-class>
     'direct-parents (list <class>)
     'direct-fields '()) :export)
 
 ;; Defines a class with no information, just used as a sentinel
-(define (make-primitive-class) :export
-  (make <primitive-class>
+(define (make-primitive-class name :rest class) :export
+  (make (if (not class) <primitive-class> (car class))
+    name
     'direct-parents (list <top>)
     'direct-fields '()))
 
-(define <pair> (make-primitive-class) :export)
-(define <null> (make-primitive-class) :export)
-(define <symbol> (make-primitive-class) :export)
-(define <array> (make-primitive-class) :export)
-(define <string> (make-primitive-class) :export)
-(define <number> (make-primitive-class) :export)
+(define <pair> (make-primitive-class '<pair>) :export)
+(define <null> (make-primitive-class '<null>) :export)
+(define <string> (make-primitive-class '<string>) :export)
+(define <number> (make-primitive-class '<number>) :export)
+(define <boolean> (make-primitive-class '<boolean>) :export)
+(define <array> (make-primitive-class '<array>) :export)
+(define <symbol> (make-primitive-class '<symbol>) :export)
+(define <keyword> (make-primitive-class '<keyword>) :export)
+(define <function> (make-primitive-class '<function> <procedure-class>) :export)
 
 ;;; Helper methods
 
-(define (make-generic)
-  (make <generic>))
+(define (make-generic name)
+  (make <generic> name))
 
-(define (make-class direct-parents direct-fields)
-  (make <class>
+(define (make-class name direct-parents direct-fields)
+  (make <class> name
     'direct-parents direct-parents
     'direct-fields direct-fields))
 
 (define (make-method signature function)
-  (make <method>
+  (make <method> nil
     'signature signature
     'function function))
 
@@ -407,24 +464,35 @@
 
 ;; Core Initialization
 
-(define initialize (make-generic))
+(define initialize (make-generic 'initialize))
 
 ;; Instance Allocation and Access
 
-(define allocate-instance (make-generic))
-(define compute-accessors (make-generic))
+(define allocate-instance (make-generic 'allocate-instance))
+(define compute-accessors (make-generic 'compute-accessors))
 
 ;; Class Initialization
 
-(define compute-class-precedence-list (make-generic))
-(define compute-fields (make-generic))
+(define compute-class-precedence-list (make-generic 'compute-class-precedence-list))
+(define compute-fields (make-generic 'compute-fields))
 
 ;; Generic Invocation
 
-(define compute-apply-generic (make-generic))
-(define compute-methods (make-generic))
-(define compute-method-more-specific? (make-generic))
-(define compute-apply-methods (make-generic))
+;; Produces a closure that will invoke the generic's appropriate method for an
+;; argument list.
+(define compute-apply-generic (make-generic 'compute-apply-generic))
+
+;; Produces a closure that computes a list of a generic's methods that apply to
+;; an argument list.
+(define compute-methods (make-generic 'compute-methods))
+
+;; A predicate used to sort the calculated method list so that more specific
+;; methods are placed earlier in the list
+(define compute-method-more-specific? (make-generic 'compute-method-more-specific?))
+
+;; Produces a closure that applies the list of methods calculated by
+;; `compute-methods` to an argument list.
+(define compute-apply-methods (make-generic 'compute-apply-methods))
 
 ;;; Bootstrap Generic Invocation
 
@@ -434,40 +502,41 @@
         compute-method-more-specific?
         compute-apply-methods))
 
-(define (every compare-fn list-a list-b)
-  (let loop ((rest-a list-a)
-             (rest-b list-b))
-    (if (pair? list-a)
-        (if (pair? list-b)
-            (if (compare-fn (car rest-a)
-                            (car rest-b))
-                (loop (cdr rest-a)
-                      (cdr rest-b)))))))
+(define (every test :rest lists)
+  (let loop ((tails lists))
+    ;; Loop until the test fails or one of the lists is exhausted
+    (if (memq t (map null? tails))
+        t
+        (and (apply test (map car tails))
+             (loop (map cdr tails))))))
 
 ;;; Method Protocol Implementation
 
 (define (add-method! generic method)
   (let ((signature (method-signature method)))
-    (display "ADDING METHOD: ")
-    (display method)
-    (display "\nMETHODS BEFORE: ")
-    (display (field-ref generic 'methods))
+    (debug "\nADDING METHOD TO " generic)
 
     (field-set! generic
                 'methods
                 ;; Add the method to the list while removing any equivalent method
-                (cons method
-                      (filter (lambda (m)
-                                (every (lambda (a b) (eqv? a b))
-                                       (method-signature m)
-                                       signature))
-                              (field-ref generic 'methods))))
-
-    (display "\nMETHODS AFTER: ")
-    (display (field-ref generic 'methods))
+                (debug "METHODS AFTER FILTER: "
+                       (cons method
+                             (filter (lambda (m)
+                                       (display "COMPARING SIGNATURES:\n")
+                                       (debug "  - " signature)
+                                       (debug "  - " (method-signature m))
+                                       (debug "  -> " (not (every (lambda (a b) (eqv? a b))
+                                                                  (method-signature m)
+                                                                  signature))))
+                                     (field-ref generic 'methods)))))
 
     ;; Set the core function for the generic
-    (%set-instance-func! generic (compute-apply-generic generic))))
+    (%set-instance-func! generic (compute-apply-generic generic))
+
+    (debug "FINISHED ADDING METHOD FOR " generic)
+    (debug "NEW METHOD LIST: " (field-ref generic 'methods))
+    (display "\n")
+    ))
 
 ;; `compute-apply-generic` needs to be bootstrapped because all other generic
 ;; method behavior depends on its ability to return the new instance func for
@@ -477,14 +546,13 @@
 ;; to add the first real implementation to `compute-apply-generic`.
 (%set-instance-func! compute-apply-generic
                      (lambda (generic)
-                       (display "IN COMPUTE APPLY GENERIC!\n")
                        ;; This effectively finds the first method of
                        ;; `compute-apply-generic`, added below, causing it to be
                        ;; invoked on itself!
                        (let ((method (car (generic-methods generic))))
                          ((method-function method) nil generic))))
 
-;; TODO: Should this be a core method?
+;; TODO: Should this move to (mesche core)?
 (define (last list)
   (if (null? list)
       nil
@@ -498,47 +566,34 @@
 ;; its own result!
 (add-method! compute-apply-generic
              (make-method (list <generic>)
-                          (lambda (call-next-method generic)
-                            (display "IN THE REAL COMPUTE APPLY GENERIC!\n")
-                            ;; TODO: This is returning nil somewhere!
-                            (lambda (:rest args)
-                              (display "INVOKING THE REAL BEHAVIOR!\n")
-                              (display args)
-                              (display "\n")
-                              (display (memq generic generic-invocation-generics))
-                              (display "\n")
-                              (display (and (memq generic generic-invocation-generics)
-                                            (memq (car args) generic-invocation-generics)))
-                              (display "\n")
-                              ;; This predicate checks to see if the generic
-                              ;; function itself is a member of the
-                              ;; `generic-invocation-generics` list, meaning
-                              ;; it's one of the generic protocol methods.  It
-                              ;; also checks if the first (sole?)  argument is
-                              ;; also a member of this list.
-                              ;;
-                              ;; In other words, if the generic protocol is
-                              ;; working on itself, invoke the method
-                              ;; differently.
-                              (if (and (memq generic generic-invocation-generics)
-                                       (memq (car args) generic-invocation-generics))
-                                  (begin
-                                    (display "INVOKING CORE GENERIC!\n")
-                                    (display (method-function (last (generic-methods generic))))
-                                    (display "\n")
-                                    (apply (method-function (last (generic-methods generic)))
-                                           (cons nil args)))
-                                  ;; Call the generic with the list of
-                                  ;; appropriate methods and the argument list
-                                  (begin
-                                    (display "NOW COMPUTING METHODS!\n")
-                                    ((compute-apply-methods generic)
-                                     ((compute-methods generic) args)
-                                     args)))))))
+              (lambda (call-next-method generic)
+                (lambda (:rest args)
+                  ;; This predicate checks to see if the generic function itself
+                  ;; is a member of the `generic-invocation-generics` list,
+                  ;; meaning it's one of the generic protocol methods.  It also
+                  ;; checks if the first (sole?)  argument is also a member of
+                  ;; this list.
+                  ;;
+                  ;; In other words, if the generic protocol is working on
+                  ;; itself, invoke the method differently.
+                  (if (and (memq generic generic-invocation-generics)
+                           (memq (car args) generic-invocation-generics))
+                      ;; Shortcut to invocation of a generic protocol method on
+                      ;; another generic protocol method
+                      (apply (method-function (last (generic-methods generic)))
+                             (cons nil args))
+                      ;; Compute the method invoker for the generic with respect
+                      ;; to the argument list and invoke it immediately
+                      (begin
+                        (debug "* DISPATCH GENERIC METHOD " generic)
+                        (debug "  -> ARGS: " args)
+                        ((compute-apply-methods generic)
+                         ((compute-methods generic) args)
+                         args)))))))
 
 
 (define (applicable? class argument)
-  ;; Is the specified class in the
+  ;; Is the specified class in the precedence list of the argument?
   (memq class (class-precedence (class-of argument))))
 
 (define (more-specific? class1 class2 argument)
@@ -549,10 +604,11 @@
   (memq class2 (memq class1 (class-precedence (class-of argument)))))
 
 (add-method! compute-methods
-             (make-method
-              (list <generic>)
+             (make-method (list <generic>)
               (lambda (call-next-method generic)
                 (lambda (args)
+                  ;; (debug "COMPUTE METHODS FOR " generic)
+                  ;; (debug "  -> ARGS: " args)
                   ;; First, come up with a list of applicable methods by
                   ;; filtering the method list down to those with a specializer
                   ;; list that is applicable to each of the arguments.
@@ -566,12 +622,15 @@
                                  (generic-methods generic))))
                     ;; Now sort the applicable list from most specific to least
                     ;; specific to produce the appropriate call ordering.
-                    (sort (lambda (method1 method2)
-                            ((compute-method-more-specific? generic)
-                             method1
-                             method2
-                             args))
-                          applicable-methods))))))
+                    (debug "  APPLICABLE METHODS: "
+                           applicable-methods)
+                    ;; (sort (lambda (method1 method2)
+                    ;;         ((compute-method-more-specific? generic)
+                    ;;          method1
+                    ;;          method2
+                    ;;          args))
+                    ;;       applicable-methods)
+                    )))))
 
 (add-method! compute-method-more-specific?
              (make-method
@@ -584,12 +643,11 @@
                     ;; TODO: Use cond here!
                     (if (and (null? specs1)
                              (null? specs2))
-                        ;; TODO: Use errors here
-                        (display "Two methods are equally specific.")
+                        (error "Two methods are equally specific.")
                         (if (or (null? specs1) (null? specs2))
-                            (display "Two methods have a different number of signature types.")
+                            (error "Two methods have a different number of signature types.")
                             (if (null? args)
-                                (display "Fewer arguments than signature.")
+                                (error "Fewer arguments than signature.")
                                 (let ((class1 (car specs1))
                                       (class2 (car specs2))
                                       (arg (car args)))
@@ -603,18 +661,19 @@
                                       (more-specific? class1 class2 arg)))))))))))
 
 (add-method! compute-apply-methods
-             (make-method
-              (list <generic>)
+             (make-method (list <generic>)
               (lambda (call-next-method generic)
                 (lambda (methods args)
+                  (debug "! DISPATCH METHODS FOR GENERIC: " generic)
+                  (debug "  -> METHODS: " methods)
+                  (debug "  -> ARGS: " args)
                   ;; TODO: Use letrec to simplify this
                   (let ((next-method nil))
                     (set! next-method
                           (lambda (tail)
                             (lambda ()
                               (if (null? tail)
-                                  ;; TODO: Use error
-                                  (display "No applicable methods/next methods.")
+                                  (error "No applicable methods/next methods.\n")
                                   (apply (method-function (car tail))
                                          (cons (next-method (cdr tail)) args))))))
 
@@ -623,15 +682,19 @@
 
 ;;; Instance Protocol Implementation
 
+(display "\nADDING OBJECT INITIALIZER\n")
+
 ;; <object> types require no explicit initialization
 (add-method! initialize
              (make-method (list <object>)
-                          (lambda (call-next-method init-args) object)))
+                          (lambda (call-next-method object init-args) object)))
+
+(display "\nADDING CLASS INITIALIZER\n")
 
 ;; Here is where we re-define the behavior of the bootstrapped `make`!
 (add-method! initialize
              (make-method (list <class>)
-                          (lambda (call-next-method init-args)
+                          (lambda (call-next-method class init-args)
                             ;; First, call the next method in case there is any
                             ;; additional initialization
                             (call-next-method)
@@ -641,6 +704,8 @@
                             (field-set! class
                                         'direct-parents
                                         (or (plist-ref init-args 'direct-parents) '()))
+
+                            (debug "DIRECT PARENTS: " (field-ref class 'direct-parents))
 
                             ;; Set up the direct class fields based on the init
                             ;; parameter
@@ -705,6 +770,8 @@
                               (field-set! class 'field-initializers field-initializers)
                               (field-set! class 'field-accessors field-accessors)))))
 
+(display "\nADDING GENERIC INITIALIZER\n")
+
 (add-method! initialize
             (make-method (list <generic>)
                          (lambda (call-next-method generic init-args)
@@ -725,13 +792,14 @@
 
 (add-method! allocate-instance
              (make-method (list <class>)
-                          (lambda (call-next-method class)
+                          (lambda (call-next-method class name)
                             (display "IN ALLOCATE INSTANCE\n")
                             ;; TODO: Use let*
                             (let ((field-initializers (field-ref class 'field-initializers))
                                   (instance nil))
                               (set! instance (%allocate-instance
                                               class
+                                              name
                                               (length field-initializers)))
 
                               ;; Loop over all the field initializers to
@@ -753,11 +821,12 @@
 
 (add-method! allocate-instance
              (make-method (list <entity-class>)
-                          (lambda (call-next-method class)
+                          (lambda (call-next-method class name)
                             (let ((field-initializers (field-ref class 'field-initializers))
                                   (instance nil))
                               (set! instance (%allocate-entity
                                               class
+                                              name
                                               (length field-initializers)))
                               ;; Loop over all the field initializers to
                               ;; initialize the instance
@@ -774,89 +843,93 @@
                                     ;; Return the new instance
                                     instance))))))
 
-;; NOTE: The next few functions are copied basically verbatim from Tiny CLOS.
+;; NOTE: The next few functions are copied almost verbatim from Tiny CLOS.
 ;; Eventually I'd like to rewrite and integrate some of them into Mesche's
 ;; standard library to be used elsewhere.
 
-(define topological-sort
-  (lambda (elements constraints tie-breaker)
-    (let loop ((elements elements)
-               (constraints constraints)
-               (result '()))
-      (if (null? elements)
-          result
-          (let ((can-go-in-now
-                 (collect-if
-                  (lambda (x)
-                    (every (lambda (constraint)
-                             (or (not (eq? (cadr constraint) x))
-                                 (memq (car constraint) result)))
-                           constraints))
-                  elements)))
-            (if (null? can-go-in-now)
-                (error 'top-sort "Invalid constraints")
-                (let ((choice (if (null? (cdr can-go-in-now))
-                                  (car can-go-in-now)
-                                  (tie-breaker result
-                                               can-go-in-now))))
-                  (loop
-                   (collect-if (lambda (x) (not (eq? x choice)))
-                               elements)
-                   constraints
-                   (append result (list choice))))))))))
+(define (topological-sort elements constraints tie-breaker)
+  (let loop ((elements elements)
+             (result '()))
+    ;; Loop until the element list is exhausted
+    (if (null? elements)
+        result
+        (let ((can-go-in-now
+               ;; Filter the remaining elements list
+               (filter (lambda (element)
+                         ;; The element passes the filter if it's not equal to
+                         ;; the head of any constraint's list or if the
+                         ;; constraint itself can be found in the result.
+                         ;;
+                         ;; In other words, the element is a candidate to be
+                         ;; inserted when it's not the subject of a constraint
+                         ;; or if the constraint is already in the result list.
+                         (every (lambda (constraint)
+                                  (or (not (eqv? (cadr constraint) element))
+                                      (memq (car constraint) result)))
+                                constraints))
+                       elements)))
+          (if (null? can-go-in-now)
+              (error "Invalid constraints")
+              (let ((choice (if (null? (cdr can-go-in-now))
+                                (car can-go-in-now)
+                                (tie-breaker result
+                                             can-go-in-now))))
+                (loop (filter (lambda (x) (not (eqv? x choice)))
+                              elements)
+                      (append result (list choice)))))))))
 
-(define std-tie-breaker
-  (lambda (get-supers)
-    (lambda (partial-cpl min-elts)
-      (let loop ((pcpl (reverse partial-cpl)))
-        (let ((current-elt (car pcpl)))
-          (let ((ds-of-ce (get-supers current-elt)))
-            (let ((common (collect-if (lambda (x)
-                                        (memq x ds-of-ce))
-                                      min-elts)))
-              (if (null? common)
-                  (if (null? (cdr pcpl))
-                      (error 'std-tie-breaker "Nothing valid")
-                      (loop (cdr pcpl)))
-                  (car common)))))))))
+(define (std-tie-breaker get-parents)
+  (lambda (partial-cpl min-elts)
+    (let loop ((pcpl (reverse partial-cpl)))
+      (let ((current-elt (car pcpl)))
+        (let ((ds-of-ce (get-parents current-elt)))
+          (let ((common (collect-if (lambda (x)
+                                      (memq x ds-of-ce))
+                                    min-elts)))
+            (if (null? common)
+                (if (null? (cdr pcpl))
+                    (error "Nothing valid")
+                    (loop (cdr pcpl)))
+                (car common))))))))
 
+(define (build-transitive-closure get-follow-ons start-obj)
+  (let track ((result '())
+              (pending (list start-obj)))
+    (if (null? pending)
+        result
+        (let ((next (car pending)))
+          (if (memq next result)
+              ;; If next is already in the result, skip it and continue
+              (track result (cdr pending))
 
-(define build-transitive-closure
-  (lambda (get-follow-ons)
-    (lambda (x)
-      (let track ((result '())
-                  (pending (list x)))
-        (if (null? pending)
+              ;; Otherwise, add it to the result and add its parents to the
+              ;; pending list
+              (track (cons next result)
+                     (append (get-follow-ons next)
+                             (cdr pending))))))))
+
+(define (build-constraints get-follow-ons start-obj)
+  ;; This function appears to generate a list of pairs that map a class to its
+  ;; immediate parents.
+  (let loop ((elements (build-transitive-closure get-follow-ons start-obj))
+             (this-one '())
+             (result '()))
+    (if (or (null? this-one) (null? (cdr this-one)))
+        (if (null? elements)
             result
-            (let ((next (car pending)))
-              (if (memq next result)
-                  (track result (cdr pending))
-                  (track (cons next result)
-                         (append (get-follow-ons next)
-                                 (cdr pending))))))))))
+            (loop (cdr elements)
+                  (cons (car elements)
+                        (get-follow-ons (car elements)))
+                  result))
+        (loop elements
+              (cdr this-one)
+              (cons (list (car this-one) (cadr this-one))
+                    result)))))
 
-(define build-constraints
-  (lambda (get-follow-ons)
-    (lambda (x)
-      (let loop ((elements ((build-transitive-closure get-follow-ons) x))
-                 (this-one '())
-                 (result '()))
-        (if (or (null? this-one) (null? (cdr this-one)))
-            (if (null? elements)
-                result
-                (loop (cdr elements)
-                      (cons (car elements)
-                            (get-follow-ons (car elements)))
-                      result))
-            (loop elements
-                  (cdr this-one)
-                  (cons (list (car this-one) (cadr this-one))
-                        result)))))))
-
-(define (compute-std-cpl class class-parents-func)
-  (topological-sort ((build-transitive-closure class-parents-func) class)
-                    ((build-constraints class-parents-func) class)
-                    (std-tie-breaker get-direct-parents)))
+(define (compute-standard-precedence-list class class-parents-func)
+  (topological-sort (build-transitive-closure class-parents-func class)
+                     (build-constraints class-parents-func class)
+                     (std-tie-breaker class-parents-func)))
 
 (add-method! compute-class-precedence-list
              (make-method (list <class>)
@@ -868,8 +941,8 @@
                           (lambda (call-next-method class)
                             (display "COMPUTING FIELDS!\n")
                             (let collect ((fields (apply append
-                                                         (map class-direct-fields
-                                                              (class-precedence class))))
+                                                         (debug "FIELDS: " (map class-direct-fields
+                                                                                (class-precedence class)))))
                                           (result '()))
                               (if (null? fields)
                                   (reverse result)
@@ -905,11 +978,11 @@
 ;; with one that invokes the real metaobject protocol!
 
 (set! make
-      (lambda (class :rest init-args)
+      (lambda (class name :rest init-args)
         ;; This function merely allocates an instance for the specified class
         ;; and then initializes it based on the init-args.  The generic
         ;; initialization protocol takes care of the rest!
         (display "\nIN THE NEW MAKE!\n")
-        (let ((instance (allocate-instance class)))
+        (let ((instance (allocate-instance class name)))
           (initialize instance init-args)
           instance)))
