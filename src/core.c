@@ -7,14 +7,34 @@
 #include "value.h"
 #include "vm.h"
 
+Value core_number_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // TODO: Ensure single argument
+  return BOOL_VAL(IS_NUMBER(args[0]));
+}
+
+Value core_boolean_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // TODO: Ensure single argument
+  return BOOL_VAL(IS_T(args[0]) || IS_NIL(args[0]));
+}
+
 Value core_pair_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   // TODO: Ensure single argument
   return BOOL_VAL(IS_CONS(args[0]));
 }
 
+Value core_string_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // TODO: Ensure single argument
+  return BOOL_VAL(IS_STRING(args[0]));
+}
+
 Value core_symbol_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   // TODO: Ensure single argument
   return BOOL_VAL(IS_SYMBOL(args[0]));
+}
+
+Value core_keyword_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // TODO: Ensure single argument
+  return BOOL_VAL(IS_KEYWORD(args[0]));
 }
 
 Value core_function_p_msc(MescheMemory *mem, int arg_count, Value *args) {
@@ -108,8 +128,12 @@ Value core_append_msc(MescheMemory *mem, int arg_count, Value *args) {
 void mesche_core_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche core",
-      (MescheNativeFuncDetails[]){{"pair?", core_pair_p_msc, true},
+      (MescheNativeFuncDetails[]){{"number?", core_number_p_msc, true},
+                                  {"boolean?", core_boolean_p_msc, true},
+                                  {"pair?", core_pair_p_msc, true},
+                                  {"string?", core_string_p_msc, true},
                                   {"symbol?", core_symbol_p_msc, true},
+                                  {"keyword?", core_keyword_p_msc, true},
                                   {"array?", core_array_p_msc, true},
                                   {"function?", core_function_p_msc, true},
                                   {"car", core_car_msc, true},

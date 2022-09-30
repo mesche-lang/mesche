@@ -4,6 +4,12 @@
 ;; itself!  It gets loaded before any other module in the system so it must be
 ;; self-contained.
 
+(define (null? obj)
+  (eqv? obj '()))
+
+(define (cadr obj)
+  (car (cdr obj)))
+
 (define (length list)
   (let loop ((remaining list)
              (count 0))
@@ -11,6 +17,21 @@
         (loop (cdr remaining)
               (+ count 1))
         count)))
+
+(define (memq object list)
+  (let loop ((rest list))
+    (if (pair? rest)
+        ;; TODO: Use eq? when it exists
+        (if (eqv? object (car rest))
+            (cdr rest)
+            (loop (cdr rest))))))
+
+(define (memp test list)
+  (let loop ((rest list))
+    (if (pair? rest)
+        (if (test (car rest))
+            (cdr rest)
+            (loop (cdr rest))))))
 
 (define (assq key alist)
   (let loop ((rest alist))
@@ -36,6 +57,15 @@
                    (list (func item))))
          items))
 
+(define (map-index func items)
+  (let ((index -1))
+    (foldr (lambda (item result)
+             ;; TODO: This could be made more efficient
+             (set! index (+ index 1))
+             (append result
+                     (list (func item index))))
+           items)))
+
 (define (filter func items)
   (foldr (lambda (item result)
            (if (func item)
@@ -49,3 +79,15 @@
   (foldr (lambda (item result)
            (cons item result))
          items))
+
+(define (plist-ref plist key) :export
+  (let loop ((remaining plist))
+    (if (pair? remaining)
+        (if (eqv? (car remaining) key)
+            (car (cdr remaining))
+            (loop (cdr remaining)))
+        nil)))
+
+;; TODO: Implement merge sort!
+(define (sort items compare-fn)
+  items)

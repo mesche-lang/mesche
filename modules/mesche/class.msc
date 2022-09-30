@@ -1,19 +1,148 @@
-;; https://github.com/kstephens/tinyclos/blob/master/tiny-clos.scm
 (define-module (mesche class)
   (import (mesche array)
           (mesche string)))
 
-(define (%instance-class object)
-  (and (array? object)
-       (array-nth object 0)))
+;; This implementation is based on Tiny CLOS by Gregor Kiczales:
+;; https://github.com/kstephens/tinyclos/blob/master/tiny-clos.scm
+;;
+;; Thus, I must include this hideous copyright notice:
+;; **********************************************************************
+;; Copyright (c) 1992 Xerox Corporation.
+;; All Rights Reserved.
+;;
+;; Use, reproduction, and preparation of derivative works are permitted.
+;; Any copy of this software or of any derivative work must include the
+;; above copyright notice of Xerox Corporation, this paragraph and the
+;; one after it.  Any distribution of this software or derivative works
+;; must comply with all applicable United States export control laws.
+;;
+;; This software is made available AS IS, and XEROX CORPORATION DISCLAIMS
+;; ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION THE
+;; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+;; PURPOSE, AND NOTWITHSTANDING ANY OTHER PROVISION CONTAINED HEREIN, ANY
+;; LIABILITY FOR DAMAGES RESULTING FROM THE SOFTWARE OR ITS USE IS
+;; EXPRESSLY DISCLAIMED, WHETHER ARISING IN CONTRACT, TORT (INCLUDING
+;; NEGLIGENCE) OR STRICT LIABILITY, EVEN IF XEROX CORPORATION IS ADVISED
+;; OF THE POSSIBILITY OF SUCH DAMAGES.
+;; **********************************************************************
+
+;;; Internal Instance Management
+
+;; First, define some bindings that will be set in a moment
+(define %allocate-instance-internal nil)
+(define %instance? nil)
+(define %instance-class nil)
+(define %instance-ref nil)
+(define %instance-set! nil)
+(define %set-instance-class-to-self nil)
+(define %set-instance-func! nil)
+
+;; NOTE: I have to do it this way because I don't have letrec yet.  However,
+;; once I have macros I will implement a better approach which doesn't use this
+;; inefficient instance lookup pattern (or the separate <entity-class>).
+
+(let ((instances '())
+      (get-instance nil))
+
+  (set! get-instance
+        (lambda (closure)
+          (let ((entry (assq closure instances)))
+            (if entry (cdr entry) nil))))
+
+  (set! %allocate-instance-internal
+        (lambda (class lock func num-fields)
+          ;; Create an array for the instance and stash the class at the front
+          ;; (display "ALLOCATE INSTANCE WITH FIELDS ")
+          ;; (display num-fields)
+          ;; (display "\n")
+          (let ((instance (make-array (+ num-fields 3))))
+            ;; Create the closure function that can be used to invoke the
+            ;; instance (in the case of generic methods)
+            (let ((closure (lambda (:rest args)
+                             (display "\nINVOKING CLOSURE FUNCTION!\n")
+                             (display (array-nth instance 0))
+                             (display "\n")
+                             (display args)
+                             (display "\n")
+                             (apply (array-nth instance 0) args))))
+
+              ;; Set the 3 most important fields for tracking instances
+              (array-nth-set! instance 0 func)
+              (array-nth-set! instance 1 lock)
+              (array-nth-set! instance 2 class)
+
+              ;; Add the instance to the internal list for lookup later
+              (set! instances (cons (cons closure instance) instances))
+
+              ;; Return the new closure because it identifies the instance
+              closure))))
+
+  (set! %instance?
+        (lambda (closure)
+          (not (null? (get-instance closure)))))
+
+  (set! %instance-class
+        (lambda (closure)
+          (let ((instance (get-instance closure)))
+            (array-nth instance 2))))
+
+  (set! %set-instance-class-to-self
+        (lambda (closure)
+          (let ((instance (get-instance closure)))
+            (array-nth-set! instance 2 closure))))
+
+  (set! %set-instance-func!
+        (lambda (closure func)
+          ;; Make sure this isn't a class instance already
+          (let ((instance (get-instance closure)))
+            (display "INSTANCE FUNC BEFORE: ")
+            (display (array-nth instance 0))
+            (display "\nINSTANCE FUNC AFTER: ")
+            (display func)
+            (display "\n\n")
+            (if (array-nth instance 1)
+                ;; TODO: This should be an error
+                (display "Can't set function of existing class instance.")
+                (array-nth-set! instance 0 func)))))
+
+  ;; TODO: Pre-calculate the index so that it's not necessary to do an addition
+  ;; for every ref.
+
+  (set! %instance-ref
+        (lambda (closure field-index)
+          (let ((instance (get-instance closure)))
+            (array-nth instance (+ field-index 3)))))
+
+  (set! %instance-set!
+        (lambda (closure field-index new-value)
+          (let ((instance (get-instance closure)))
+            (array-nth-set! instance (+ field-index 3) new-value)))))
 
 (define (class-of object) :export
   (let ((maybe-class (%instance-class object)))
+    ;; TODO: Use cond for this when I have it
+    ;; TODO: Predicates missing:
+    ;;  - boolean?
+    ;;  - number?
+    ;;  - string?
+    ;;  - function? or procedure?
+    ;;  - char?
     (if maybe-class
         maybe-class
-        nil)))
+        (if (pair? object)
+            <pair>
+            (if (null? object)
+                <null>
+                (if (symbol? object)
+                    <symbol>
+                    (if (array? object)
+                        <array>
+                        ;; (if (string? object)
+                        ;;     <string>
+                        ;;     nil)
+                        )))))))
 
-(define (field-find class field-name) :export
+(define (field-find class field-name)
   (let ((accessors (if (eqv? class <class>)
                        class-field-accessors
                        (field-ref class 'field-accessors))))
@@ -22,36 +151,40 @@
           (cdr accessor)
           (begin
             ;; TODO: Throw an error here
-            (display "FIELD ACCESSORS NOT FOUND!\n")
+            (display "FIELD ACCESSORS NOT FOUND: ")
+            (display field-name)
+            (display "\n")
             nil)))))
 
 (define (field-set! object field-name value) :export
   (let ((accessor (field-find (class-of object) field-name)))
-    (if accessor
+    (if (pair? accessor)
         ((car (cdr accessor)) object value)
         (display "FIELD SETTER NOT FOUND!\n"))))
 
 (define (field-ref object field-name) :export
   (let ((accessor (field-find (class-of object) field-name)))
-    (if accessor
+    (if (pair? accessor)
         ((car accessor) object)
         (display "FIELD GETTER NOT FOUND!\n"))))
 
-(define (plist-ref plist key)
-  (let loop ((remaining plist))
-    (if (pair? remaining)
-        (if (eqv? (car remaining) key)
-            (car (cdr remaining))
-            (loop (cdr remaining)))
-        nil)))
-
 (define (%allocate-instance class num-fields)
-  ;; Create an array for the instance and stash the class at the front
-  (let ((instance (make-array (+ num-fields 1))))
-    (array-nth-set! instance 0 class)
-    instance))
+  (%allocate-instance-internal
+   class
+   t
+   (lambda (:rest args)
+     (error "An instance isn't a function -- can't apply it."))
+   num-fields))
 
-(define class-fields
+(define (%allocate-entity class num-fields)
+  (%allocate-instance-internal
+   class
+   nil
+   (lambda (:rest args)
+     (error "Tried to call an entity before its proc is set."))
+   num-fields))
+
+(define class-standard-fields
   '(direct-parents
     precedence
     direct-fields
@@ -61,36 +194,37 @@
     field-accessors))
 
 (define class-field-accessors
-  (let ((index 0))
-    (map (lambda (field-name)
-           ;; Increment the index and make sure we don't capture the version of
-           ;; index that will be changed in future iterations!
-           (set! index (+ index 1))
-           (let ((closure-index index))
-             (list field-name
-                   (lambda (instance)
-                     (array-nth instance closure-index))
-                   (lambda (instance value)
-                     (array-nth-set! instance closure-index value)))))
-         class-fields)))
+  (map-index (lambda (field-name index)
+               ;; Generate the getter and setter for this field
+               (list field-name
+                     (lambda (instance)
+                       (%instance-ref instance index))
+                     (lambda (instance value)
+                       (%instance-set! instance index value))))
+             class-standard-fields))
 
 ;; Define the core class instance
-(define <class> (%allocate-instance nil (length class-fields)) :export)
+(define <class> (%allocate-instance nil (length class-standard-fields)) :export)
 
 ;; Ultimately this function should be generic, but initially define it so that
 ;; it can be used for bootstrapping purposes
-;; TODO: Perhaps this shouldn't be exported!
 (define (make class :rest init-args) :export
-  (if (eqv? class <class>)
+  ;; NOTE: This definition is being exported, but the real `make` function that
+  ;; gets assigned toward the end of this file is what will really be exported.
+  (if (or (eqv? class <class>)
+          (eqv? class <entity-class>))
       ;; Make a class instance using the fields
       (let ((instance (%allocate-instance class
-                                          (length class-fields)))
+                                          (length class-standard-fields)))
             (direct-parents (or (plist-ref init-args 'direct-parents) '()))
-            (direct-fields (or (plist-ref init-args 'direct-fields) '()))
+            (direct-fields (map (lambda (f)
+                                  (list f))
+                                (or (plist-ref init-args 'direct-fields) '())))
             (precedence '())
             (num-fields 0)
             (all-fields '())
             (field-initializers '())
+            (field-allocator nil)
             (field-accessors '()))
 
         ;; Calculate the class precedence list
@@ -110,22 +244,58 @@
                            (map class-direct-fields
                                 (cdr precedence)))))
 
-        ;; The important thing here is to build a closure for the instance of
-        ;; the class to store all initialization information.  Then we return
-        ;; an instance of the class which has its own init function that can
+        ;; The field-allocator helps with setting up field initializers
+        (set! field-allocator
+              (lambda (field-initializer)
+                (let ((index num-fields))
+                  ;; Increment the field count and set up the initializer for
+                  ;; this field
+                  (set! num-fields (+ index 1))
+                  (set! field-initializers
+                        (cons field-initializer
+                              field-initializers))
 
+                  ;; Generate the getter and setter for this field
+                  (list (lambda (instance)
+                          (%instance-ref instance index))
+                        (lambda (instance value)
+                          (%instance-set! instance index value))))))
+
+        ;; The accessor generation loop also drives the
+        ;; counting of fields and creation of field
+        ;; initializers
+        (set! field-accessors
+              (map (lambda (field)
+                     (cons (car field)
+                           (field-allocator (lambda () nil))))
+                   all-fields))
+
+        ;; Set the fields of the class definition
         (field-set! instance 'direct-fields direct-fields)
         (field-set! instance 'all-fields all-fields)
+        (field-set! instance 'num-fields num-fields)
         (field-set! instance 'direct-parents direct-parents)
         (field-set! instance 'precedence precedence)
-        (field-set! instance 'field-initializers field-initializers)
+        (field-set! instance 'field-initializers (reverse field-initializers))
         (field-set! instance 'field-accessors field-accessors)
 
         ;; Return the finished instance
         instance)
 
       ;; TODO: Initialize other core types
-      nil))
+      (if (eqv? class <generic>)
+          (let ((generic (%allocate-entity class
+                                           (length (class-fields class)))))
+            ;; Set the method list and return the new generic instance
+            (field-set! generic 'methods '())
+            generic)
+          (if (eqv? class <method>)
+              (let ((method (%allocate-instance class
+                                                (length (class-fields class)))))
+                ;; Set the method details and return the new instance
+                (field-set! method 'signature (plist-ref init-args 'signature))
+                (field-set! method 'function (plist-ref init-args 'function))
+                method)))))
 
 (define (class-direct-fields class) :export
   (or (field-ref class 'direct-fields) '()))
@@ -136,8 +306,20 @@
 (define (class-fields class) :export
   (or (field-ref class 'all-fields) '()))
 
-(define (class-precendence class) :export
-  (or (field-ref class 'precendence) '()))
+(define (class-precedence class) :export
+  (or (field-ref class 'precedence) '()))
+
+(define (generic-methods generic)
+  (field-ref generic 'methods))
+
+(define (method-signature method)
+  (field-ref method 'signature))
+
+(define (method-function method)
+  (field-ref method 'function))
+
+;; Initialize <top> and <object> *before* we finish initializing <class> so that
+;; they don't pick up any of the fields of its definition.
 
 ;; The top of the class hierarchy
 (define <top>
@@ -151,63 +333,583 @@
     'direct-fields '()
     'direct-parents (list <top>)) :export)
 
-;; (display "CLASS IS: ")
-;; (display <class>)
-;; (display "\n")
-
 ;; Set the <class>'s class type to itself
-(array-nth-set! <class> 0 <class>)
+(%set-instance-class-to-self <class>)
 
 ;; Finish the definition of <class>
-(field-set! <class> 'direct-parents (list <object>))
-(field-set! <class> 'direct-fields class-fields)
-(field-set! <class> 'all-fields class-fields)
 (field-set! <class> 'precedence (list <class> <object> <top>))
+(field-set! <class> 'direct-parents (list <object>))
+
+;; Put fields in the format the protocol expects, a list starting with the field
+;; name
+(field-set! <class> 'direct-fields (map (lambda (f)
+                                          (list f))
+                                        class-standard-fields))
+(field-set! <class> 'all-fields (map (lambda (f)
+                                          (list f))
+                                        class-standard-fields))
+(field-set! <class> 'num-fields (length class-standard-fields))
+
+(define <procedure-class>
+  (make <class>
+		'direct-parents (list <class>)
+		'direct-fields  (list)) :export)
+
+(define <entity-class>
+  (make <class>
+    'direct-parents (list <procedure-class>)
+    'direct-fields (list)) :export)
 
 (define <generic>
-  (make <class>
-    'direct-fields '(methods)
-    'direct-parents (list <object>)) :export)
+  (make <entity-class>
+		'direct-parents (list <object>)
+		'direct-fields  (list 'methods)) :export)
 
 (define <method>
   (make <class>
-    'direct-fields '(signature function)
-    'direct-parents (list <object>)) :export)
-
-(define (make-instance class)
-  nil)
+    'direct-parents (list <object>)
+    'direct-fields '(signature function)) :export)
 
 (define <primitive-class>
   (make <class>
-    'direct-fields '()
-    'direct-parents (list <class>)) :export)
-
-;;; TODO: Generic dispatch and `initialize` needs to be added before these will work!
+    'direct-parents (list <class>)
+    'direct-fields '()) :export)
 
 ;; Defines a class with no information, just used as a sentinel
 (define (make-primitive-class) :export
   (make <primitive-class>
-    'direct-fields '()
-    'direct-parents (list <top>)))
+    'direct-parents (list <top>)
+    'direct-fields '()))
 
+(define <pair> (make-primitive-class) :export)
+(define <null> (make-primitive-class) :export)
+(define <symbol> (make-primitive-class) :export)
+(define <array> (make-primitive-class) :export)
 (define <string> (make-primitive-class) :export)
 (define <number> (make-primitive-class) :export)
 
 ;;; Helper methods
 
-;; (define (make-generic)
-;;   (make <generic>))
+(define (make-generic)
+  (make <generic>))
 
-;;; Initialize The Protocol
+(define (make-class direct-parents direct-fields)
+  (make <class>
+    'direct-parents direct-parents
+    'direct-fields direct-fields))
 
-;; (define initialize (make-generic))
-;; (define allocate-instance (make-generic))
+(define (make-method signature function)
+  (make <method>
+    'signature signature
+    'function function))
 
-;;; Method Definitions
+;;; Initialize the Protocol
 
-;; (define (add-method! generic method)
-;;   ;; Add the method to the generic
-;;   ;; TODO: Detect and replace duplicates!
-;;   (field-set! generic
-;;              'methods
-;;              (cons method (field-ref generic 'methods))))
+;; Core Initialization
+
+(define initialize (make-generic))
+
+;; Instance Allocation and Access
+
+(define allocate-instance (make-generic))
+(define compute-accessors (make-generic))
+
+;; Class Initialization
+
+(define compute-class-precedence-list (make-generic))
+(define compute-fields (make-generic))
+
+;; Generic Invocation
+
+(define compute-apply-generic (make-generic))
+(define compute-methods (make-generic))
+(define compute-method-more-specific? (make-generic))
+(define compute-apply-methods (make-generic))
+
+;;; Bootstrap Generic Invocation
+
+(define generic-invocation-generics
+  (list compute-apply-generic
+        compute-methods
+        compute-method-more-specific?
+        compute-apply-methods))
+
+(define (every compare-fn list-a list-b)
+  (let loop ((rest-a list-a)
+             (rest-b list-b))
+    (if (pair? list-a)
+        (if (pair? list-b)
+            (if (compare-fn (car rest-a)
+                            (car rest-b))
+                (loop (cdr rest-a)
+                      (cdr rest-b)))))))
+
+;;; Method Protocol Implementation
+
+(define (add-method! generic method)
+  (let ((signature (method-signature method)))
+    (display "ADDING METHOD: ")
+    (display method)
+    (display "\nMETHODS BEFORE: ")
+    (display (field-ref generic 'methods))
+
+    (field-set! generic
+                'methods
+                ;; Add the method to the list while removing any equivalent method
+                (cons method
+                      (filter (lambda (m)
+                                (every (lambda (a b) (eqv? a b))
+                                       (method-signature m)
+                                       signature))
+                              (field-ref generic 'methods))))
+
+    (display "\nMETHODS AFTER: ")
+    (display (field-ref generic 'methods))
+
+    ;; Set the core function for the generic
+    (%set-instance-func! generic (compute-apply-generic generic))))
+
+;; `compute-apply-generic` needs to be bootstrapped because all other generic
+;; method behavior depends on its ability to return the new instance func for
+;; the generic method.
+;;
+;; This function will get replaced immediately after by the `add-method!` call
+;; to add the first real implementation to `compute-apply-generic`.
+(%set-instance-func! compute-apply-generic
+                     (lambda (generic)
+                       (display "IN COMPUTE APPLY GENERIC!\n")
+                       ;; This effectively finds the first method of
+                       ;; `compute-apply-generic`, added below, causing it to be
+                       ;; invoked on itself!
+                       (let ((method (car (generic-methods generic))))
+                         ((method-function method) nil generic))))
+
+;; TODO: Should this be a core method?
+(define (last list)
+  (if (null? list)
+      nil
+      (if (null? (cdr list))
+          (car list)
+          (last (cdr list)))))
+
+;; Add the concrete implementation of `compute-apply-generic` specialized to the
+;; <generic> type.  This will end up invoking the bootstrapped
+;; `compute-apply-generic` function registered above only to replace it with
+;; its own result!
+(add-method! compute-apply-generic
+             (make-method (list <generic>)
+                          (lambda (call-next-method generic)
+                            (display "IN THE REAL COMPUTE APPLY GENERIC!\n")
+                            ;; TODO: This is returning nil somewhere!
+                            (lambda (:rest args)
+                              (display "INVOKING THE REAL BEHAVIOR!\n")
+                              (display args)
+                              (display "\n")
+                              (display (memq generic generic-invocation-generics))
+                              (display "\n")
+                              (display (and (memq generic generic-invocation-generics)
+                                            (memq (car args) generic-invocation-generics)))
+                              (display "\n")
+                              ;; This predicate checks to see if the generic
+                              ;; function itself is a member of the
+                              ;; `generic-invocation-generics` list, meaning
+                              ;; it's one of the generic protocol methods.  It
+                              ;; also checks if the first (sole?)  argument is
+                              ;; also a member of this list.
+                              ;;
+                              ;; In other words, if the generic protocol is
+                              ;; working on itself, invoke the method
+                              ;; differently.
+                              (if (and (memq generic generic-invocation-generics)
+                                       (memq (car args) generic-invocation-generics))
+                                  (begin
+                                    (display "INVOKING CORE GENERIC!\n")
+                                    (display (method-function (last (generic-methods generic))))
+                                    (display "\n")
+                                    (apply (method-function (last (generic-methods generic)))
+                                           (cons nil args)))
+                                  ;; Call the generic with the list of
+                                  ;; appropriate methods and the argument list
+                                  (begin
+                                    (display "NOW COMPUTING METHODS!\n")
+                                    ((compute-apply-methods generic)
+                                     ((compute-methods generic) args)
+                                     args)))))))
+
+
+(define (applicable? class argument)
+  ;; Is the specified class in the
+  (memq class (class-precedence (class-of argument))))
+
+(define (more-specific? class1 class2 argument)
+  ;; Use memq to find whether class2 comes before class1 in the class
+  ;; precedence list.  This works because memq will return the remaining
+  ;; list after class1 is found, so if class 2 is found in that remaining
+  ;; list, it is a parent class of class1.
+  (memq class2 (memq class1 (class-precedence (class-of argument)))))
+
+(add-method! compute-methods
+             (make-method
+              (list <generic>)
+              (lambda (call-next-method generic)
+                (lambda (args)
+                  ;; First, come up with a list of applicable methods by
+                  ;; filtering the method list down to those with a specializer
+                  ;; list that is applicable to each of the arguments.
+                  (let ((applicable-methods
+                         (filter (lambda (method)
+                                   ;; Use applicable? on each specializer versus
+                                   ;; each argument
+                                   (every applicable?
+                                          (method-signature method)
+                                          args))
+                                 (generic-methods generic))))
+                    ;; Now sort the applicable list from most specific to least
+                    ;; specific to produce the appropriate call ordering.
+                    (sort (lambda (method1 method2)
+                            ((compute-method-more-specific? generic)
+                             method1
+                             method2
+                             args))
+                          applicable-methods))))))
+
+(add-method! compute-method-more-specific?
+             (make-method
+              (list <generic>)
+              (lambda (call-next-method generic)
+                (lambda (method1 method2 args)
+                  (let loop ((specs1 (method-signature method1))
+                             (specs2 (method-signature method2))
+                             (args args))
+                    ;; TODO: Use cond here!
+                    (if (and (null? specs1)
+                             (null? specs2))
+                        ;; TODO: Use errors here
+                        (display "Two methods are equally specific.")
+                        (if (or (null? specs1) (null? specs2))
+                            (display "Two methods have a different number of signature types.")
+                            (if (null? args)
+                                (display "Fewer arguments than signature.")
+                                (let ((class1 (car specs1))
+                                      (class2 (car specs2))
+                                      (arg (car args)))
+                                  (if (eqv? class1 class2)
+                                      (loop (cdr specs1)
+                                            (cdr specs2)
+                                            (cdr args))
+                                      ;; If we've reached this point, class1 and
+                                      ;; class2 are not the same so check if
+                                      ;; class1 is more specific than class2.
+                                      (more-specific? class1 class2 arg)))))))))))
+
+(add-method! compute-apply-methods
+             (make-method
+              (list <generic>)
+              (lambda (call-next-method generic)
+                (lambda (methods args)
+                  ;; TODO: Use letrec to simplify this
+                  (let ((next-method nil))
+                    (set! next-method
+                          (lambda (tail)
+                            (lambda ()
+                              (if (null? tail)
+                                  ;; TODO: Use error
+                                  (display "No applicable methods/next methods.")
+                                  (apply (method-function (car tail))
+                                         (cons (next-method (cdr tail)) args))))))
+
+                    ;; Call the first method in the list
+                    ((next-method methods)))))))
+
+;;; Instance Protocol Implementation
+
+;; <object> types require no explicit initialization
+(add-method! initialize
+             (make-method (list <object>)
+                          (lambda (call-next-method init-args) object)))
+
+;; Here is where we re-define the behavior of the bootstrapped `make`!
+(add-method! initialize
+             (make-method (list <class>)
+                          (lambda (call-next-method init-args)
+                            ;; First, call the next method in case there is any
+                            ;; additional initialization
+                            (call-next-method)
+
+                            ;; Set the direct parents based on the init
+                            ;; parameter
+                            (field-set! class
+                                        'direct-parents
+                                        (or (plist-ref init-args 'direct-parents) '()))
+
+                            ;; Set up the direct class fields based on the init
+                            ;; parameter
+                            (field-set! class
+                                        'direct-fields
+                                        (map (lambda (field)
+                                               ;; Make sure all fields can be treated as lists
+                                               (if (pair? field)
+                                                   field
+                                                   (list field)))
+                                             (or (plist-ref init-args 'direct-fields) '())))
+
+                            ;; Compute the class precedence list
+                            (field-set! class
+                                        'precedence
+                                        (compute-class-precedence-list class))
+
+                            ;; Compute the full field list
+                            (field-set! class
+                                        'all-fields
+                                        (compute-fields class))
+
+                            ;; Generate the field initializers and accessors
+                            (let ((num-fields 0)
+                                  (field-initializers '())
+                                  (field-allocator nil)
+                                  (field-accessors nil))
+                              (set! field-allocator
+                                    (lambda (field-initializer)
+                                      (lambda (field-name index)
+                                        ;; Increment the field count and set up
+                                        ;; the initializer for this field
+                                        (display "CREATING FIELD ")
+                                        (display field-name)
+                                        (display " WITH INDEX ")
+                                        (display index)
+                                        (display "!\n")
+                                        (set! num-fields (+ index 1))
+                                        (set! field-initializers
+                                              (cons field-initializer
+                                                    field-initializers))
+
+                                        ;; Generate the getter and setter for
+                                        ;; this field
+                                        (list (lambda (instance)
+                                                (%instance-ref instance index))
+                                              (lambda (instance value)
+                                                (%instance-set! instance index value))))))
+
+                              ;; The accessor generation loop also drives the
+                              ;; counting of fields and creation of field
+                              ;; initializers
+                              (set! field-accessors
+                                    (map (lambda (field)
+                                           (cons (car field)
+                                                 (compute-accessor class
+                                                                   field
+                                                                   field-allocator)))
+                                         (field-ref class 'all-fields)))
+
+                              (field-set! class 'num-fields num-fields)
+                              (field-set! class 'field-initializers field-initializers)
+                              (field-set! class 'field-accessors field-accessors)))))
+
+(add-method! initialize
+            (make-method (list <generic>)
+                         (lambda (call-next-method generic init-args)
+                           (call-next-method)
+                           (field-set! generic 'methods '())
+                           (%set-instance-func! generic
+                                                (lambda (:rest args)
+                                                  (error "Has no methods."))))))
+
+(add-method! initialize
+            (make-method (list <method>)
+                         (lambda (call-next-method method init-args)
+                           (call-next-method)
+                           (field-set! method 'specializers (plist-ref init-args 'specializers))
+                           (field-set! method 'procedure (plist-ref init-args 'procedure)))))
+
+(display "BEFORE ALLOCATE METHOD\n")
+
+(add-method! allocate-instance
+             (make-method (list <class>)
+                          (lambda (call-next-method class)
+                            (display "IN ALLOCATE INSTANCE\n")
+                            ;; TODO: Use let*
+                            (let ((field-initializers (field-ref class 'field-initializers))
+                                  (instance nil))
+                              (set! instance (%allocate-instance
+                                              class
+                                              (length field-initializers)))
+
+                              ;; Loop over all the field initializers to
+                              ;; initialize the instance
+                              (let loop ((index 0)
+                                         (initializers field-initializers))
+                                (if (pair? initializers)
+                                    (begin
+                                      ;; Initialize the field value by executing
+                                      ;; the initializer function
+                                      (%instance-set! instance index ((car initializers)))
+                                      (loop (+ index 1)
+                                            (cdr initializers)))
+
+                                    ;; Return the new instance
+                                    instance))))))
+
+;; TODO: Remove code duplication
+
+(add-method! allocate-instance
+             (make-method (list <entity-class>)
+                          (lambda (call-next-method class)
+                            (let ((field-initializers (field-ref class 'field-initializers))
+                                  (instance nil))
+                              (set! instance (%allocate-entity
+                                              class
+                                              (length field-initializers)))
+                              ;; Loop over all the field initializers to
+                              ;; initialize the instance
+                              (let loop ((index 0)
+                                         (initializers field-initializers))
+                                (if (pair? initializers)
+                                    (begin
+                                      ;; Initialize the field value by executing
+                                      ;; the initializer function
+                                      (%instance-set! instance index ((car initializers)))
+                                      (loop (+ index 1)
+                                            (cdr initializers)))
+
+                                    ;; Return the new instance
+                                    instance))))))
+
+;; NOTE: The next few functions are copied basically verbatim from Tiny CLOS.
+;; Eventually I'd like to rewrite and integrate some of them into Mesche's
+;; standard library to be used elsewhere.
+
+(define topological-sort
+  (lambda (elements constraints tie-breaker)
+    (let loop ((elements elements)
+               (constraints constraints)
+               (result '()))
+      (if (null? elements)
+          result
+          (let ((can-go-in-now
+                 (collect-if
+                  (lambda (x)
+                    (every (lambda (constraint)
+                             (or (not (eq? (cadr constraint) x))
+                                 (memq (car constraint) result)))
+                           constraints))
+                  elements)))
+            (if (null? can-go-in-now)
+                (error 'top-sort "Invalid constraints")
+                (let ((choice (if (null? (cdr can-go-in-now))
+                                  (car can-go-in-now)
+                                  (tie-breaker result
+                                               can-go-in-now))))
+                  (loop
+                   (collect-if (lambda (x) (not (eq? x choice)))
+                               elements)
+                   constraints
+                   (append result (list choice))))))))))
+
+(define std-tie-breaker
+  (lambda (get-supers)
+    (lambda (partial-cpl min-elts)
+      (let loop ((pcpl (reverse partial-cpl)))
+        (let ((current-elt (car pcpl)))
+          (let ((ds-of-ce (get-supers current-elt)))
+            (let ((common (collect-if (lambda (x)
+                                        (memq x ds-of-ce))
+                                      min-elts)))
+              (if (null? common)
+                  (if (null? (cdr pcpl))
+                      (error 'std-tie-breaker "Nothing valid")
+                      (loop (cdr pcpl)))
+                  (car common)))))))))
+
+
+(define build-transitive-closure
+  (lambda (get-follow-ons)
+    (lambda (x)
+      (let track ((result '())
+                  (pending (list x)))
+        (if (null? pending)
+            result
+            (let ((next (car pending)))
+              (if (memq next result)
+                  (track result (cdr pending))
+                  (track (cons next result)
+                         (append (get-follow-ons next)
+                                 (cdr pending))))))))))
+
+(define build-constraints
+  (lambda (get-follow-ons)
+    (lambda (x)
+      (let loop ((elements ((build-transitive-closure get-follow-ons) x))
+                 (this-one '())
+                 (result '()))
+        (if (or (null? this-one) (null? (cdr this-one)))
+            (if (null? elements)
+                result
+                (loop (cdr elements)
+                      (cons (car elements)
+                            (get-follow-ons (car elements)))
+                      result))
+            (loop elements
+                  (cdr this-one)
+                  (cons (list (car this-one) (cadr this-one))
+                        result)))))))
+
+(define (compute-std-cpl class class-parents-func)
+  (topological-sort ((build-transitive-closure class-parents-func) class)
+                    ((build-constraints class-parents-func) class)
+                    (std-tie-breaker get-direct-parents)))
+
+(add-method! compute-class-precedence-list
+             (make-method (list <class>)
+                          (lambda (call-next-method class)
+                            (compute-standard-precedence-list class class-direct-parents))))
+
+(add-method! compute-fields
+             (make-method (list <class>)
+                          (lambda (call-next-method class)
+                            (display "COMPUTING FIELDS!\n")
+                            (let collect ((fields (apply append
+                                                         (map class-direct-fields
+                                                              (class-precedence class))))
+                                          (result '()))
+                              (if (null? fields)
+                                  (reverse result)
+                                  ;; TODO: Use let*
+                                  (let ((current (car fields))
+                                        (name nil)
+                                        (others '())
+                                        (remaining-fields nil))
+
+                                    (set! name (car current))
+                                    (set! remaining-fields
+                                          (filter (lambda (o)
+                                                    (if (eq? (car o) name)
+                                                        (begin
+                                                          (set! others (cons o others))
+                                                          nil)
+                                                        t))
+                                                  (cdr fields)))
+
+                                    (collect remaining-fields
+                                             (cons (append current
+                                                           (apply append (map cdr others)))
+                                                   result))))))))
+
+
+(add-method! compute-accessors
+             (make-method (list <class>)
+                          (lambda (call-next-method class field field-allocator)
+                            ;; TODO: How do I deal with default values?
+                            (field-allocator (lambda () '())))))
+
+;; To finish off the bootstrapping process, replace the bootstrapping `make`
+;; with one that invokes the real metaobject protocol!
+
+(set! make
+      (lambda (class :rest init-args)
+        ;; This function merely allocates an instance for the specified class
+        ;; and then initializes it based on the init-args.  The generic
+        ;; initialization protocol takes care of the rest!
+        (display "\nIN THE NEW MAKE!\n")
+        (let ((instance (allocate-instance class)))
+          (initialize instance init-args)
+          instance)))
