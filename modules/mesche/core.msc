@@ -88,6 +88,17 @@
             (loop (cdr remaining)))
         nil)))
 
+(define (list-ref lst index) :export
+  (let loop ((remaining lst)
+             (current 0))
+    (if (null? remaining)
+        ;; TODO: Use error!
+        (display "Argument out of range.")
+        (if (< current index)
+            (loop (cdr remaining)
+                  (+ current 1))
+            remaining))))
+
 ;; TODO: Implement merge sort!
 (define (sort items compare-fn)
   items)
