@@ -7,6 +7,7 @@
 
 (module-import (test core))
 (module-import (test list))
+(module-import (test string))
 (module-import (test class))
 
 ;; Run all registered suites

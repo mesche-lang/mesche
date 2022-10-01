@@ -1,7 +1,9 @@
 #include <stdlib.h>
 
+#include "object.h"
 #include "string.h"
 #include "util.h"
+#include "value.h"
 
 char *mesche_cstring_join(const char *left, size_t left_length, const char *right,
                           size_t right_length, const char *separator) {
@@ -102,6 +104,28 @@ Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
   }
 }
 
+Value string_substring_msc(MescheMemory *mem, int arg_count, Value *args) {
+  ObjectString *str = AS_STRING(args[0]);
+
+  // TODO: Verify that end_index is higher than start_index
+  int start_index = AS_NUMBER(args[1]);
+  int end_index = (arg_count > 2) ? AS_NUMBER(args[2]) : strlen(AS_CSTRING(args[0]));
+
+  return OBJECT_VAL(
+      mesche_object_make_string((VM *)mem, &str->chars[start_index], end_index - start_index));
+}
+
+Value string_length_msc(MescheMemory *mem, int arg_count, Value *args) {
+  ObjectString *str = AS_STRING(args[0]);
+  return NUMBER_VAL(strlen(str->chars));
+}
+
+Value string_equal_msc(MescheMemory *mem, int arg_count, Value *args) {
+  ObjectString *str1 = AS_STRING(args[0]);
+  ObjectString *str2 = AS_STRING(args[1]);
+  return BOOL_VAL(strcmp(str1->chars, str2->chars) == 0);
+}
+
 Value string_number_to_string_msc(MescheMemory *mem, int arg_count, Value *args) {
   char buffer[256];
   int decimal_places = arg_count > 1 ? (int)AS_NUMBER(args[1]) : 0;
@@ -109,11 +133,20 @@ Value string_number_to_string_msc(MescheMemory *mem, int arg_count, Value *args)
   return OBJECT_VAL(mesche_object_make_string((VM *)mem, buffer, strlen(buffer)));
 }
 
+Value string_string_to_number_msc(MescheMemory *mem, int arg_count, Value *args) {
+  ObjectString *str = AS_STRING(args[0]);
+  return NUMBER_VAL(atof(str->chars));
+}
+
 void mesche_string_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche string",
       (MescheNativeFuncDetails[]){{"string-append", string_append_msc, true},
                                   {"string-join", string_join_msc, true},
+                                  {"string-length", string_length_msc, true},
+                                  {"string=?", string_equal_msc, true},
+                                  {"substring", string_substring_msc, true},
+                                  {"string->number", string_string_to_number_msc, true},
                                   {"number->string", string_number_to_string_msc, true},
                                   {NULL, NULL, false}});
 }
