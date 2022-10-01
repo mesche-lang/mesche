@@ -11,13 +11,15 @@ int mesche_disasm_simple_instr(const char *name, int offset) {
 }
 
 int mesche_disasm_const_instr(const char *name, Chunk *chunk, int offset) {
-  uint8_t constant = chunk->code[offset + 1];
+  uint16_t constant = (uint16_t)(chunk->code[offset + 1] << 8);
+  constant |= chunk->code[offset + 2];
+
   printf("%-16s %4d  '", name, constant);
   fflush(stdout);
   mesche_value_print(chunk->constants.values[constant]);
   printf("'\n");
 
-  return offset + 2;
+  return offset + 3;
 }
 
 int mesche_disasm_byte_instr(const char *name, Chunk *chunk, int offset) {
@@ -144,7 +146,10 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_bytes_instr("OP_TAIL_CALL", chunk, offset);
   case OP_CLOSURE: {
     offset++;
-    uint8_t constant = chunk->code[offset++];
+    uint16_t constant = (uint16_t)(chunk->code[offset++] << 8);
+    constant |= chunk->code[offset++];
+    /* offset++; */
+
     printf("%-16s  %4d  ", "OP_CLOSURE", constant);
     mesche_value_print(chunk->constants.values[constant]);
     printf("\n");

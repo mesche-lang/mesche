@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,7 +18,7 @@
 #define MAX_AND_OR_EXPRS 100
 
 // NOTE: Enable this for diagnostic purposes
-/* #define DEBUG_PRINT_CODE */
+#define DEBUG_PRINT_CODE
 
 // Contains context for parsing tokens irrespective of the current compilation
 // scope
@@ -121,6 +122,13 @@ static void compiler_emit_bytes(CompilerContext *ctx, uint8_t byte1, uint8_t byt
   compiler_emit_byte(ctx, byte2);
 }
 
+static void compiler_emit_const_instr(CompilerContext *ctx, uint8_t instr, uint16_t constant) {
+  printf("\nEMITTING CONSTANT: %d\n", constant);
+  compiler_emit_byte(ctx, instr);
+  compiler_emit_byte(ctx, (constant >> 8) & 0xff);
+  compiler_emit_byte(ctx, constant & 0xff);
+}
+
 static void compiler_emit_call(CompilerContext *ctx, uint8_t arg_count, uint8_t keyword_count) {
   compiler_emit_byte(ctx, OP_CALL);
   compiler_emit_byte(ctx, arg_count);
@@ -183,19 +191,19 @@ static ObjectFunction *compiler_end(CompilerContext *ctx) {
   return function;
 }
 
-static uint8_t compiler_make_constant(CompilerContext *ctx, Value value) {
+static uint16_t compiler_make_constant(CompilerContext *ctx, Value value) {
   int constant = mesche_chunk_constant_add(ctx->mem, &ctx->function->chunk, value);
 
-  // TODO: We'll want to make sure we have at least 16 bits for constants
-  if (constant > UINT8_MAX) {
+  // TODO: Consider increasing this later?
+  if (constant > UINT16_MAX) {
     PANIC("Too many constants in one chunk!\n");
   }
 
-  return (uint8_t)constant;
+  return (uint16_t)constant;
 }
 
 static void compiler_emit_constant(CompilerContext *ctx, Value value) {
-  compiler_emit_bytes(ctx, OP_CONSTANT, compiler_make_constant(ctx, value));
+  compiler_emit_const_instr(ctx, OP_CONSTANT, compiler_make_constant(ctx, value));
 }
 
 static void compiler_error_at_token(CompilerContext *ctx, Token *token, const char *message) {
@@ -451,7 +459,7 @@ static void compiler_declare_variable(CompilerContext *ctx) {
   compiler_add_local(ctx, *name);
 }
 
-static uint8_t compiler_parse_symbol(CompilerContext *ctx, bool is_global) {
+static uint16_t compiler_parse_symbol(CompilerContext *ctx, bool is_global) {
   // Declare the variable and exit if we're in a local scope
   if (!is_global && ctx->scope_depth > 0) {
     compiler_declare_variable(ctx);
@@ -462,7 +470,7 @@ static uint8_t compiler_parse_symbol(CompilerContext *ctx, bool is_global) {
                                                           ctx->parser->previous.length));
 
   // Reuse an existing constant for the same string if possible
-  uint8_t constant = 0;
+  uint16_t constant = 0;
   bool value_found = false;
   Chunk *chunk = &ctx->function->chunk;
   for (int i = 0; i < chunk->constants.count; i++) {
@@ -485,20 +493,20 @@ static void compiler_parse_identifier(CompilerContext *ctx) {
     // Found an upvalue
     compiler_emit_bytes(ctx, OP_READ_UPVALUE, (uint8_t)local_index);
   } else {
-    uint8_t variable_constant = compiler_parse_symbol(ctx, true);
-    compiler_emit_bytes(ctx, OP_READ_GLOBAL, variable_constant);
+    uint16_t variable_constant = compiler_parse_symbol(ctx, true);
+    compiler_emit_const_instr(ctx, OP_READ_GLOBAL, variable_constant);
   }
 }
 
-static uint8_t compiler_define_variable_ex(CompilerContext *ctx, uint8_t variable_constant,
-                                           DefineAttributes *define_attributes) {
+static uint16_t compiler_define_variable_ex(CompilerContext *ctx, uint16_t variable_constant,
+                                            DefineAttributes *define_attributes) {
   // We don't define global variables in local scopes
   if (ctx->scope_depth > 0) {
     compiler_local_mark_initialized(ctx);
     return ctx->local_count - 1;
   }
 
-  compiler_emit_bytes(ctx, OP_DEFINE_GLOBAL, variable_constant);
+  compiler_emit_const_instr(ctx, OP_DEFINE_GLOBAL, variable_constant);
 
   if (define_attributes) {
     if (define_attributes->is_export) {
@@ -517,7 +525,7 @@ static uint8_t compiler_define_variable_ex(CompilerContext *ctx, uint8_t variabl
   return 0;
 }
 
-static uint8_t compiler_define_variable(CompilerContext *ctx, uint8_t variable_constant) {
+static uint16_t compiler_define_variable(CompilerContext *ctx, uint16_t variable_constant) {
   return compiler_define_variable_ex(ctx, variable_constant, NULL);
 }
 
@@ -532,13 +540,13 @@ static void compiler_parse_set(CompilerContext *ctx) {
     // Do nothing, all values are already set.
   } else if ((arg = compiler_resolve_upvalue(ctx, &ctx->parser->previous)) != -1) {
     instr = OP_SET_UPVALUE;
+    compiler_parse_expr(ctx);
   } else {
     arg = compiler_parse_symbol(ctx, true);
     instr = OP_SET_GLOBAL;
+    compiler_parse_expr(ctx);
+    compiler_emit_const_instr(ctx, instr, arg);
   }
-
-  compiler_parse_expr(ctx);
-  compiler_emit_bytes(ctx, instr, arg);
 
   compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
 }
@@ -608,7 +616,7 @@ static void compiler_parse_let(CompilerContext *ctx) {
 
     // Parse the symbol for the binding
     compiler_advance(&let_ctx);
-    uint8_t constant = compiler_parse_symbol(&let_ctx, false);
+    uint16_t constant = compiler_parse_symbol(&let_ctx, false);
     compiler_define_variable(&let_ctx, constant);
 
     // Parse the binding value into the *original context* where the let
@@ -640,7 +648,7 @@ static void compiler_parse_let(CompilerContext *ctx) {
 
   int call_offset = ctx->function->chunk.count;
   ctx->function->chunk.count = func_offset;
-  compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
+  compiler_emit_const_instr(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
 
   // Write out the references to each upvalue as arguments to OP_CLOSURE
   for (int i = 0; i < function->upvalue_count; i++) {
@@ -735,7 +743,7 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name
       // Parse the argument
       // TODO: Ensure a symbol comes next
       compiler_advance(&func_ctx);
-      uint8_t constant = compiler_parse_symbol(&func_ctx, false);
+      uint16_t constant = compiler_parse_symbol(&func_ctx, false);
       compiler_define_variable(&func_ctx, constant);
     } else {
       compiler_advance(&func_ctx);
@@ -748,11 +756,11 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name
       }
 
       // Parse the keyword name and define it as a local variable
-      uint8_t constant = compiler_parse_symbol(&func_ctx, false);
+      uint16_t constant = compiler_parse_symbol(&func_ctx, false);
       compiler_define_variable(&func_ctx, constant);
 
       // Parse the default if we're expecting one
-      uint8_t default_constant = 0;
+      uint16_t default_constant = 0;
       if (has_default) {
         compiler_consume(&func_ctx, TokenKindRightParen,
                          "Expected right paren after keyword default value.");
@@ -783,9 +791,10 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name
   // Get the parsed function and store it in a constant
   ObjectFunction *function = compiler_end(&func_ctx);
   function->name = name;
-  compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
+  compiler_emit_const_instr(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
 
   // Write out the references to each upvalue as arguments to OP_CLOSURE
+  printf("CLOSURE WITH UPVALUE COUNT: %d\n", function->upvalue_count);
   for (int i = 0; i < function->upvalue_count; i++) {
     compiler_emit_byte(ctx, func_ctx.upvalues[i].is_local ? 1 : 0);
     compiler_emit_byte(ctx, func_ctx.upvalues[i].index);
@@ -863,7 +872,7 @@ static void compiler_parse_define(CompilerContext *ctx) {
 
   compiler_consume(ctx, TokenKindSymbol, "Expected symbol after 'define'");
 
-  uint8_t variable_constant = compiler_parse_symbol(ctx, true);
+  uint16_t variable_constant = compiler_parse_symbol(ctx, true);
   if (is_func) {
     // Let the lambda parser take over
     compiler_parse_lambda_inner(ctx,
