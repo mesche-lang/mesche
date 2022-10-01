@@ -7,3 +7,33 @@
         (loop (string-append final-string string)
               (+ current 1))
         final-string)))
+
+(define (string-split str split-predicate) :export
+  (let loop ((parts '())
+             (start-index 0)
+             (current-index 0)
+             (length (string-length str)))
+    (if (eqv? current-index length)
+        ;; If we have a final segment, return it, otherwise return the previous
+        ;; parts that we found
+        (if (< start-index current-index)
+            (reverse (cons (substring str start-index current-index)
+                           parts))
+            (reverse parts))
+        (begin
+          ;; NOTE: This could probably be more elegant, but it's OK for now
+          (if (split-predicate (substring str
+                                          current-index
+                                          (+ current-index 1)))
+              (begin
+                (loop (if (eqv? start-index current-index)
+                          parts
+                          (cons (substring str start-index current-index)
+                                parts))
+                      (+ current-index 1)
+                      (+ current-index 1)
+                      length))
+              (loop parts
+                    start-index
+                    (+ current-index 1)
+                    length))))))

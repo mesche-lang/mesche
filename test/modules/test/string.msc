@@ -1,0 +1,27 @@
+(define-module (test string)
+  (import (mesche test)
+          (mesche string)))
+
+(suite "(mesche string)"
+  (lambda ()
+
+    (suite "substring" 'only
+      (lambda ()
+
+        (verify "returns the requested substring"
+          (lambda ()
+            (assert-equal? "cool!"
+                           (substring "Mesche is cool!" 10))
+            (assert-equal? "cool"
+                           (substring "Mesche is cool!" 10 14))))))
+
+    (suite "string-split:" 'only
+      (lambda ()
+
+        (verify "returns the sub-list starting with the specified key"
+          (lambda ()
+            (assert-equal? '("1" "2" "3" "4" "5")
+                           (string-split "1 2 3\n4 5"
+                                         (lambda (c)
+                                           (or (string=? c " ")
+                                               (string=? c "\n")))))))))))
