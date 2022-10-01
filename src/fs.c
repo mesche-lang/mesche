@@ -143,6 +143,17 @@ Value fs_file_modified_time_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(file_stat.st_mtime);
 }
 
+Value fs_file_read_all_msc(MescheMemory *mem, int arg_count, Value *args) {
+  char *file_contents = mesche_fs_file_read_all(AS_CSTRING(args[0]));
+  ObjectString *file_contents_str =
+      mesche_object_make_string((VM *)mem, file_contents, strlen(file_contents));
+
+  // Free the string that we read from the file
+  free(file_contents);
+
+  return OBJECT_VAL(file_contents_str);
+}
+
 int fs_directory_create(const char *dir_path) {
   // TODO: Make permissions a parameter
   return mkdir(dir_path, 0777);
@@ -211,6 +222,7 @@ void mesche_fs_module_init(VM *vm) {
                                   {"file-directory", fs_file_directory_msc, true},
                                   {"file-extension", fs_file_extension_msc, true},
                                   {"file-modified-time", fs_file_modified_time_msc, true},
+                                  {"file-read-all", fs_file_read_all_msc, true},
                                   {"directory-create", fs_directory_create_msc, true},
                                   {NULL, NULL, false}});
 }
