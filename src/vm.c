@@ -1522,7 +1522,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       if (!IS_CLOSURE(func_value) && !IS_NATIVE_FUNC(func_value)) {
         vm_runtime_error(vm, "Cannot apply non-function value.");
         return INTERPRET_RUNTIME_ERROR;
-      } else if (!IS_CONS(list_value)) {
+      } else if (!IS_CONS(list_value) && !IS_EMPTY(list_value)) {
         vm_runtime_error(vm, "Cannot apply function to non-list value.");
         return INTERPRET_RUNTIME_ERROR;
       }
