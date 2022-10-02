@@ -13,6 +13,9 @@
             (let ((<foo> (make <class> '<foo>
                            'direct-fields '(bar baz)
                            'direct-parents (list <object>))))
+              (display "CLASS FIELDS: ")
+              (display (field-ref <foo> 'direct-fields))
+              (display "\n")
               (assert-equal? '(bar baz)
                              (field-ref <foo> 'direct-fields))
               (assert-equal? (list <foo> <object> <top>)

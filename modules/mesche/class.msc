@@ -248,8 +248,13 @@
                ;; Generate the getter and setter for this field
                (list field-name
                      (lambda (instance)
-                       (%instance-ref instance index))
+                       (debug "GETTING FIELD: " field-name)
+                       (debug "FIELD INDEX: " index)
+                       (debug "VALUE: " (%instance-ref instance index)))
                      (lambda (instance value)
+                       (debug "SETTING FIELD: " field-name)
+                       (debug "FIELD INDEX: " index)
+                       (debug "NEW VALUE: " value)
                        (%instance-set! instance index value))))
              class-standard-fields))
 
@@ -360,7 +365,7 @@
   (or (field-ref class 'all-fields) '()))
 
 (define (class-precedence class) :export
-  (debug "CPL: " (or (field-ref class 'precedence) '())))
+  (or (field-ref class 'precedence) '()))
 
 (define (generic-methods generic)
   (field-ref generic 'methods))
@@ -682,14 +687,10 @@
 
 ;;; Instance Protocol Implementation
 
-(display "\nADDING OBJECT INITIALIZER\n")
-
 ;; <object> types require no explicit initialization
 (add-method! initialize
              (make-method (list <object>)
                           (lambda (call-next-method object init-args) object)))
-
-(display "\nADDING CLASS INITIALIZER\n")
 
 ;; Here is where we re-define the behavior of the bootstrapped `make`!
 (add-method! initialize
@@ -705,7 +706,10 @@
                                         'direct-parents
                                         (or (plist-ref init-args 'direct-parents) '()))
 
-                            (debug "DIRECT PARENTS: " (field-ref class 'direct-parents))
+                            ;; Compute the class precedence list
+                            (field-set! class
+                                        'precedence
+                                        (compute-class-precedence-list class))
 
                             ;; Set up the direct class fields based on the init
                             ;; parameter
@@ -718,15 +722,14 @@
                                                    (list field)))
                                              (or (plist-ref init-args 'direct-fields) '())))
 
-                            ;; Compute the class precedence list
-                            (field-set! class
-                                        'precedence
-                                        (compute-class-precedence-list class))
+                            (debug "DIRECT FIELDS: " (field-ref class 'direct-fields))
 
                             ;; Compute the full field list
                             (field-set! class
                                         'all-fields
                                         (compute-fields class))
+
+                            (debug "ALL FIELDS: " (field-ref class 'all-fields))
 
                             ;; Generate the field initializers and accessors
                             (let ((num-fields 0)
@@ -761,9 +764,9 @@
                               (set! field-accessors
                                     (map (lambda (field)
                                            (cons (car field)
-                                                 (compute-accessor class
-                                                                   field
-                                                                   field-allocator)))
+                                                 (compute-accessors class
+                                                                    field
+                                                                    field-allocator)))
                                          (field-ref class 'all-fields)))
 
                               (field-set! class 'num-fields num-fields)
@@ -928,8 +931,8 @@
 
 (define (compute-standard-precedence-list class class-parents-func)
   (topological-sort (build-transitive-closure class-parents-func class)
-                     (build-constraints class-parents-func class)
-                     (std-tie-breaker class-parents-func)))
+                    (build-constraints class-parents-func class)
+                    (std-tie-breaker class-parents-func)))
 
 (add-method! compute-class-precedence-list
              (make-method (list <class>)
@@ -940,12 +943,14 @@
              (make-method (list <class>)
                           (lambda (call-next-method class)
                             (display "COMPUTING FIELDS!\n")
-                            (let collect ((fields (apply append
-                                                         (debug "FIELDS: " (map class-direct-fields
-                                                                                (class-precedence class)))))
-                                          (result '()))
+                            (let loop ((fields
+                                        (apply append
+                                               (map class-direct-fields
+                                                    (debug "CPL: " (class-precedence class)))))
+                                       (result '()))
+                              (debug "WILL BE: " fields)
                               (if (null? fields)
-                                  (reverse result)
+                                  (debug "RESULT: " (reverse result))
                                   ;; TODO: Use let*
                                   (let ((current (car fields))
                                         (name nil)
@@ -954,18 +959,18 @@
 
                                     (set! name (car current))
                                     (set! remaining-fields
-                                          (filter (lambda (o)
-                                                    (if (eq? (car o) name)
+                                          (filter (lambda (field)
+                                                    (if (eqv? (car field) name)
                                                         (begin
-                                                          (set! others (cons o others))
+                                                          (set! others (cons field others))
                                                           nil)
                                                         t))
                                                   (cdr fields)))
 
-                                    (collect remaining-fields
-                                             (cons (append current
-                                                           (apply append (map cdr others)))
-                                                   result))))))))
+                                    (loop remaining-fields
+                                          (debug "ADD RESULT: " (cons (append current
+                                                                              (apply append (map cdr others)))
+                                                                      result)))))))))
 
 
 (add-method! compute-accessors
