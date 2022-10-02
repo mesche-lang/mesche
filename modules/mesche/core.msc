@@ -99,6 +99,19 @@
                   (+ current 1))
             remaining))))
 
+(define (delete item lst)
+  (let loop ((items lst)
+             (new-items '()))
+    (if (null? items)
+        new-items
+        (if (equal? item (car items))
+            (if (null? (cdr items))
+                new-items
+                (cons new-items (cdr items)))
+            (loop (cdr items)
+                  (append new-items
+                          (list (car items))))))))
+
 ;; TODO: Implement merge sort!
 (define (sort items compare-fn)
   items)
