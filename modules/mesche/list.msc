@@ -1,7 +1,7 @@
 (define-module (mesche list))
 
 (define (contains element items) :export
-  "Returns element if it is found in the list, nil otherwise."
+  "Returns element if it is found in the list, #f otherwise."
   (let loop ((remaining items))
     (if (pair? remaining)
         ;; If the element is in the list, return it.
@@ -11,13 +11,13 @@
             (loop (cdr remaining)))
 
         ;; Didn't find it.
-        nil)))
+        #f)))
 
 (define (any? predicate items) :export
-  "Returns t if the predicate passes for an item in the list, nil otherwise."
+  "Returns t if the predicate passes for an item in the list, #f otherwise."
   (let loop ((remaining items))
     (if (pair? remaining)
         (if (predicate (car remaining))
             t
             (loop (cdr remaining)))
-        nil)))
+        #f)))

@@ -1,4 +1,5 @@
 #include "list.h"
+#include "native.h"
 #include "object.h"
 #include "util.h"
 
@@ -17,7 +18,7 @@ Value mesche_list_nth(VM *vm, ObjectCons *list, int index) {
     current = current_cons->cdr;
   }
 
-  return NIL_VAL;
+  return FALSE_VAL;
 }
 
 Value list_nth_msc(MescheMemory *mem, int arg_count, Value *args) {

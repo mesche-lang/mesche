@@ -97,6 +97,12 @@ static TokenKind scanner_check_keyword(Scanner *scanner, int start, int length, 
 static TokenKind scanner_identifier_type(Scanner *scanner) {
   // Check for other specific keywords
   switch (scanner->start[0]) {
+  case '+':
+    return scanner_check_keyword(scanner, 1, 0, "", TokenKindPlus);
+  case '*':
+    return scanner_check_keyword(scanner, 1, 0, "", TokenKindStar);
+  case '/':
+    return scanner_check_keyword(scanner, 1, 0, "", TokenKindSlash);
   case ':':
     return TokenKindKeyword;
   case '>': {
@@ -117,18 +123,22 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
   }
   case '-':
     return scanner_check_keyword(scanner, 1, 0, "", TokenKindMinus);
+  case '.':
+    return scanner_check_keyword(scanner, 1, 0, "", TokenKindDot);
   case '%':
     return scanner_check_keyword(scanner, 1, 0, "", TokenKindPercent);
+  case '#': {
+    switch (scanner->start[1]) {
+    case 't':
+      return scanner_check_keyword(scanner, 2, 0, "", TokenKindTrue);
+    case 'f':
+      return scanner_check_keyword(scanner, 2, 0, "", TokenKindFalse);
+    }
+  }
   case 't':
     return scanner_check_keyword(scanner, 1, 0, "", TokenKindTrue);
   case 'n': {
-    switch (scanner->start[1]) {
-    case 'o':
-      return scanner_check_keyword(scanner, 1, 2, "ot", TokenKindNot);
-    case 'i':
-      return scanner_check_keyword(scanner, 1, 2, "il", TokenKindNil);
-    }
-    break;
+    return scanner_check_keyword(scanner, 1, 2, "ot", TokenKindNot);
   }
   case 'e': {
     switch (scanner->start[1]) {
@@ -220,6 +230,8 @@ static TokenKind scanner_identifier_type(Scanner *scanner) {
       return scanner_check_keyword(scanner, 2, 3, "gin", TokenKindBegin);
     }
   }
+  case 'q':
+    return scanner_check_keyword(scanner, 1, 4, "uote", TokenKindQuote);
   case 'i': {
     switch (scanner->start[1]) {
     case 'm':
@@ -279,7 +291,7 @@ static Token scanner_read_identifier(Scanner *scanner) {
   TokenKind kind = scanner_identifier_type(scanner);
   TokenKind sub_kind = TokenKindNone;
   if (kind != TokenKindSymbol && kind != TokenKindKeyword && kind != TokenKindTrue &&
-      kind != TokenKindNil) {
+      kind != TokenKindFalse) {
     sub_kind = kind;
     kind = TokenKindSymbol;
   }
@@ -317,6 +329,7 @@ void mesche_scanner_init(Scanner *scanner, const char *source) {
   scanner->start = source;
   scanner->current = source;
   scanner->line = 1;
+  scanner->file_name = NULL;
 }
 
 Token mesche_scanner_next_token(Scanner *scanner) {
@@ -344,20 +357,13 @@ Token mesche_scanner_next_token(Scanner *scanner) {
   case '"':
     return scanner_read_string(scanner);
   case '\'':
-    return scanner_make_token(scanner, TokenKindQuote);
+    return scanner_make_token(scanner, TokenKindQuoteChar);
   case '`':
     return scanner_make_token(scanner, TokenKindBackquote);
   case ',':
     return scanner_make_token(scanner, TokenKindUnquote);
   case '@':
     return scanner_make_token(scanner, TokenKindSplice);
-  case ':':
-    return scanner_read_identifier(scanner);
-  case '%':
-    return scanner_read_identifier(scanner);
-  case '+':
-    // TODO: Make sure this isn't the start of a symbol
-    return scanner_make_token(scanner, TokenKindPlus);
   case '-': {
     if (scanner_is_digit(scanner_peek(scanner))) {
       return scanner_read_number(scanner);
@@ -365,16 +371,24 @@ Token mesche_scanner_next_token(Scanner *scanner) {
 
     return scanner_read_identifier(scanner);
   }
+  case '!':
+  case '$':
+  case '%':
+  case '&':
   case '*':
-    return scanner_make_token(scanner, TokenKindStar);
+  case '+':
+  case '.':
+  case ':':
   case '/':
-    return scanner_make_token(scanner, TokenKindSlash);
-  case '>': {
+  case '<':
+  case '=':
+  case '>':
+  case '?':
+  case '^':
+  case '_':
+  case '~':
+  case '#':
     return scanner_read_identifier(scanner);
-  }
-  case '<': {
-    return scanner_read_identifier(scanner);
-  }
   }
 
   return scanner_make_error_token(scanner, "Unexpected character.");

@@ -1,10 +1,11 @@
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "io.h"
-#include "vm.h"
-#include "value.h"
+#include "native.h"
 #include "object.h"
+#include "value.h"
+#include "vm.h"
 
 char *mesche_io_read_all_text(MeschePort *port) {
   int size = 256;
@@ -41,6 +42,5 @@ Value read_all_text_msc(MescheMemory *mem, int arg_count, Value *args) {
 void mesche_io_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche io",
-      (MescheNativeFuncDetails[]){{"read-all-text", read_all_text_msc, true},
-                                  {NULL, NULL, false}});
+      (MescheNativeFuncDetails[]){{"read-all-text", read_all_text_msc, true}, {NULL, NULL, false}});
 }

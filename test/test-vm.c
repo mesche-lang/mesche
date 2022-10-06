@@ -1,9 +1,10 @@
 #include "../src/object.h"
 #include "../src/value.h"
-#include "../src/vm.h"
+#include "../src/vm-impl.h"
 #include "test.h"
 
 static VM vm;
+static Value read_value;
 
 #define ASSERT_KIND(actual_kind, expected_kind)                                                    \
   if (actual_kind != expected_kind) {                                                              \
@@ -41,13 +42,13 @@ static void returns_basic_values() {
   value = *vm.stack_top;
   ASSERT_KIND(value.kind, VALUE_NUMBER);
 
-  VM_EVAL("t", INTERPRET_OK);
+  VM_EVAL("#t", INTERPRET_OK);
   value = *vm.stack_top;
   ASSERT_KIND(value.kind, VALUE_TRUE);
 
-  VM_EVAL("nil", INTERPRET_OK);
+  VM_EVAL("#f", INTERPRET_OK);
   value = *vm.stack_top;
-  ASSERT_KIND(value.kind, VALUE_NIL);
+  ASSERT_KIND(value.kind, VALUE_FALSE);
 
   PASS();
 }
@@ -57,7 +58,7 @@ static void calls_function_with_rest_args() {
   Value value;
 
   VM_EVAL("(module-import (mesche list))"
-          "(define (with-rest x :rest args)"
+          "(define (with-rest x . args)"
           "  (car (cdr (cdr args))))"
           "(with-rest 1 2 3 4)",
           INTERPRET_OK);
@@ -65,22 +66,22 @@ static void calls_function_with_rest_args() {
   value = *vm.stack_top;
   ASSERT_KIND(value.kind, VALUE_NUMBER);
 
-  VM_EVAL("(module-import (mesche list))"
-          "(define (with-rest x :rest args :keys key)"
-          "  (car (cdr (cdr args))))"
-          "(with-rest 4 5 6 7 8)",
-          INTERPRET_OK);
+  /* VM_EVAL("(module-import (mesche list))" */
+  /*         "(define (with-rest x :rest args :keys key)" */
+  /*         "  (car (cdr (cdr args))))" */
+  /*         "(with-rest 4 5 6 7 8)", */
+  /*         INTERPRET_OK); */
 
-  value = *vm.stack_top;
-  ASSERT_KIND(value.kind, VALUE_NUMBER);
+  /* value = *vm.stack_top; */
+  /* ASSERT_KIND(value.kind, VALUE_NUMBER); */
 
-  VM_EVAL("(define (with-rest x :rest args :keys key)"
-          "  args)"
-          "(with-rest 4 :key 'foo)",
-          INTERPRET_OK);
+  /* VM_EVAL("(define (with-rest x :rest args :keys key)" */
+  /*         "  args)" */
+  /*         "(with-rest 4 :key 'foo)", */
+  /*         INTERPRET_OK); */
 
-  value = *vm.stack_top;
-  ASSERT_KIND(value.kind, VALUE_NIL);
+  /* value = *vm.stack_top; */
+  /* ASSERT_KIND(value.kind, VALUE_FALSE); */
 
   PASS();
 }
@@ -102,10 +103,10 @@ static void evaluates_and_or() {
   VM_INIT();
   Value value;
 
-  VM_EVAL("(or (and nil 2 3)"
-          "    (and 3 2 nil)"
+  VM_EVAL("(or (and #f 2 3)"
+          "    (and 3 2 #f)"
           "    (and 2 3 4)"
-          "    nil)",
+          "    #f)",
           INTERPRET_OK);
   value = *vm.stack_top;
   ASSERT_KIND(value.kind, VALUE_NUMBER);
@@ -384,6 +385,7 @@ void test_vm_suite() {
   returns_basic_values();
   calls_function_with_rest_args();
   imports_modules();
+
   evaluates_and_or();
   evaluates_let();
   evaluates_calls();

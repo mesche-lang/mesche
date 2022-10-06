@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "fs.h"
+#include "native.h"
 #include "object.h"
 #include "util.h"
 
@@ -163,7 +164,7 @@ Value fs_directory_create_msc(MescheMemory *mem, int arg_count, Value *args) {
   // TODO: Write out error on failure
   int result = fs_directory_create(AS_CSTRING(args[0]));
 
-  return result == 0 ? T_VAL : NIL_VAL;
+  return result == 0 ? TRUE_VAL : FALSE_VAL;
 }
 
 Value fs_path_ensure_msc(MescheMemory *mem, int arg_count, Value *args) {
@@ -191,10 +192,10 @@ Value fs_path_ensure_msc(MescheMemory *mem, int arg_count, Value *args) {
             printf(
                 "A file with the same name already exists where a directory is being created: %s\n",
                 errno, resolved_path);
-            return NIL_VAL;
+            return FALSE_VAL;
           } else {
             printf("Error %d while creating path: %s\n", errno, resolved_path);
-            return NIL_VAL;
+            return FALSE_VAL;
           }
         }
       }

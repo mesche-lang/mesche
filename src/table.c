@@ -1,8 +1,8 @@
 #include <stdio.h>
 
 #include "mem.h"
-#include "table.h"
 #include "object.h"
+#include "table.h"
 
 #define TABLE_MAX_LOAD 0.75
 
@@ -26,7 +26,7 @@ static Entry *table_find_entry(Entry *entries, int capacity, ObjectString *key) 
     // If the key is empty but there is a 't' value, it's a tombstone
     if (entry->key == NULL) {
       // Check for tombstones (removed entries)
-      if (!IS_T(entry->value)) {
+      if (!IS_TRUE(entry->value)) {
         // Return the found tombstone slot, otherwise this entry
         return tombstone != NULL ? tombstone : entry;
       } else {
@@ -49,7 +49,7 @@ static void table_adjust_capacity(MescheMemory *mem, Table *table, int capacity)
   Entry *entries = mesche_mem_realloc(mem, NULL, 0, sizeof(Entry) * capacity);
   for (int i = 0; i < capacity; i++) {
     entries[i].key = NULL;
-    entries[i].value = NIL_VAL;
+    entries[i].value = FALSE_VAL;
   }
 
   // Copy over existing table entries
@@ -83,7 +83,7 @@ bool mesche_table_set(MescheMemory *mem, Table *table, ObjectString *key, Value 
 
   Entry *entry = table_find_entry(table->entries, table->capacity, key);
   bool is_new_key = entry->key == NULL;
-  if (is_new_key && IS_NIL(entry->value)) {
+  if (is_new_key && IS_FALSE(entry->value)) {
     // Only increase the count if the returned entry is nil,
     // meaning that it wasn't a tombstoned entry
     table->count++;
@@ -96,25 +96,29 @@ bool mesche_table_set(MescheMemory *mem, Table *table, ObjectString *key, Value 
 }
 
 bool mesche_table_get(Table *table, ObjectString *key, Value *value) {
-  if (table->count == 0) return false;
+  if (table->count == 0)
+    return false;
 
   Entry *entry = table_find_entry(table->entries, table->capacity, key);
-  if (entry->key == NULL) return false;
+  if (entry->key == NULL)
+    return false;
 
   *value = entry->value;
   return true;
 }
 
 bool mesche_table_delete(Table *table, ObjectString *key) {
-  if (table->count == 0) return false;
+  if (table->count == 0)
+    return false;
 
   // Find the existing entry
   Entry *entry = table_find_entry(table->entries, table->capacity, key);
-  if (entry->key == NULL) return false;
+  if (entry->key == NULL)
+    return false;
 
   // Set a tombstone value at this entry
   entry->key = NULL;
-  entry->value = T_VAL;
+  entry->value = TRUE_VAL;
 
   return true;
 }
@@ -129,7 +133,8 @@ void mesche_table_copy(MescheMemory *mem, Table *from, Table *to) {
 }
 
 ObjectString *mesche_table_find_key(Table *table, const char *chars, int length, uint32_t hash) {
-  if (table->count == 0) return NULL;
+  if (table->count == 0)
+    return NULL;
 
   // Use a similar algorithm as normal value lookup, but streamlined for key search
   uint32_t index = hash % table->capacity;
@@ -137,14 +142,13 @@ ObjectString *mesche_table_find_key(Table *table, const char *chars, int length,
     Entry *entry = &table->entries[index];
     if (entry->key == NULL) {
       // Is this a tombstoned entry?
-      if (IS_NIL(entry->value)) {
+      if (IS_FALSE(entry->value)) {
         // The expected location is empty and non-tombstoned,
         // so the string does not exist in the table
         return NULL;
       }
-    } else if (entry->key->length == length
-               && entry->key->hash == hash
-               && memcmp(entry->key->chars, chars, length) == 0) {
+    } else if (entry->key->length == length && entry->key->hash == hash &&
+               memcmp(entry->key->chars, chars, length) == 0) {
       // Return the existing key
       return entry->key;
     }

@@ -4,8 +4,9 @@
 typedef enum {
   OP_NOP,
   OP_CONSTANT,
-  OP_NIL,
-  OP_T,
+  OP_FALSE,
+  OP_TRUE,
+  OP_EMPTY,
   OP_POP,
   OP_POP_SCOPE,
   OP_CONS,

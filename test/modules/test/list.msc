@@ -12,21 +12,21 @@
           (lambda ()
             (assert-equal? 3 (contains 3 '(1 2 3 4)))))
 
-        (verify "returns nil if not found"
+        (verify "returns #f if not found"
           (lambda ()
-            (assert-equal? nil (contains 5 '(1 2 3 4)))))))
+            (assert-equal? #f (contains 5 '(1 2 3 4)))))))
 
     (suite "any?:"
       (lambda ()
 
-        (verify "returns t if the predicate returns t for any item"
+        (verify "returns #t if the predicate returns t for any item"
           (lambda ()
             (assert-if? (any? (lambda (x)
                                 (equal? x 3))
                               '(1 2 3 4))
                         "any? never returned t.")))
 
-        (verify "returns nil predicate doesn't return t for any item"
+        (verify "returns #f if predicate doesn't return #f for any item"
           (lambda ()
             (assert-if? (not (any? (lambda (x)
                                      (equal? x 5))

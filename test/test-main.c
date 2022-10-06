@@ -1,5 +1,5 @@
 #include "../src/value.h"
-#include "../src/vm.h"
+#include "../src/vm-impl.h"
 #include "test.h"
 #include <stdio.h>
 
@@ -32,6 +32,7 @@ int main(void) {
   printf("\n\e[1;36mMesche Test Runner\e[0m\n");
 
   test_scanner_suite();
+  test_reader_suite();
   test_compiler_suite();
   test_vm_suite();
 

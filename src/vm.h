@@ -1,73 +1,9 @@
 #ifndef mesche_vm_h
 #define mesche_vm_h
 
-#include <stdint.h>
-
-#include "mem.h"
-#include "table.h"
 #include "value.h"
 
-#define UINT8_COUNT (UINT8_MAX + 1)
-#define FRAMES_MAX 64
-#define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
-
-typedef Value (*FunctionPtr)(MescheMemory *mem, int arg_count, Value *args);
-typedef void (*ObjectFreePtr)(MescheMemory *mem, void *object);
-typedef void (*ObjectMarkFuncPtr)(MescheMemory *mem, Object *object);
-
-typedef struct {
-  ObjectClosure *closure;
-  uint8_t *ip;
-  Value *slots;
-  int total_arg_count;
-} CallFrame;
-
-typedef struct {
-  MescheMemory mem;
-  CallFrame frames[FRAMES_MAX];
-  int frame_count;
-  Value stack[STACK_MAX]; // TODO: Make this dynamically resizable
-  Value *stack_top;
-  Table strings;
-  Table symbols;
-
-  Table modules;
-  ObjectModule *root_module;
-  ObjectModule *core_module;
-  ObjectModule *current_module;
-  ObjectCons *load_paths;
-
-  // The most recent reset marker
-  ObjectStackMarker *current_reset_marker;
-
-  ObjectUpvalue *open_upvalues;
-  Object *objects;
-
-  // An opaque pointer to the current compiler to avoid cyclic type
-  // dependencies. Used for calling the compiler's root marking function
-  void *current_compiler;
-
-  // Memory management
-  int gray_count;
-  int gray_capacity;
-  Object **gray_stack;
-
-  // An application-specific context object
-  void *app_context;
-
-  // Process startup details
-  int arg_count;
-  char **arg_array;
-
-  // Specifies whether the VM is currently running
-  bool is_running;
-} VM;
-
-typedef struct {
-  const char *name;
-  FunctionPtr function;
-  bool exported;
-} MescheNativeFuncDetails;
+typedef struct VM VM;
 
 typedef enum {
   INTERPRET_OK,
@@ -77,18 +13,12 @@ typedef enum {
 
 void mesche_vm_init(VM *vm, int arg_count, char **arg_array);
 void mesche_vm_free(VM *vm);
+void mesche_vm_stack_push(VM *vm, Value value);
+Value mesche_vm_stack_pop(VM *vm);
 InterpretResult mesche_vm_run(VM *vm);
 InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string);
 InterpretResult mesche_vm_load_file(VM *vm, const char *file_path);
-InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *module_path);
-void mesche_vm_stack_push(VM *vm, Value value);
-Value mesche_vm_stack_pop(VM *vm);
-void mesche_vm_define_native(VM *vm, ObjectModule *module, const char *name, FunctionPtr function,
-                             bool exported);
-void mesche_vm_define_native_funcs(VM *vm, const char *module_name,
-                                   MescheNativeFuncDetails *func_array);
-void mesche_mem_mark_object(VM *vm, Object *object);
-void mesche_vm_load_path_add(VM *vm, const char *load_path);
 void mesche_vm_register_core_modules(VM *vm, char *module_path);
+void mesche_vm_load_path_add(VM *vm, const char *load_path);
 
 #endif

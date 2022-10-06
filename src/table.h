@@ -1,9 +1,10 @@
 #ifndef mesche_table_h
 #define mesche_table_h
 
-#include <stdint.h>
 #include "mem.h"
+#include "string.h"
 #include "value.h"
+#include <stdint.h>
 
 typedef struct {
   ObjectString *key;

@@ -5,9 +5,12 @@
 
 #include "fs.h"
 #include "io.h"
+#include "keyword.h"
+#include "native.h"
 #include "object.h"
 #include "process.h"
 #include "util.h"
+#include "vm-impl.h"
 
 typedef enum { PROCESS_NOT_STARTED, PROCESS_RUNNING, PROCESS_FINISHED } MescheProcessState;
 
@@ -163,7 +166,7 @@ Value process_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
 }
 
 Value process_directory_set_msc(MescheMemory *mem, int arg_count, Value *args) {
-  chdir(AS_CSTRING(args[0])) == 0 ? T_VAL : NIL_VAL;
+  chdir(AS_CSTRING(args[0])) == 0 ? TRUE_VAL : FALSE_VAL;
 }
 
 MescheProcess *process_start_inner(int arg_count, Value *args) {
@@ -227,9 +230,9 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
       // Now read up the symbol to configure the stream
       if (IS_SYMBOL(args[++i])) {
         ObjectSymbol *value = AS_SYMBOL(args[i]);
-        if (memcmp(value->string.chars, "pipe", 4) == 0) {
+        if (memcmp(value->name->chars, "pipe", 4) == 0) {
           pipe_config[stream_index] = PIPE_FD;
-        } else if (memcmp(value->string.chars, "inherit", 7) == 0) {
+        } else if (memcmp(value->name->chars, "inherit", 7) == 0) {
           pipe_config[stream_index] = PIPE_INHERIT;
         }
 
@@ -273,7 +276,7 @@ Value process_stdout_msc(MescheMemory *mem, int arg_count, Value *args) {
     return OBJECT_VAL(mesche_object_make_pointer((VM *)mem, process->stdout_fp, false));
   }
 
-  return NIL_VAL;
+  return FALSE_VAL;
 }
 
 Value process_stderr_msc(MescheMemory *mem, int arg_count, Value *args) {
@@ -282,7 +285,7 @@ Value process_stderr_msc(MescheMemory *mem, int arg_count, Value *args) {
     return OBJECT_VAL(mesche_object_make_pointer((VM *)mem, process->stderr_fp, false));
   }
 
-  return NIL_VAL;
+  return FALSE_VAL;
 }
 
 void mesche_process_module_init(VM *vm) {

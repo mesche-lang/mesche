@@ -13,7 +13,7 @@
             (assert-if? (assq 'bar '((foo 1 2) (bar 1 2 3) (baz 4)))
                         "assq did not return an item.")))
 
-        (verify "returns nil if the key is not found"
+        (verify "returns #f if the key is not found"
           (lambda ()
             (assert-if? (not (assq 'baz '((foo 1 2) (bar 1 2 3))))
                         "assq did not return an item.")))))
@@ -26,4 +26,4 @@
             (assert-equal? '(1 2 3 4 5)
                            (append '(1 2) '(3) '(4 5))))))))
 
-)
+  )

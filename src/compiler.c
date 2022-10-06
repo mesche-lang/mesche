@@ -5,19 +5,61 @@
 #include "chunk.h"
 #include "compiler.h"
 #include "disasm.h"
+#include "gc.h"
+#include "keyword.h"
 #include "mem.h"
+#include "module.h"
 #include "object.h"
 #include "op.h"
-#include "scanner.h"
+#include "reader.h"
 #include "string.h"
+#include "syntax.h"
 #include "util.h"
-#include "vm.h"
+#include "vm-impl.h"
 
 #define UINT8_COUNT (UINT8_MAX + 1)
 #define MAX_AND_OR_EXPRS 100
 
 // NOTE: Enable this for diagnostic purposes
 /* #define DEBUG_PRINT_CODE */
+
+#define CHECK_VALUE(val, knd) (IS_SYNTAX(val) && val.kind == knd) || val.kind == knd
+
+#define CHECK_OBJECT(val, knd)                                                                     \
+  (IS_SYNTAX(val) && IS_OBJECT(AS_SYNTAX(val)->value) &&                                           \
+   OBJECT_KIND(AS_SYNTAX(val)->value) == knd) ||                                                   \
+      (IS_OBJECT(val) && OBJECT_KIND(val) == knd)
+
+#define CHECK_EMPTY(val) CHECK_VALUE(val, VALUE_EMPTY)
+#define CHECK_CONS(val) CHECK_OBJECT(val, ObjectKindCons)
+#define CHECK_SYMBOL(val) CHECK_OBJECT(val, ObjectKindSymbol)
+
+#define EXPECT_OBJECT(is_macro, as_macro, src_var, result_var, description)                        \
+  if (IS_SYNTAX(src_var) && is_macro(AS_SYNTAX(src_var)->value)) {                                 \
+    result_var = as_macro(AS_SYNTAX(src_var)->value);                                              \
+  } else {                                                                                         \
+    ObjectSyntax *_syntax = AS_SYNTAX(src_var);                                                    \
+    PANIC("Expected %s at line %d, column %d in %s.", description, _syntax->line, _syntax->column, \
+          _syntax->file_name ? _syntax->file_name->chars : "(unknown)");                           \
+  }
+
+#define EXPECT_CONS(src_var, result_var)                                                           \
+  EXPECT_OBJECT(IS_CONS, AS_CONS, src_var, result_var, "list")
+
+#define EXPECT_SYMBOL(src_var, result_var)                                                         \
+  EXPECT_OBJECT(IS_SYMBOL, AS_SYMBOL, src_var, result_var, "symbol")
+
+#define MAYBE_OBJECT(is_macro, as_macro, src_var, result_var)                                      \
+  if (IS_SYNTAX(src_var) && is_macro(AS_SYNTAX(src_var)->value)) {                                 \
+    result_var = as_macro(AS_SYNTAX(src_var)->value);                                              \
+  } else {                                                                                         \
+    result_var = NULL;                                                                             \
+  }
+
+#define MAYBE_CONS(src_var, result_var) MAYBE_OBJECT(IS_CONS, AS_CONS, src_var, result_var)
+#define MAYBE_STRING(src_var, result_var) MAYBE_OBJECT(IS_STRING, AS_STRING, src_var, result_var)
+#define MAYBE_SYMBOL(src_var, result_var) MAYBE_OBJECT(IS_SYMBOL, AS_SYMBOL, src_var, result_var)
+#define MAYBE_KEYWORD(src_var, result_var) MAYBE_OBJECT(IS_KEYWORD, AS_KEYWORD, src_var, result_var)
 
 // Contains context for parsing tokens irrespective of the current compilation
 // scope
@@ -30,7 +72,7 @@ typedef struct {
 
 // Stores details relating to a local variable binding in a scope
 typedef struct {
-  Token name;
+  Value name;
   int depth;
   bool is_captured;
 } Local;
@@ -48,7 +90,6 @@ typedef struct CompilerContext {
   VM *vm;
   MescheMemory *mem;
   Parser *parser;
-  Scanner *scanner;
 
   ObjectModule *module; // NOTE: Might be null if not compiling module
   ObjectFunction *function;
@@ -74,10 +115,10 @@ void mesche_compiler_mark_roots(void *target) {
   CompilerContext *ctx = (CompilerContext *)target;
 
   while (ctx != NULL) {
-    mesche_mem_mark_object(ctx->vm, (Object *)ctx->function);
+    mesche_gc_mark_object(ctx->vm, (Object *)ctx->function);
 
     if (ctx->module != NULL) {
-      mesche_mem_mark_object(ctx->vm, (Object *)ctx->module);
+      mesche_gc_mark_object(ctx->vm, (Object *)ctx->module);
     }
 
     ctx = ctx->parent;
@@ -90,7 +131,6 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
     ctx->parent = parent;
     ctx->vm = parent->vm;
     ctx->parser = parent->parser;
-    ctx->scanner = parent->scanner;
   }
 
   // Set up the compiler state for this scope
@@ -108,12 +148,12 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
   Local *local = &ctx->locals[ctx->local_count++];
   local->depth = 0;
   local->is_captured = false;
-  local->name.start = "";
-  local->name.length = 0;
+  local->name = FALSE_VAL;
 }
 
 static void compiler_emit_byte(CompilerContext *ctx, uint8_t byte) {
-  mesche_chunk_write(ctx->mem, &ctx->function->chunk, byte, ctx->parser->previous.line);
+  // TODO: How do I get the line/col here?
+  mesche_chunk_write(ctx->mem, &ctx->function->chunk, byte, 0);
 }
 
 static void compiler_emit_bytes(CompilerContext *ctx, uint8_t byte1, uint8_t byte2) {
@@ -175,9 +215,9 @@ static ObjectFunction *compiler_end(CompilerContext *ctx) {
   compiler_emit_return(ctx);
 
 #ifdef DEBUG_PRINT_CODE
-  if (!ctx->parser->had_error) {
-    mesche_disasm_function(function);
-  }
+  /* if (!ctx->parser->had_error) { */
+  mesche_disasm_function(function);
+  /* } */
 #endif
 
   return function;
@@ -194,8 +234,9 @@ static uint8_t compiler_make_constant(CompilerContext *ctx, Value value) {
   return (uint8_t)constant;
 }
 
-static void compiler_emit_constant(CompilerContext *ctx, Value value) {
-  compiler_emit_bytes(ctx, OP_CONSTANT, compiler_make_constant(ctx, value));
+static void compiler_emit_constant(CompilerContext *ctx, Value syntax) {
+  compiler_emit_bytes(ctx, OP_CONSTANT,
+                      compiler_make_constant(ctx, mesche_syntax_to_datum(ctx->vm, syntax)));
 }
 
 static void compiler_error_at_token(CompilerContext *ctx, Token *token, const char *message) {
@@ -228,135 +269,64 @@ static void compiler_error_at_current(CompilerContext *ctx, const char *message)
   compiler_error_at_token(ctx, &ctx->parser->current, message);
 }
 
-static void compiler_advance(CompilerContext *ctx) {
-  ctx->parser->previous = ctx->parser->current;
-
-  for (;;) {
-    ctx->parser->current = mesche_scanner_next_token(ctx->scanner);
-    // Consume tokens until we hit a non-error token
-    if (ctx->parser->current.kind != TokenKindError)
-      break;
-
-    // Create a parse error
-    // TODO: Correct error
-    compiler_error_at_current(ctx, "Reached a compiler error");
-  }
-}
-
-static void compiler_consume(CompilerContext *ctx, TokenKind kind, const char *message) {
-  if (ctx->parser->current.kind == kind) {
-    compiler_advance(ctx);
-    return;
-  }
-
-  // If we didn't reach the expected token time, return an error
-  compiler_error_at_current(ctx, message);
-}
-
-static void compiler_consume_sub(CompilerContext *ctx, TokenKind sub_kind, const char *message) {
-  if (ctx->parser->current.sub_kind == sub_kind) {
-    compiler_advance(ctx);
-    return;
-  }
-
-  // If we didn't reach the expected token time, return an error
-  compiler_error_at_current(ctx, message);
-}
-
 // Predefine the main parser function
-static void compiler_parse_expr(CompilerContext *ctx);
+static void compiler_parse_expr(CompilerContext *ctx, Value value);
 
-static void compiler_parse_number(CompilerContext *ctx) {
-  double value = strtod(ctx->parser->previous.start, NULL);
-  compiler_emit_constant(ctx, NUMBER_VAL(value));
-}
-
-static ObjectString *compiler_parse_string_literal(CompilerContext *ctx) {
-  return mesche_object_make_string(ctx->vm, ctx->parser->previous.start + 1,
-                                   ctx->parser->previous.length - 2);
-}
-
-static void compiler_parse_string(CompilerContext *ctx) {
-  compiler_emit_constant(ctx, OBJECT_VAL(compiler_parse_string_literal(ctx)));
-}
-
-static ObjectKeyword *compiler_parse_keyword_literal(CompilerContext *ctx) {
-  return mesche_object_make_keyword(ctx->vm, ctx->parser->previous.start + 1,
-                                    ctx->parser->previous.length - 1);
-}
-
-static void compiler_parse_keyword(CompilerContext *ctx) {
-  compiler_emit_constant(ctx, OBJECT_VAL(compiler_parse_keyword_literal(ctx)));
-}
-
-static void compiler_parse_symbol_literal(CompilerContext *ctx) {
-  compiler_emit_constant(ctx,
-                         OBJECT_VAL(mesche_object_make_symbol(ctx->vm, ctx->parser->previous.start,
-                                                              ctx->parser->previous.length)));
-}
-
-static void compiler_parse_literal(CompilerContext *ctx) {
-  switch (ctx->parser->previous.kind) {
-  case TokenKindNil:
-    compiler_emit_byte(ctx, OP_NIL);
-    break;
-  case TokenKindTrue:
-    compiler_emit_byte(ctx, OP_T);
-    break;
-  default:
-    return; // We shouldn't hit this
+static void compiler_parse_literal(CompilerContext *ctx, Value syntax) {
+  Value value = AS_SYNTAX(syntax)->value;
+  if (IS_TRUE(value)) {
+    compiler_emit_byte(ctx, OP_TRUE);
+  } else if (IS_FALSE(value)) {
+    compiler_emit_byte(ctx, OP_FALSE);
+  } else if (IS_EMPTY(value)) {
+    compiler_emit_byte(ctx, OP_EMPTY);
+  } else {
+    // TODO: Is an error really needed here?
   }
 }
 
-static void compiler_parse_block(CompilerContext *ctx, bool expect_end_paren) {
+static void compiler_parse_block(CompilerContext *ctx, Value syntax) {
   int previous_tail_count = ctx->tail_site_count;
+
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
 
   for (;;) {
     // Reset the tail sites to log again for the sub-expression
     ctx->tail_site_count = previous_tail_count;
 
     // Parse the sub-expression
-    compiler_parse_expr(ctx);
+    compiler_parse_expr(ctx, list->car);
 
     // Are we finished parsing expressions?
-    if (expect_end_paren && ctx->parser->current.kind == TokenKindRightParen) {
-      compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
-
+    if (IS_EMPTY(list->cdr)) {
       // Log the possible tail call if there should be one
       compiler_log_tail_site(ctx);
-
-      break;
-    } else if (ctx->parser->current.kind == TokenKindEOF) {
       break;
     } else {
       // If we continue the loop, pop the last expression result
       compiler_emit_byte(ctx, OP_POP);
+      EXPECT_CONS(list->cdr, list);
     }
   }
 }
 
-static bool compiler_identifiers_equal(Token *a, Token *b) {
-  if (a->length != b->length)
-    return false;
-  return memcmp(a->start, b->start, a->length) == 0;
-}
-
-static void compiler_add_local(CompilerContext *ctx, Token name) {
+static void compiler_add_local(CompilerContext *ctx, ObjectSymbol *symbol) {
   if (ctx->local_count == UINT8_COUNT) {
     compiler_error(ctx, "Too many local variables defined in function.");
   }
 
   Local *local = &ctx->locals[ctx->local_count++];
-  local->name = name; // No need to copy, will only be used during compilation
-  local->depth = -1;  // The variable is uninitialized until assigned
+  local->name = OBJECT_VAL(symbol->name);
+  local->depth = -1; // The variable is uninitialized until assigned
   local->is_captured = false;
 }
 
-static int compiler_resolve_local(CompilerContext *ctx, Token *name) {
+static int compiler_resolve_local(CompilerContext *ctx, ObjectSymbol *symbol) {
   // Find the identifier by name in scope chain
   for (int i = ctx->local_count - 1; i >= 0; i--) {
     Local *local = &ctx->locals[i];
-    if (compiler_identifiers_equal(name, &local->name)) {
+    if (mesche_value_eqv_p(OBJECT_VAL(symbol->name), local->name)) {
       if (local->depth == -1) {
         compiler_error(ctx, "Referenced variable before it was bound");
       }
@@ -366,8 +336,7 @@ static int compiler_resolve_local(CompilerContext *ctx, Token *name) {
 
   // Is the name the same as the function name?
   ObjectString *func_name = ctx->function->name;
-  if (func_name && func_name->length == name->length &&
-      memcmp(func_name->chars, name->start, func_name->length) == 0) {
+  if (func_name && mesche_value_eqv_p(OBJECT_VAL(func_name), OBJECT_VAL(symbol->name))) {
     // Slot 0 points to the function itself
     return 0;
   }
@@ -395,20 +364,20 @@ static int compiler_add_upvalue(CompilerContext *ctx, uint8_t index, bool is_loc
   return ctx->function->upvalue_count++;
 }
 
-static int compiler_resolve_upvalue(CompilerContext *ctx, Token *name) {
+static int compiler_resolve_upvalue(CompilerContext *ctx, ObjectSymbol *symbol) {
   // If there's no parent context then there's nothing to close over
   if (ctx->parent == NULL)
     return -1;
 
   // First try to resolve the variable as a local in the parent
-  int local = compiler_resolve_local(ctx->parent, name);
+  int local = compiler_resolve_local(ctx->parent, symbol);
   if (local != -1) {
     ctx->parent->locals[local].is_captured = true;
     return compiler_add_upvalue(ctx, (uint8_t)local, true);
   }
 
   // If we didn't find a local, look for a binding from a parent scope
-  int upvalue = compiler_resolve_upvalue(ctx->parent, name);
+  int upvalue = compiler_resolve_upvalue(ctx->parent, symbol);
   if (upvalue != -1) {
     return compiler_add_upvalue(ctx, (uint8_t)upvalue, false);
   }
@@ -426,14 +395,13 @@ static void compiler_local_mark_initialized(CompilerContext *ctx) {
   ctx->locals[ctx->local_count - 1].depth = ctx->scope_depth;
 }
 
-static void compiler_declare_variable(CompilerContext *ctx) {
+static void compiler_declare_variable(CompilerContext *ctx, ObjectSymbol *symbol) {
   // No need to declare a global, it will be dynamically resolved
   if (ctx->scope_depth == 0)
     return;
 
   // Start from the most recent local and work backwards to
   // find an existing variable with the same binding in this scope
-  Token *name = &ctx->parser->previous;
   for (int i = ctx->local_count - 1; i >= 0; i--) {
     // If the local is in a different scope, stop looking
     Local *local = &ctx->locals[i];
@@ -441,51 +409,53 @@ static void compiler_declare_variable(CompilerContext *ctx) {
       break;
 
     // In the same scope, is the identifier the same?
-    if (compiler_identifiers_equal(name, &local->name)) {
+    if (mesche_value_eqv_p(OBJECT_VAL(symbol->name), local->name)) {
       compiler_error(ctx, "Duplicate variable binding in 'let'");
       return;
     }
   }
 
   // Add a local binding for the name
-  compiler_add_local(ctx, *name);
+  compiler_add_local(ctx, symbol);
 }
 
-static uint8_t compiler_parse_symbol(CompilerContext *ctx, bool is_global) {
+static uint8_t compiler_parse_symbol(CompilerContext *ctx, ObjectSymbol *symbol, bool is_global) {
   // Declare the variable and exit if we're in a local scope
   if (!is_global && ctx->scope_depth > 0) {
-    compiler_declare_variable(ctx);
+    compiler_declare_variable(ctx, symbol);
     return 0;
   }
-
-  Value new_string = OBJECT_VAL(mesche_object_make_string(ctx->vm, ctx->parser->previous.start,
-                                                          ctx->parser->previous.length));
 
   // Reuse an existing constant for the same string if possible
   uint8_t constant = 0;
   bool value_found = false;
   Chunk *chunk = &ctx->function->chunk;
+  Value symbol_name = OBJECT_VAL(symbol->name);
   for (int i = 0; i < chunk->constants.count; i++) {
-    if (mesche_value_eqv_p(chunk->constants.values[i], new_string)) {
+    if (mesche_value_eqv_p(chunk->constants.values[i], symbol_name)) {
       constant = i;
       value_found = true;
       break;
     }
   }
 
-  return value_found ? constant : compiler_make_constant(ctx, new_string);
+  return value_found ? constant : compiler_make_constant(ctx, symbol_name);
 }
 
-static void compiler_parse_identifier(CompilerContext *ctx) {
+static void compiler_parse_identifier(CompilerContext *ctx, Value syntax) {
+  ObjectSymbol *symbol;
+  EXPECT_SYMBOL(syntax, symbol);
+
   // Are we looking at a local variable?
-  int local_index = compiler_resolve_local(ctx, &ctx->parser->previous);
+  // TODO: Leverage lexical information in the syntax object
+  int local_index = compiler_resolve_local(ctx, symbol);
   if (local_index != -1) {
     compiler_emit_bytes(ctx, OP_READ_LOCAL, (uint8_t)local_index);
-  } else if ((local_index = compiler_resolve_upvalue(ctx, &ctx->parser->previous)) != -1) {
+  } else if ((local_index = compiler_resolve_upvalue(ctx, symbol)) != -1) {
     // Found an upvalue
     compiler_emit_bytes(ctx, OP_READ_UPVALUE, (uint8_t)local_index);
   } else {
-    uint8_t variable_constant = compiler_parse_symbol(ctx, true);
+    uint8_t variable_constant = compiler_parse_symbol(ctx, symbol, true);
     compiler_emit_bytes(ctx, OP_READ_GLOBAL, variable_constant);
   }
 }
@@ -521,27 +491,36 @@ static uint8_t compiler_define_variable(CompilerContext *ctx, uint8_t variable_c
   return compiler_define_variable_ex(ctx, variable_constant, NULL);
 }
 
-static void compiler_parse_set(CompilerContext *ctx) {
-  compiler_consume(ctx, TokenKindSymbol, "Expected symbol after 'set!'");
+static void compiler_parse_set(CompilerContext *ctx, Value syntax) {
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
+
+  // The first list item must be a symbol
+  ObjectSymbol *symbol;
+  EXPECT_SYMBOL(list->car, symbol);
 
   uint8_t instr = OP_SET_LOCAL;
-  int arg = compiler_resolve_local(ctx, &ctx->parser->previous);
+  int arg = compiler_resolve_local(ctx, symbol);
 
   // If there isn't a local, use a global variable instead
   if (arg != -1) {
     // Do nothing, all values are already set.
-  } else if ((arg = compiler_resolve_upvalue(ctx, &ctx->parser->previous)) != -1) {
+  } else if ((arg = compiler_resolve_upvalue(ctx, symbol)) != -1) {
     instr = OP_SET_UPVALUE;
   } else {
-    arg = compiler_parse_symbol(ctx, true);
+    arg = compiler_parse_symbol(ctx, symbol, true);
     instr = OP_SET_GLOBAL;
   }
 
-  compiler_parse_expr(ctx);
+  // Parse the value to set
+  EXPECT_CONS(list->cdr, list);
+  compiler_parse_expr(ctx, list->car);
   compiler_emit_bytes(ctx, instr, arg);
 
-  compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
+  /* compiler_consume(ctx, TokenKindRightParen, "Expected closing paren."); */
 }
+
+// TODO: This was used for the previous implementation, might be deletable!
 
 static void compiler_begin_scope(CompilerContext *ctx) { ctx->scope_depth++; }
 
@@ -561,8 +540,11 @@ static void compiler_end_scope(CompilerContext *ctx) {
   }
 }
 
-static void compiler_parse_let(CompilerContext *ctx) {
+static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
   int previous_tail_count = ctx->tail_site_count;
+
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
 
   // Create a new compiler context for parsing the let body as an inline
   // function
@@ -570,21 +552,14 @@ static void compiler_parse_let(CompilerContext *ctx) {
   compiler_init_context(&let_ctx, ctx, TYPE_FUNCTION);
   compiler_begin_scope(&let_ctx);
 
-  // Parse the name of the let
-  if (let_ctx.parser->current.kind == TokenKindSymbol) {
-    if (let_ctx.parser->current.sub_kind != TokenKindNone) {
-      compiler_error(&let_ctx, "Used an invalid symbol for named let.");
-    }
-
-    // Parse the let name and save it as the function name
-    compiler_advance(&let_ctx);
-    Token let_name_token = let_ctx.parser->previous;
-    ObjectString *let_name =
-        mesche_object_make_string(let_ctx.vm, let_name_token.start, let_name_token.length);
-    let_ctx.function->name = let_name;
+  // Parse the name of the let, if any
+  ObjectSymbol *let_name;
+  MAYBE_SYMBOL(list->car, let_name);
+  if (let_name) {
+    // Use the symbol name as the let function's name
+    let_ctx.function->name = let_name->name;
+    EXPECT_CONS(list->cdr, list);
   }
-
-  compiler_consume(&let_ctx, TokenKindLeftParen, "Expected left paren after 'let'");
 
   // Before parsing arguments, skip ahead to leave enough space to write out the
   // OP_CLOSURE instruction with the right constant value before writing out the
@@ -592,39 +567,47 @@ static void compiler_parse_let(CompilerContext *ctx) {
   int func_offset = ctx->function->chunk.count;
   ctx->function->chunk.count += 2;
 
-  for (;;) {
-    if (let_ctx.parser->current.kind == TokenKindRightParen) {
-      compiler_consume(&let_ctx, TokenKindRightParen, "Expected right paren to end bindings");
-      break;
+  // Process the binding list
+  Value bindings = list->car;
+  if (!IS_SYNTAX(bindings) || !IS_EMPTY(AS_SYNTAX(bindings)->value)) {
+    while (!IS_EMPTY(bindings)) {
+      ObjectCons *binding_list;
+      EXPECT_CONS(bindings, binding_list);
+
+      // Increase the binding (function argument) count
+      let_ctx.function->arity++;
+      if (let_ctx.function->arity > 255) {
+        compiler_error_at_current(&let_ctx, "Let cannot have more than 255 bindings.");
+      }
+
+      // Parse the symbol for the binding
+      // TODO: Support binding without value?
+      ObjectCons *binding;
+      EXPECT_CONS(binding_list->car, binding);
+
+      ObjectSymbol *symbol;
+      EXPECT_SYMBOL(binding->car, symbol);
+
+      uint8_t constant = compiler_parse_symbol(&let_ctx, symbol, false);
+      compiler_define_variable(&let_ctx, constant);
+
+      // Parse the binding value into the *original context* where the let
+      // function will be called so that it gets passed as a parameter to the
+      // lambda.
+      EXPECT_CONS(binding->cdr, binding);
+      compiler_parse_expr(ctx, binding->car);
+
+      // Reset the tail site count so that the binding expression will not be
+      // treated as a tail call site
+      ctx->tail_site_count = previous_tail_count;
+
+      // Move to the next binding in the list
+      bindings = binding_list->cdr;
     }
-
-    compiler_consume(&let_ctx, TokenKindLeftParen, "Expected left paren to start binding pair");
-
-    // Increase the binding (function argument) count
-    let_ctx.function->arity++;
-    if (let_ctx.function->arity > 255) {
-      compiler_error_at_current(&let_ctx, "Let cannot have more than 255 bindings.");
-    }
-
-    // Parse the symbol for the binding
-    compiler_advance(&let_ctx);
-    uint8_t constant = compiler_parse_symbol(&let_ctx, false);
-    compiler_define_variable(&let_ctx, constant);
-
-    // Parse the binding value into the *original context* where the let
-    // function will be called so that it gets passed as a parameter to the
-    // lambda.
-    compiler_parse_expr(ctx);
-
-    compiler_consume(&let_ctx, TokenKindRightParen, "Expected right paren to end binding pair");
-
-    // Reset the tail site count so that the binding expression will not be
-    // treated as a tail call site
-    ctx->tail_site_count = previous_tail_count;
   }
 
   // Parse the let body
-  compiler_parse_block(&let_ctx, true);
+  compiler_parse_block(&let_ctx, list->cdr);
 
   // Finish the function and write out its constant and closure back where it
   // needs to go
@@ -657,132 +640,100 @@ static void compiler_parse_let(CompilerContext *ctx) {
   compiler_log_tail_site(ctx);
 }
 
-static void compiler_parse_define_attributes(CompilerContext *ctx,
-                                             DefineAttributes *define_attributes) {
+static Value compiler_parse_define_attributes(CompilerContext *ctx, Value syntax,
+                                              DefineAttributes *define_attributes) {
+  ObjectCons *list;
   for (;;) {
-    if (ctx->parser->current.kind == TokenKindKeyword) {
-      compiler_advance(ctx);
-
-      ObjectKeyword *keyword = compiler_parse_keyword_literal(ctx);
+    // Look for :export keyword
+    ObjectKeyword *keyword;
+    EXPECT_CONS(syntax, list);
+    MAYBE_KEYWORD(list->car, keyword);
+    if (keyword) {
+      syntax = list->cdr;
       if (memcmp(keyword->string.chars, "export", 7) == 0) {
         define_attributes->is_export = true;
       } else {
         // TODO: Warn on unknown keywords?
       }
-
-      // Don't explicitly free here, the GC will clean it up
     } else {
       break;
     }
   }
 
   // Look for a docstring
-  if (ctx->parser->current.kind == TokenKindString) {
-    // Parse the string and store it
-    compiler_advance(ctx);
-    define_attributes->doc_string = compiler_parse_string_literal(ctx);
+  ObjectString *string;
+  EXPECT_CONS(syntax, list);
+  MAYBE_STRING(list->car, string);
+  if (string) {
+    // Store it as the documentation string
+    define_attributes->doc_string = string;
+    syntax = list->cdr;
   }
+
+  return syntax;
 }
 
 static bool compiler_compare_keyword(Token keyword, const char *expected_name) {
   return memcmp(keyword.start + 1, expected_name, strlen(expected_name)) == 0;
 }
 
-static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name,
-                                        DefineAttributes *define_attributes) {
+static void compiler_parse_lambda_inner(CompilerContext *ctx, Value formals, Value syntax,
+                                        ObjectString *name) {
+  ObjectCons *body;
+  EXPECT_CONS(syntax, body);
+
   // Create a new compiler context for parsing the function body
   CompilerContext func_ctx;
   compiler_init_context(&func_ctx, ctx, TYPE_FUNCTION);
   compiler_begin_scope(&func_ctx);
 
   ArgType arg_type = ARG_POSITIONAL;
-  bool in_keyword_list = false;
-  for (;;) {
-    // Try to parse each argument until we reach a closing paren
-    if (func_ctx.parser->current.kind == TokenKindRightParen) {
-      compiler_consume(&func_ctx, TokenKindRightParen,
-                       "Expected right paren to end argument list.");
-      break;
-    }
 
-    if (func_ctx.parser->current.kind == TokenKindKeyword) {
-      if (compiler_compare_keyword(func_ctx.parser->current, "keys")) {
-        arg_type = ARG_KEYWORD;
-      } else if (compiler_compare_keyword(func_ctx.parser->current, "rest")) {
-        arg_type = ARG_REST;
-      } else {
-        compiler_error_at_current(&func_ctx, "Unexpected function definition keyword.");
-      }
-      compiler_advance(&func_ctx);
-    }
+  // Parse the parameter list, one of the following:
+  // - A list of symbols
+  // - An improper list consed with a symbol
+  // - A single symbol as "rest" param
+  ObjectSymbol *param;
+  ObjectCons *formal_list;
+  if (!IS_SYNTAX(formals) || !IS_EMPTY(AS_SYNTAX(formals)->value)) {
+    while (!IS_EMPTY(formals)) {
+      param = NULL;
+      MAYBE_SYMBOL(formals, param);
+      MAYBE_CONS(formals, formal_list);
 
-    if (arg_type < ARG_KEYWORD) {
-      // Increase the function argument count (arity)
-      func_ctx.function->arity++;
-      if (func_ctx.function->arity > 255) {
-        compiler_error_at_current(&func_ctx, "Function cannot have more than 255 parameters.");
-      }
-
-      if (arg_type == ARG_REST) {
-        if (func_ctx.function->rest_arg_index > 0) {
-          compiler_error_at_current(&func_ctx,
-                                    "Function cannot have more than one :rest argument.");
+      if (param || formal_list) {
+        bool is_rest_param = false;
+        if (param) {
+          // Now that we've found the rest parameter, exit after processing it
+          is_rest_param = true;
+          formals = EMPTY_VAL;
+        } else {
+          EXPECT_SYMBOL(formal_list->car, param)
+          formals = formal_list->cdr;
         }
 
-        func_ctx.function->rest_arg_index = func_ctx.function->arity;
+        uint8_t constant = compiler_parse_symbol(&func_ctx, param, false);
+        compiler_define_variable(&func_ctx, constant);
+
+        func_ctx.function->arity++;
+        if (func_ctx.function->arity > 255) {
+          compiler_error_at_current(&func_ctx, "Function cannot have more than 255 parameters.");
+        }
+
+        // Store knowledge of the "rest" parameter
+        if (is_rest_param) {
+          func_ctx.function->rest_arg_index = func_ctx.function->arity;
+        }
       }
-
-      // Parse the argument
-      // TODO: Ensure a symbol comes next
-      compiler_advance(&func_ctx);
-      uint8_t constant = compiler_parse_symbol(&func_ctx, false);
-      compiler_define_variable(&func_ctx, constant);
-    } else {
-      compiler_advance(&func_ctx);
-
-      // Check if there is a default value pair
-      bool has_default = false;
-      if (func_ctx.parser->current.kind == TokenKindLeftParen) {
-        compiler_advance(&func_ctx);
-        has_default = true;
-      }
-
-      // Parse the keyword name and define it as a local variable
-      uint8_t constant = compiler_parse_symbol(&func_ctx, false);
-      compiler_define_variable(&func_ctx, constant);
-
-      // Parse the default if we're expecting one
-      uint8_t default_constant = 0;
-      if (has_default) {
-        compiler_consume(&func_ctx, TokenKindRightParen,
-                         "Expected right paren after keyword default value.");
-      }
-
-      // Add the keyword definition to the function
-      ObjectString *keyword_name = mesche_object_make_string(ctx->vm, ctx->parser->previous.start,
-                                                             ctx->parser->previous.length);
-      mesche_vm_stack_push(func_ctx.vm, OBJECT_VAL(keyword_name));
-      KeywordArgument keyword_arg = {
-          .name = keyword_name,
-          .default_index = default_constant,
-      };
-
-      mesche_object_function_keyword_add(ctx->mem, func_ctx.function, keyword_arg);
-      mesche_vm_stack_pop(func_ctx.vm);
     }
   }
 
-  // Parse any definition attributes if necessary
-  if (define_attributes) {
-    compiler_parse_define_attributes(&func_ctx, define_attributes);
-  }
-
-  // Parse body
-  compiler_parse_block(&func_ctx, true);
+  // Parse the body (just pass syntax directly)
+  compiler_parse_block(&func_ctx, syntax);
 
   // Get the parsed function and store it in a constant
+  func_ctx.function->name = name;
   ObjectFunction *function = compiler_end(&func_ctx);
-  function->name = name;
   compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
 
   // Write out the references to each upvalue as arguments to OP_CLOSURE
@@ -795,138 +746,181 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, ObjectString *name
   ctx->vm->current_compiler = ctx;
 }
 
-static void compiler_parse_lambda(CompilerContext *ctx) {
-  // Consume the leading paren and let the shared lambda parser take over
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to begin argument list.");
-  compiler_parse_lambda_inner(ctx, NULL, NULL);
+static void compiler_parse_lambda(CompilerContext *ctx, Value syntax) {
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
+  compiler_parse_lambda_inner(ctx, list->car, list->cdr, NULL);
 }
 
-static void compiler_parse_apply(CompilerContext *ctx) {
+static void compiler_parse_apply(CompilerContext *ctx, Value syntax) {
   // Apply is very simple, it just takes two expressions, one for the function and the other
   // for the list.
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
 
-  compiler_parse_expr(ctx);
-  compiler_parse_expr(ctx);
+  // TODO: Might need to unwrap cdr better
+  Value callee = list->car;
+  EXPECT_CONS(list->cdr, list)
+
+  compiler_parse_expr(ctx, callee);
+  compiler_parse_expr(ctx, list->car);
   compiler_emit_byte(ctx, OP_APPLY);
-
-  compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
 }
 
-static void compiler_parse_reset(CompilerContext *ctx) {
+static void compiler_parse_reset(CompilerContext *ctx, Value syntax) {
+  // Unwrap the expression to reach the inner lambda
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
+  EXPECT_CONS(list->car, list);
+
   // `reset` requires a lambda expression with no arguments
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to begin argument list.");
-  compiler_consume(ctx, TokenKindSymbol, "Expected lambda expression.");
-  if (ctx->parser->previous.sub_kind != TokenKindLambda) {
-    compiler_error(ctx, "Expected lambda expression after 'reset'.");
-  }
+  ObjectSymbol *symbol;
+  EXPECT_SYMBOL(list->car, symbol);
+  /* compiler_error(ctx, "Expected lambda expression after 'reset'."); */
 
   // Parse the lambda body of the reset expression *after* emitting OP_RESET so
   // that we can set the new reset context before adding the closure to the
   // stack.
   compiler_emit_byte(ctx, OP_RESET);
-  compiler_parse_lambda(ctx);
+  compiler_parse_lambda(ctx, list->cdr);
   compiler_emit_call(ctx, 0, 0);
   compiler_emit_byte(ctx, OP_NOP); // Avoid turning this into a tail call!
-  compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
 }
 
-static void compiler_parse_shift(CompilerContext *ctx) {
-  // `shift` requires a lambda expression with one arguments
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to begin argument list.");
-  compiler_consume(ctx, TokenKindSymbol, "Expected lambda expression.");
-  if (ctx->parser->previous.sub_kind != TokenKindLambda) {
-    compiler_error(ctx, "Expected lambda expression after 'shift'.");
-  }
+static void compiler_parse_shift(CompilerContext *ctx, Value syntax) {
+  // Unwrap the expression to reach the inner lambda
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
+  EXPECT_CONS(list->car, list);
+
+  // `shift` requires a lambda expression with one argument
+  ObjectSymbol *symbol;
+  EXPECT_SYMBOL(list->car, symbol);
+  /* compiler_error(ctx, "Expected lambda expression after 'shift'."); */
 
   // Parse the lambda body of the reset expression *before* emitting OP_SHIFT so
   // that the shift body will be invoked with the continuation function as its
   // parameter.
-  compiler_parse_lambda(ctx);
+  compiler_parse_lambda(ctx, list->cdr);
   compiler_emit_byte(ctx, OP_SHIFT);
   compiler_emit_call(ctx, 1, 0);
   compiler_emit_byte(ctx, OP_NOP); // Avoid turning this into a tail call!
-  compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
 }
 
-static void compiler_parse_define(CompilerContext *ctx) {
+static void compiler_parse_define(CompilerContext *ctx, Value syntax) {
   DefineAttributes define_attributes;
   define_attributes.is_export = false;
   define_attributes.doc_string = NULL;
 
-  // The next symbol should either be a symbol or an open paren to define a
-  // function
-  bool is_func = false;
-  if (ctx->parser->current.kind == TokenKindLeftParen) {
-    compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'define'");
-    is_func = true;
-  }
-
-  compiler_consume(ctx, TokenKindSymbol, "Expected symbol after 'define'");
-
-  uint8_t variable_constant = compiler_parse_symbol(ctx, true);
-  if (is_func) {
-    // Let the lambda parser take over
-    compiler_parse_lambda_inner(ctx,
-                                AS_STRING(ctx->function->chunk.constants.values[variable_constant]),
-                                &define_attributes);
-  } else {
-    // Parse a normal expression
-    compiler_parse_expr(ctx);
-    compiler_parse_define_attributes(ctx, &define_attributes);
-    compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
-  }
-
   // TODO: Only allow defines at the top of let/lambda bodies
+  // TODO: Check ctx for this!
+
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
+
+  // The next expression should either be a symbol or an open paren to define a
+  // function
+  ObjectSymbol *symbol = NULL;
+  Value formals = FALSE_VAL;
+  Value body = EMPTY_VAL;
+  MAYBE_SYMBOL(list->car, symbol);
+  if (symbol) {
+    body = list->cdr;
+  } else {
+    ObjectCons *formals_list;
+    EXPECT_CONS(list->car, formals_list);
+    EXPECT_SYMBOL(formals_list->car, symbol);
+    formals = formals_list->cdr;
+    body = list->cdr;
+  }
+
+  uint8_t variable_constant = compiler_parse_symbol(ctx, symbol, true);
+  if (!IS_FALSE(formals)) {
+    // Handle define attributes and continue parsing the lambda body where that
+    // leaves off
+    body = compiler_parse_define_attributes(ctx, body, &define_attributes);
+    compiler_parse_lambda_inner(ctx, formals, body, symbol->name);
+  } else {
+    // Unwrap the body first
+    EXPECT_CONS(body, list);
+    body = list->car;
+
+    // Parse the value expression for the binding
+    compiler_parse_expr(ctx, body);
+
+    // Only consider attributes if there's something else in the `define` list
+    if (!IS_EMPTY(list->cdr)) {
+      compiler_parse_define_attributes(ctx, list->cdr, &define_attributes);
+    }
+  }
+
   compiler_define_variable_ex(ctx, variable_constant, &define_attributes);
 }
 
-static void compiler_parse_module_name(CompilerContext *ctx) {
+static void compiler_parse_module_name(CompilerContext *ctx, Value syntax) {
   char *module_name = NULL;
   uint8_t symbol_count = 0;
 
-  for (;;) {
-    // Bail out when we hit the closing parentheses
-    if (ctx->parser->current.kind == TokenKindRightParen) {
-      compiler_advance(ctx);
-      if (module_name != NULL) {
-        // If a module name was parsed, emit the constant module name string
-        ObjectString *module_name_str =
-            mesche_object_make_string(ctx->vm, module_name, strlen(module_name));
-        compiler_emit_constant(ctx, OBJECT_VAL(module_name_str));
+  // Step in and get access to the real module name symbol list
+  ObjectCons *cons;
+  EXPECT_CONS(syntax, cons);
+  syntax = cons->car;
 
-        // The module name has been copied, so free the temporary string
-        free(module_name);
+  while (!IS_EMPTY(syntax)) {
+    EXPECT_CONS(syntax, cons);
+
+    ObjectSymbol *symbol;
+    MAYBE_SYMBOL(cons->car, symbol);
+    if (symbol) {
+      if (symbol_count == 0) {
+        module_name = malloc(sizeof(char) * (symbol->name->length + 1));
+        memcpy(module_name, symbol->name->chars, sizeof(char) * symbol->name->length);
+        module_name[symbol->name->length] = '\0';
       } else {
-        compiler_error(ctx, "No symbols were found where module name was expected.");
+        char *prev_name = module_name;
+        module_name = mesche_cstring_join(module_name, strlen(module_name), symbol->name->chars,
+                                          symbol->name->length, " ");
+        free(prev_name);
       }
 
-      return;
-    }
-
-    compiler_consume(ctx, TokenKindSymbol, "Module names can only be comprised of symbols.");
-
-    // Create the module name string from all subsequent symbols
-    if (symbol_count == 0) {
-      module_name = malloc(sizeof(char) * (ctx->parser->previous.length + 1));
-      memcpy(module_name, ctx->parser->previous.start, sizeof(char) * ctx->parser->previous.length);
-      module_name[ctx->parser->previous.length] = '\0';
+      // Move to the next symbol in the list
+      syntax = cons->cdr;
+      symbol_count++;
     } else {
-      char *prev_name = module_name;
-      module_name =
-          mesche_cstring_join(module_name, strlen(module_name), ctx->parser->previous.start,
-                              ctx->parser->previous.length, " ");
-      free(prev_name);
+      /* compiler_consume(ctx, TokenKindSymbol, "Module names can only be comprised of
+  symbols."); */
     }
+  }
 
-    symbol_count++;
+  if (module_name != NULL) {
+    // If a module name was parsed, emit the constant module name string
+    ObjectString *module_name_str =
+        mesche_object_make_string(ctx->vm, module_name, strlen(module_name));
+    compiler_emit_constant(ctx, OBJECT_VAL(module_name_str));
+
+    // The module name has been copied, so free the temporary string
+    free(module_name);
+  } else {
+    compiler_error(ctx, "No symbols were found where module name was expected.");
   }
 }
 
-static void compiler_parse_define_module(CompilerContext *ctx) {
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'define-module'");
+static void compiler_parse_module_import(CompilerContext *ctx, Value syntax) {
+  compiler_parse_module_name(ctx, syntax);
+  compiler_emit_byte(ctx, OP_IMPORT_MODULE);
+}
+
+static void compiler_parse_module_enter(CompilerContext *ctx, Value syntax) {
+  compiler_parse_module_name(ctx, syntax);
+  compiler_emit_byte(ctx, OP_ENTER_MODULE);
+}
+
+static void compiler_parse_define_module(CompilerContext *ctx, Value syntax) {
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
 
   // Read the symbol list for the module path
-  compiler_parse_module_name(ctx);
+  compiler_parse_module_name(ctx, syntax);
   compiler_emit_byte(ctx, OP_DEFINE_MODULE);
 
   // Store the module name if we're currently parsing a module file
@@ -936,60 +930,73 @@ static void compiler_parse_define_module(CompilerContext *ctx) {
   }
 
   // Check for a possible 'import' expression
-  if (ctx->parser->current.kind == TokenKindLeftParen) {
-    compiler_consume(ctx, TokenKindLeftParen, "Expected left paren to start inner expression.");
-    compiler_consume_sub(ctx, TokenKindImport, "Expected 'import' inside of 'define-module'.");
+  Value imports = list->cdr;
+  if (!IS_EMPTY(imports)) {
+    // Unwrap the imports list (effectively a cadr)
+    EXPECT_CONS(list->cdr, list);
+    EXPECT_CONS(list->car, list);
+
+    // TODO: ERROR
+    /* compiler_consume_sub(ctx, TokenKindImport, "Expected 'import' inside of
+'define-module'."); */
+
+    // Verify that the first expression is the symbol `import`
+    ObjectSymbol *symbol;
+    EXPECT_SYMBOL(list->car, symbol);
+    if (symbol->token_kind != TokenKindImport) {
+      // TODO: Error
+      printf("Expected 'import' inside of 'define-module'.");
+      return;
+    }
 
     // There can be multiple import specifications
-    for (;;) {
-      if (ctx->parser->current.kind == TokenKindRightParen) {
-        // Import list is done
-        compiler_advance(ctx);
-        break;
-      }
-
-      compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'import'");
-
-      compiler_parse_module_name(ctx);
-      compiler_emit_byte(ctx, OP_RESOLVE_MODULE);
-      compiler_emit_byte(ctx, OP_IMPORT_MODULE);
+    imports = list->cdr;
+    while (!IS_EMPTY(imports)) {
+      /* compiler_parse_module_name(ctx, import_list->car); */
+      EXPECT_CONS(imports, list)
+      compiler_parse_module_import(ctx, imports);
       compiler_emit_byte(ctx, OP_POP);
+      imports = list->cdr;
     }
   }
-
-  compiler_consume(ctx, TokenKindRightParen,
-                   "Expected right paren to complete 'define-module' expression.");
 }
 
-static void compiler_parse_define_record_type(CompilerContext *ctx) {
-  compiler_consume(ctx, TokenKindSymbol, "Expected symbol for record name.");
-  compiler_parse_symbol_literal(ctx);
+// TODO: This should be replaced with a syntax-case
+static void compiler_parse_define_record_type(CompilerContext *ctx, Value syntax) {
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
 
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'define-record-type'");
-  compiler_consume(ctx, TokenKindSymbol, "Expected 'fields' after 'define-record-type'.");
+  // Parse and emit the name symbol
+  ObjectSymbol *record_name;
+  EXPECT_SYMBOL(list->car, record_name);
+  compiler_emit_constant(ctx, list->car);
 
+  // Find the fields list (effectively a cadr)
+  EXPECT_CONS(list->cdr, list)
+  EXPECT_CONS(list->car, list);
+
+  ObjectSymbol *fields_symbol;
+  EXPECT_SYMBOL(list->car, fields_symbol)
   uint8_t field_count = 0;
-  if (memcmp(ctx->parser->previous.start, "fields", 6) == 0) {
+  if (fields_symbol && memcmp(fields_symbol->name->chars, "fields", 6) == 0) {
     // Read the key-value pairs inside of the form
-    for (;;) {
-      // Exit if we've reached the end of fields
-      if (ctx->parser->current.kind == TokenKindRightParen) {
-        compiler_advance(ctx);
-        break;
-      }
-
-      if (ctx->parser->current.kind == TokenKindSymbol) {
-        compiler_advance(ctx);
-        compiler_parse_symbol_literal(ctx);
-        compiler_emit_constant(ctx, NIL_VAL);
+    Value fields = list->cdr;
+    while (!IS_EMPTY(fields)) {
+      ObjectSymbol *field_name;
+      EXPECT_CONS(fields, list);
+      EXPECT_SYMBOL(list->car, field_name);
+      if (field_name) {
+        compiler_emit_constant(ctx, list->car);
+        compiler_emit_constant(ctx, FALSE_VAL);
         field_count++;
       }
+
+      fields = list->cdr;
     }
   } else {
-    compiler_error(ctx, "Expected 'fields' after 'define-record-type'.");
+    PANIC("Expected 'fields' after 'define-record-type'.");
+    return;
   }
-
-  compiler_consume(ctx, TokenKindRightParen, "Expected right paren to end 'define-record-type'.");
 
   compiler_emit_bytes(ctx, OP_DEFINE_RECORD, field_count);
 }
@@ -1017,12 +1024,15 @@ static void compiler_patch_jump(CompilerContext *ctx, int offset) {
   ctx->function->chunk.code[offset + 1] = jump & 0xff;
 }
 
-static void compiler_parse_if(CompilerContext *ctx) {
+static void compiler_parse_if(CompilerContext *ctx, Value syntax) {
   int previous_tail_count = ctx->tail_site_count;
+
+  ObjectCons *cons;
+  EXPECT_CONS(syntax, cons);
 
   // Parse predicate and write out a jump instruction to the else code
   // path if the predicate evaluates to false
-  compiler_parse_expr(ctx);
+  compiler_parse_expr(ctx, cons->car);
   int jump_origin = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
 
   // Restore the tail count because the predicate expression should never
@@ -1035,7 +1045,8 @@ static void compiler_parse_if(CompilerContext *ctx) {
 
   // Parse truth expr and log the tail call if the expression was still in a
   // tail context afterward
-  compiler_parse_expr(ctx);
+  EXPECT_CONS(cons->cdr, cons);
+  compiler_parse_expr(ctx, cons->car);
   compiler_log_tail_site(ctx);
 
   // Write out a jump from the end of the truth case to the end of the expression
@@ -1048,33 +1059,27 @@ static void compiler_parse_if(CompilerContext *ctx) {
   compiler_emit_byte(ctx, OP_POP);
 
   // Is there an else expression?
-  if (ctx->parser->current.kind != TokenKindRightParen) {
-    // Parse false expr
-    compiler_parse_expr(ctx);
+  if (!IS_EMPTY(cons->cdr)) {
+    EXPECT_CONS(cons->cdr, cons);
+    compiler_parse_expr(ctx, cons->car);
     compiler_log_tail_site(ctx);
   } else {
-    // Push a 'nil' onto the value stack if there was no else
-    compiler_emit_byte(ctx, OP_NIL);
+    // Push a '#f' onto the value stack if there was no else
+    compiler_emit_byte(ctx, OP_FALSE);
   }
 
   // Patch the jump instruction after the false path has been compiled
   compiler_patch_jump(ctx, else_jump);
-
-  compiler_consume(ctx, TokenKindRightParen, "Expected right paren to end 'if' expression");
 }
 
-static void compiler_parse_or(CompilerContext *ctx) {
+static void compiler_parse_or(CompilerContext *ctx, Value syntax) {
   int prev_jump = -1;
   int expr_count = 0;
   int end_jumps[MAX_AND_OR_EXPRS];
 
-  for (;;) {
-    // Exit if we've reached the end of the expressions
-    if (ctx->parser->current.kind == TokenKindRightParen) {
-      compiler_advance(ctx);
-      break;
-    }
-
+  ObjectCons *list;
+  Value exprs = syntax;
+  while (!IS_EMPTY(exprs)) {
     if (expr_count > 0) {
       // If it evaluates to false, jump to the next expression
       prev_jump = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
@@ -1090,8 +1095,10 @@ static void compiler_parse_or(CompilerContext *ctx) {
     }
 
     // Parse the expression
-    compiler_parse_expr(ctx);
+    EXPECT_CONS(exprs, list);
+    compiler_parse_expr(ctx, list->car);
     expr_count++;
+    exprs = list->cdr;
 
     if (expr_count == MAX_AND_OR_EXPRS) {
       compiler_error(ctx, "Exceeded the maximum number of expressions in an `and`.");
@@ -1107,18 +1114,14 @@ static void compiler_parse_or(CompilerContext *ctx) {
   }
 }
 
-static void compiler_parse_and(CompilerContext *ctx) {
+static void compiler_parse_and(CompilerContext *ctx, Value syntax) {
   int prev_jump = -1;
   int expr_count = 0;
   int end_jumps[MAX_AND_OR_EXPRS];
 
-  for (;;) {
-    // Exit if we've reached the end of the expressions
-    if (ctx->parser->current.kind == TokenKindRightParen) {
-      compiler_advance(ctx);
-      break;
-    }
-
+  ObjectCons *list;
+  Value exprs = syntax;
+  while (!IS_EMPTY(exprs)) {
     if (expr_count > 0) {
       // If it evaluates to false, jump to the end of the expression list
       end_jumps[expr_count - 1] = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
@@ -1128,8 +1131,10 @@ static void compiler_parse_and(CompilerContext *ctx) {
     }
 
     // Parse the expression
-    compiler_parse_expr(ctx);
+    EXPECT_CONS(exprs, list);
+    compiler_parse_expr(ctx, list->car);
     expr_count++;
+    exprs = list->cdr;
 
     if (expr_count == MAX_AND_OR_EXPRS) {
       compiler_error(ctx, "Exceeded the maximum number of expressions in an `and`.");
@@ -1145,10 +1150,9 @@ static void compiler_parse_and(CompilerContext *ctx) {
   }
 }
 
-static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token,
+static bool compiler_parse_operator_call(CompilerContext *ctx, ObjectSymbol *symbol,
                                          uint8_t operand_count) {
-  TokenKind operator= call_token->sub_kind;
-  switch (operator) {
+  switch (symbol->token_kind) {
   case TokenKindPlus:
     compiler_emit_byte(ctx, OP_ADD);
     break;
@@ -1195,161 +1199,20 @@ static void compiler_parse_operator_call(CompilerContext *ctx, Token *call_token
     compiler_emit_byte(ctx, OP_DISPLAY);
     break;
   default:
-    return; // We shouldn't hit this
-  }
-}
-
-static void compiler_parse_module_import(CompilerContext *ctx) {
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'module-import'");
-  compiler_parse_module_name(ctx);
-  compiler_emit_byte(ctx, OP_RESOLVE_MODULE);
-  compiler_emit_byte(ctx, OP_IMPORT_MODULE);
-  compiler_consume(ctx, TokenKindRightParen, "Expected right paren to complete 'module-import'");
-}
-
-static void compiler_parse_module_enter(CompilerContext *ctx) {
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after 'module-enter'");
-  compiler_parse_module_name(ctx);
-  compiler_emit_byte(ctx, OP_ENTER_MODULE);
-  compiler_consume(ctx, TokenKindRightParen, "Expected right paren to complete 'module-enter'");
-}
-
-static void compiler_parse_load_file(CompilerContext *ctx) {
-  compiler_parse_expr(ctx);
-  compiler_emit_byte(ctx, OP_LOAD_FILE);
-  compiler_consume(ctx, TokenKindRightParen, "Expected right paren to complete 'load-file'");
-}
-
-static bool compiler_parse_special_form(CompilerContext *ctx, Token *call_token) {
-  TokenKind operator= call_token->sub_kind;
-  switch (operator) {
-  case TokenKindOr:
-    compiler_parse_or(ctx);
-    break;
-  case TokenKindAnd:
-    compiler_parse_and(ctx);
-    break;
-  case TokenKindBegin:
-    compiler_parse_block(ctx, true);
-    break;
-  case TokenKindDefine:
-    compiler_parse_define(ctx);
-    break;
-  case TokenKindDefineModule:
-    compiler_parse_define_module(ctx);
-    break;
-  case TokenKindModuleImport:
-    compiler_parse_module_import(ctx);
-    break;
-  case TokenKindModuleEnter:
-    compiler_parse_module_enter(ctx);
-    break;
-  case TokenKindDefineRecordType:
-    compiler_parse_define_record_type(ctx);
-    break;
-  case TokenKindLoadFile:
-    compiler_parse_load_file(ctx);
-    break;
-  case TokenKindSet:
-    compiler_parse_set(ctx);
-    break;
-  case TokenKindLet:
-    compiler_parse_let(ctx);
-    break;
-  case TokenKindIf:
-    compiler_parse_if(ctx);
-    break;
-  case TokenKindLambda:
-    compiler_parse_lambda(ctx);
-    break;
-  case TokenKindApply:
-    compiler_parse_apply(ctx);
-    break;
-  case TokenKindReset:
-    compiler_parse_reset(ctx);
-    break;
-  case TokenKindShift:
-    compiler_parse_shift(ctx);
-    break;
-  case TokenKindBreak:
-    // Just emit OP_BREAK and be done
-    compiler_emit_byte(ctx, OP_BREAK);
-    compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
-    break;
-  default:
-    return false; // No special form found
+    return false;
   }
 
   return true;
 }
 
-static void compiler_parse_quoted_list(CompilerContext *ctx) {
-  bool is_backquote = ctx->parser->previous.kind == TokenKindBackquote;
-
-  // If this is a quoted symbol, just parse it and return
-  if (ctx->parser->current.kind == TokenKindSymbol) {
-    compiler_advance(ctx);
-    compiler_parse_symbol_literal(ctx);
-    return;
-  }
-
-  // Ensure the open paren is there
-  compiler_consume(ctx, TokenKindLeftParen, "Expected left paren after quote.");
-
-  uint8_t item_count = 0;
-  for (;;) {
-    // Bail out when we hit the closing parentheses
-    if (ctx->parser->current.kind == TokenKindRightParen) {
-      // Emit the list operation
-      compiler_advance(ctx);
-      compiler_emit_bytes(ctx, OP_LIST, item_count);
-      return;
-    }
-
-    // Parse certain token types differently in quoted lists
-    switch (ctx->parser->current.kind) {
-    case TokenKindSymbol:
-      compiler_advance(ctx);
-      compiler_parse_symbol_literal(ctx);
-      break;
-    case TokenKindLeftParen:
-      compiler_parse_quoted_list(ctx);
-      break;
-    case TokenKindUnquote:
-      // Evaluate whatever the next expression is
-      compiler_advance(ctx);
-
-      if (ctx->parser->current.kind == TokenKindSplice) {
-        PANIC("Splicing is not currently supported.\n");
-      }
-
-      if (!is_backquote) {
-        compiler_error(ctx, "Cannot use unquote in a non-backquoted expression.");
-        compiler_parse_quoted_list(ctx);
-      } else {
-        compiler_parse_expr(ctx);
-      }
-      break;
-    case TokenKindPlus:
-    case TokenKindMinus:
-    case TokenKindSlash:
-    case TokenKindStar:
-      compiler_advance(ctx);
-      compiler_parse_symbol_literal(ctx);
-      break;
-    default:
-      compiler_parse_expr(ctx);
-    }
-
-    item_count++;
-  }
+static void compiler_parse_load_file(CompilerContext *ctx, Value syntax) {
+  ObjectCons *cons;
+  EXPECT_CONS(syntax, cons);
+  compiler_parse_expr(ctx, cons->car);
+  compiler_emit_byte(ctx, OP_LOAD_FILE);
 }
 
-static void compiler_parse_list(CompilerContext *ctx) {
-  // Try to find the call target (this could be an expression!)
-  Token call_token = ctx->parser->current;
-  bool is_call = false;
-
+static void compiler_parse_list(CompilerContext *ctx, Value syntax) {
   // Possibilities
   // - Primitive command with its own opcode
   // - Special form that has non-standard call semantics
@@ -1358,167 +1221,230 @@ static void compiler_parse_list(CompilerContext *ctx) {
   // - Expression that evaluates to lambda
   // In the latter 3 cases, compiler the callee before the arguments
 
-  // Evaluate the first expression if it's not an operator
-  if ((call_token.kind == TokenKindSymbol && call_token.sub_kind == TokenKindNone) ||
-      call_token.kind == TokenKindLeftParen) {
-    compiler_parse_expr(ctx);
-    is_call = true;
-  } else {
-    compiler_advance(ctx);
-    if (compiler_parse_special_form(ctx, &call_token)) {
-      // A special form was parsed, exit here
+  // Get the pair that starts the list
+  ObjectCons *list;
+  EXPECT_CONS(syntax, list);
+
+  // Get the expression in the call position
+  Value callee = list->car;
+  Value args = list->cdr;
+
+  ObjectSymbol *symbol;
+  MAYBE_SYMBOL(callee, symbol);
+  if (symbol) {
+    // Is the first item a symbol that refers to a core syntax or special form?
+    switch (symbol->token_kind) {
+    case TokenKindOr:
+      compiler_parse_or(ctx, args);
+      return;
+    case TokenKindAnd:
+      compiler_parse_and(ctx, args);
+      return;
+    case TokenKindLambda:
+      compiler_parse_lambda(ctx, args);
+      return;
+    case TokenKindLet:
+      compiler_parse_let(ctx, args);
+      return;
+    case TokenKindDefine:
+      compiler_parse_define(ctx, args);
+      return;
+    case TokenKindSet:
+      compiler_parse_set(ctx, args);
+      return;
+    case TokenKindIf:
+      compiler_parse_if(ctx, args);
+      return;
+    case TokenKindBegin:
+      compiler_parse_block(ctx, args);
+      return;
+    case TokenKindQuote: {
+      ObjectCons *cons;
+      EXPECT_CONS(args, cons);
+      compiler_emit_constant(ctx, cons->car);
       return;
     }
+    case TokenKindApply:
+      compiler_parse_apply(ctx, args);
+      return;
+    case TokenKindShift:
+      compiler_parse_shift(ctx, args);
+      return;
+    case TokenKindReset:
+      compiler_parse_reset(ctx, args);
+      return;
+    case TokenKindDefineModule:
+      compiler_parse_define_module(ctx, args);
+      return;
+    case TokenKindModuleImport:
+      compiler_parse_module_import(ctx, args);
+      return;
+    case TokenKindModuleEnter:
+      compiler_parse_module_enter(ctx, args);
+      return;
+    case TokenKindDefineRecordType:
+      compiler_parse_define_record_type(ctx, args);
+      return;
+    case TokenKindLoadFile:
+      compiler_parse_load_file(ctx, args);
+      return;
+    case TokenKindBreak:
+      // Just emit OP_BREAK and be done
+      compiler_emit_byte(ctx, OP_BREAK);
+      return;
+    }
+  }
+
+  // If we didn't see an operator, evaluate the callee expression to get the
+  // procedure we need to invoke
+  bool is_operator = symbol && symbol->token_kind != TokenKindNone;
+  if (!is_operator) {
+    compiler_parse_expr(ctx, callee);
   }
 
   // Parse argument expressions until we reach a right paren
   uint8_t arg_count = 0;
-  uint8_t keyword_count = 0;
-  bool in_keyword_args = false;
-  for (;;) {
-    // Bail out when we hit the closing parentheses
-    if (ctx->parser->current.kind == TokenKindRightParen) {
-      if (is_call == false) {
-        // Compile the primitive operator
-        compiler_parse_operator_call(ctx, &call_token, arg_count);
-      } else {
-        // If this is a legitimate call, it can be turned into a tail call
-        compiler_emit_call(ctx, arg_count, keyword_count);
-      }
+  while (!IS_EMPTY(args)) {
+    ObjectCons *cons;
+    EXPECT_CONS(args, cons);
 
-      // Consume the right paren and exit
-      compiler_consume(ctx, TokenKindRightParen, "Expected closing paren.");
-      return;
-    }
+    // Compile next positional parameter
+    compiler_parse_expr(ctx, cons->car);
+    args = cons->cdr;
 
-    // Is it a keyword argument?
-    if (!in_keyword_args && ctx->parser->current.kind == TokenKindKeyword) {
-      // We're only looking for keyword arguments from this point on
-      in_keyword_args = true;
-    }
-
-    if (in_keyword_args) {
-      // Parse the keyword and value
-      compiler_consume(ctx, TokenKindKeyword, "Expected keyword.");
-      compiler_parse_keyword(ctx);
-      compiler_parse_expr(ctx);
-      keyword_count++; // Add one more argument for the value we just parsed
-    } else {
-      // Compile next positional parameter
-      compiler_parse_expr(ctx);
-      arg_count++;
-    }
-
+    arg_count++;
     if (arg_count == 255) {
       compiler_error(ctx, "Cannot pass more than 255 arguments in a function call.");
     }
-    if (arg_count == 15) {
-      compiler_error(ctx, "Cannot pass more than 15 keyword arguments in a function call.");
+  }
+
+  // Finally, emit the OP_CALL if we're invoking a procedure
+  if (is_operator) {
+    // Emit the operator call
+    is_operator = compiler_parse_operator_call(ctx, symbol, arg_count);
+  }
+
+  // One last chance to decide that this should be an OP_CALL
+  if (!is_operator) {
+    compiler_emit_call(ctx, arg_count, 0);
+  }
+}
+
+static void compiler_parse_syntax(CompilerContext *ctx, ObjectSyntax *syntax) {
+  // Try expanding the expression before parsing it.  This enables syntax
+  // transformers which return a single value like `(and 3)`.
+  if (ctx->vm->expander && IS_CONS(syntax->value)) {
+    /* printf("BEFORE EXPAND:\n"); */
+    /* mesche_value_print(OBJECT_VAL(syntax)); */
+    /* printf("\n\n"); */
+
+    // Execute the expander function on top of the existing VM stack, if any
+    if (mesche_vm_call_closure(ctx->vm, ctx->vm->expander, 1, (Value[]){OBJECT_VAL(syntax)}) !=
+        INTERPRET_OK) {
+      PANIC("FAILED TO EXECUTE EXPANDER\n");
+    }
+
+    // TODO: Ensure that we don't need any special GC/stack mechanics here
+    // TODO: Verify that we get a syntax value back
+    syntax = AS_SYNTAX(mesche_vm_stack_pop(ctx->vm));
+
+    /* printf("AFTER EXPAND:\n"); */
+    /* mesche_value_print(OBJECT_VAL(syntax)); */
+    /* printf("\n\n"); */
+  }
+
+  // Most types are literals and should be stored as constants
+  Value value = syntax->value;
+  if (IS_NUMBER(value) || IS_STRING(value) || IS_KEYWORD(value)) {
+    compiler_emit_constant(ctx, OBJECT_VAL(syntax));
+  } else if (IS_FALSE(value) || IS_TRUE(value) || IS_EMPTY(value)) {
+    compiler_parse_literal(ctx, OBJECT_VAL(syntax));
+  } else if (IS_SYMBOL(value)) {
+    compiler_parse_identifier(ctx, OBJECT_VAL(syntax));
+  } else if (IS_CONS(value)) {
+    compiler_parse_list(ctx, OBJECT_VAL(syntax));
+  } else {
+    // TODO: Write an error
+    // TODO: Use the syntax object directly
+    if (IS_OBJECT(value)) {
+      PANIC("Unexpected expression object: %d\n", AS_OBJECT(value)->kind);
+    } else {
+      PANIC("Unexpected expression value: %d\n", value.kind);
     }
   }
 }
 
-void (*ParserFunc)(CompilerContext *ctx);
-
-static void compiler_parse_expr(CompilerContext *ctx) {
-  if (ctx->parser->current.kind == TokenKindEOF) {
-    return;
-  }
-
-  // An expression can either be a single element or a list
-  if (ctx->parser->current.kind == TokenKindLeftParen) {
-    compiler_advance(ctx);
-    compiler_parse_list(ctx);
-    return;
-  }
-
-  // Is it a list that starts with a quote?
-  if (ctx->parser->current.kind == TokenKindQuote ||
-      ctx->parser->current.kind == TokenKindBackquote) {
-    compiler_advance(ctx);
-    compiler_parse_quoted_list(ctx);
-    return;
-  }
-
-  // Must be an atom
-  if (ctx->parser->current.kind == TokenKindNumber) {
-    compiler_advance(ctx);
-    compiler_parse_number(ctx);
-  } else if (ctx->parser->current.kind == TokenKindNil) {
-    compiler_advance(ctx);
-    compiler_parse_literal(ctx);
-  } else if (ctx->parser->current.kind == TokenKindTrue) {
-    compiler_advance(ctx);
-    compiler_parse_literal(ctx);
-  } else if (ctx->parser->current.kind == TokenKindString) {
-    compiler_advance(ctx);
-    compiler_parse_string(ctx);
-  } else if (ctx->parser->current.kind == TokenKindKeyword) {
-    compiler_advance(ctx);
-    compiler_parse_keyword(ctx);
-  } else if (ctx->parser->current.kind == TokenKindSymbol) {
-    compiler_advance(ctx);
-    compiler_parse_identifier(ctx);
+// TODO: Eventually get rid of this or merge with compiler_parse_syntax
+static void compiler_parse_expr(CompilerContext *ctx, Value expr) {
+  // Ensure that the expression is a syntax
+  if (IS_SYNTAX(expr)) {
+    compiler_parse_syntax(ctx, AS_SYNTAX(expr));
   } else {
-    compiler_error_at_current(ctx, "Premature end of expression.");
+    PANIC("Received something other than a syntax!")
   }
 }
 
-ObjectFunction *mesche_compile_source(VM *vm, const char *script_source) {
-  Parser parser;
-  Scanner scanner;
-  mesche_scanner_init(&scanner, script_source);
+ObjectFunction *compile_all(CompilerContext *ctx, Reader *reader) {
+  // Read all expressions and compile them individually
+  // TODO: Catch and report errors!
+  bool pop_previous = false;
+  for (;;) {
+    // Read the next expression
+    ObjectSyntax *next_expr = mesche_reader_read_next(reader);
 
+    /* printf("EXPR: "); */
+    /* mesche_value_print(OBJECT_VAL(next_expr)); */
+    /* printf("\n"); */
+
+    if (!IS_EOF(next_expr->value)) {
+      // Should we pop the previous result before compiling the next expression?
+      if (pop_previous) {
+        // When reading all expressions in a file, pop the intermediate results
+        compiler_emit_byte(ctx, OP_POP);
+      }
+
+      // Parse the expression
+      compiler_parse_syntax(ctx, next_expr);
+
+      // Pop the result previous result before the next expression
+      pop_previous = true;
+    } else {
+      break;
+    }
+  }
+
+  // Retrieve the final function
+  return compiler_end(ctx);
+}
+
+ObjectFunction *mesche_compile_source(VM *vm, Reader *reader) {
   // Set up the context
   CompilerContext ctx = {
       .vm = vm,
-      .parser = &parser,
-      .scanner = &scanner,
   };
+
+  // Set up the compilation context
   compiler_init_context(&ctx, NULL, TYPE_SCRIPT);
 
-  // Reset parser error state
-  parser.had_error = false;
-  parser.panic_mode = false;
-
-  // Find the first legitimate token and then start parsing until
-  // we reach the end of the source
-  compiler_advance(&ctx);
-  compiler_parse_block(&ctx, false);
-  compiler_consume(&ctx, TokenKindEOF, "Expected end of expression.");
-
-  // Retrieve the final function
-  ObjectFunction *function = compiler_end(&ctx);
+  // Compile the whole source
+  ObjectFunction *function = compile_all(&ctx, reader);
 
   // Clear the VM's pointer to this compiler
   vm->current_compiler = NULL;
 
-  // Return the compiled function if there were no parse errors
-  return parser.had_error ? NULL : function;
+  // TODO: What kind of errors can occur?
+  return function;
 }
 
-ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, const char *module_source) {
-  // TODO: Deduplicate implementation code!
-  Parser parser;
-  Scanner scanner;
-  mesche_scanner_init(&scanner, module_source);
-
+ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, Reader *reader) {
   // Set up the context
-  CompilerContext ctx = {.vm = vm, .parser = &parser, .scanner = &scanner, .module = module};
+  CompilerContext ctx = {.vm = vm, .module = module};
+
+  // Set up the compilation context
   compiler_init_context(&ctx, NULL, TYPE_SCRIPT);
 
-  // Reset parser error state
-  parser.had_error = false;
-  parser.panic_mode = false;
-
-  // Find the first legitimate token and then start parsing until
-  // we reach the end of the source
-  compiler_advance(&ctx);
-  compiler_parse_block(&ctx, false);
-  compiler_consume(&ctx, TokenKindEOF, "Expected end of expression.");
-
-  // Retrieve the final function and assign it to the module
-  ObjectFunction *function = compiler_end(&ctx);
+  // Compile the whole source
+  ObjectFunction *function = compile_all(&ctx, reader);
 
   // Ensure the user defined a module in the file
   // TODO: How can we tell if the name is already set?
@@ -1532,5 +1458,5 @@ ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, const char *mo
   // Clear the VM's pointer to this compiler
   vm->current_compiler = NULL;
 
-  return parser.had_error ? NULL : ctx.module;
+  return ctx.module;
 }

@@ -7,6 +7,28 @@
 #include "string.h"
 #include "table.h"
 #include "util.h"
+#include "vm-impl.h"
+
+ObjectModule *mesche_object_make_module(VM *vm, ObjectString *name) {
+  ObjectModule *module = ALLOC_OBJECT(vm, ObjectModule, ObjectKindModule);
+  module->name = name;
+  module->init_function = NULL;
+  module->needs_init = false;
+
+  // Initialize binding tables
+  mesche_table_init(&module->locals);
+  mesche_value_array_init(&module->imports);
+  mesche_value_array_init(&module->exports);
+
+  return module;
+}
+
+void mesche_free_module(VM *vm, ObjectModule *module) {
+  mesche_table_free((MescheMemory *)vm, &module->locals);
+  mesche_value_array_free((MescheMemory *)vm, &module->imports);
+  mesche_value_array_free((MescheMemory *)vm, &module->exports);
+  FREE(vm, ObjectModule, module);
+}
 
 void mesche_module_print_name(ObjectModule *module) { printf("(%s)", module->name->chars); }
 
@@ -54,17 +76,19 @@ char *mesche_module_find_module_path(VM *vm, const char *module_name) {
   return NULL;
 }
 
-ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_name) {
+ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_name, bool run_init) {
   // First, check if the module is already loaded, return it if so
   // Then check the load path to see if a module file exists
   // If no file exists, create a new module with the name
 
-  bool name_popped = false;
-  Value module_val = NIL_VAL;
-  ObjectModule *module = NULL;
+  // Execution cases:
+  // - Resolving module that is not yet created
+  // - Resolving module that is not yet created and will never have an init function
+  // - Resolving module that is already created but not yet initialized
+  // - Resolving module that is created and initialized
 
-  // Push the module name string onto the stack to prevent garbage collection
-  mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
+  Value module_val = FALSE_VAL;
+  ObjectModule *module = NULL;
 
   // Has the module already been created somehow?
   if (mesche_table_get(&vm->modules, module_name, &module_val)) {
@@ -77,15 +101,17 @@ ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_name) {
     mesche_table_set((MescheMemory *)vm, &vm->modules, module_name, OBJECT_VAL(module));
     mesche_vm_stack_pop(vm);
 
-    // Pop the module name since the module now has a reference to it
-    name_popped = true;
-    mesche_vm_stack_pop(vm);
+    // The module will need to be initialized
+    module->needs_init = true;
+  }
 
-    // Look up the module in the load path
+  // If the module needs to be initialized, do it if requested
+  if (run_init && module->needs_init) {
     char *module_path = mesche_module_find_module_path(vm, module_name->chars);
     if (module_path) {
       // Load the module file to populate the empty module
       // TODO: Guard against circular module loads!
+      module->needs_init = false;
       InterpretResult result = mesche_vm_load_module(vm, module, module_path);
 
       if (result != INTERPRET_OK) {
@@ -93,21 +119,19 @@ ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_name) {
       }
 
       free(module_path);
+    } else {
+      // TODO: Should I log a message?
+      module->needs_init = false;
     }
-  }
-
-  // Pop the name string from the stack if it hasn't been already
-  if (!name_popped) {
-    mesche_vm_stack_pop(vm);
   }
 
   return module;
 }
 
-ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_name) {
+ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_name, bool run_init) {
   // Allocate the name string and push it to the stack temporarily to avoid GC
   ObjectString *module_name_str = mesche_object_make_string(vm, module_name, strlen(module_name));
-  ObjectModule *module = mesche_module_resolve_by_name(vm, module_name_str);
+  ObjectModule *module = mesche_module_resolve_by_name(vm, module_name_str, run_init);
 
   return module;
 }
@@ -116,7 +140,7 @@ void mesche_module_import(VM *vm, ObjectModule *from_module, ObjectModule *to_mo
   // TODO: Warn or error on shadowing?
   // Look up the value for each exported symbol and bind it in the current module
   for (int i = 0; i < from_module->exports.count; i++) {
-    Value export_value = NIL_VAL;
+    Value export_value = FALSE_VAL;
     ObjectString *export_name = AS_STRING(from_module->exports.values[i]);
     mesche_table_get(&from_module->locals, export_name, &export_value);
     mesche_table_set((MescheMemory *)vm, &to_module->locals, export_name, export_value);

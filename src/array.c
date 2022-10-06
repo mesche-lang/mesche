@@ -1,6 +1,19 @@
 #include "array.h"
+#include "native.h"
 #include "util.h"
 #include "value.h"
+
+ObjectArray *mesche_object_make_array(VM *vm) {
+  ObjectArray *array = ALLOC_OBJECT(vm, ObjectArray, ObjectKindArray);
+  mesche_value_array_init(&array->objects);
+
+  return array;
+}
+
+void mesche_free_array(VM *vm, ObjectArray *array) {
+  mesche_value_array_free((MescheMemory *)vm, &array->objects);
+  FREE(vm, ObjectArray, array);
+}
 
 Value mesche_array_push(MescheMemory *mem, ObjectArray *array, Value value) {
   mesche_value_array_write(mem, &array->objects, value);
@@ -15,7 +28,7 @@ Value array_make_msc(MescheMemory *mem, int arg_count, Value *args) {
     // TODO: Type check the argument
     int length = AS_NUMBER(args[0]);
     for (int i = 0; i < length; i++) {
-      mesche_array_push(mem, array, NIL_VAL);
+      mesche_array_push(mem, array, FALSE_VAL);
     }
   }
 

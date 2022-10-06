@@ -1,10 +1,14 @@
 #include "../src/compiler.h"
 #include "../src/object.h"
 #include "../src/op.h"
-#include "../src/vm.h"
+#include "../src/reader.h"
+#include "../src/scanner.h"
+#include "../src/vm-impl.h"
 #include "test.h"
 
 static VM vm;
+static Value read_value;
+static Reader reader;
 static ObjectFunction *out_func;
 static int byte_idx = 0;
 static uint16_t jump_val;
@@ -13,9 +17,12 @@ static uint16_t jump_val;
   InterpretResult result;                                                                          \
   mesche_vm_init(&vm, 0, NULL);
 
+#define USE_CORE() mesche_vm_register_core_modules(&vm, "./modules");
+
 #define COMPILE(source)                                                                            \
   byte_idx = 0;                                                                                    \
-  out_func = mesche_compile_source(&vm, source);                                                   \
+  mesche_reader_from_string(&vm.reader_context, &reader, source);                                  \
+  out_func = mesche_compile_source(&vm, &reader);                                                  \
   if (out_func == NULL) {                                                                          \
     FAIL("Compilation failed!");                                                                   \
   }
@@ -55,20 +62,40 @@ static uint16_t jump_val;
 /* jump_val |= out_func->chunk.code[byte_idx + 2]; \ */
 /* ASSERT_INT(byte_idx, offset + 3 + sign * jump_val); */
 
-static void compiles_escaped_strings() {
+static void compiles_quoted_exprs() {
   COMPILER_INIT();
 
-  // Need to double-escape these because we're typing them as C string literals.
-  // In a real source file, they won't be escaped like this.
-  COMPILE("\"ab\" "
-          "\"a\\nb\" "
-          "\"a\\tb\" "
-          "\"a\\\\b\" ");
+  COMPILE("'(1 2 3) "
+          "'() "
+          "(quote '()) "
+          "'35");
 
-  CHECK_STRING("ab", 0);
-  CHECK_STRING("a\nb", 1);
-  CHECK_STRING("a\tb", 2);
-  CHECK_STRING("a\\b", 3);
+  CHECK_BYTES(OP_CONSTANT, 0);
+  if (!IS_CONS(out_func->chunk.constants.values[0])) {
+    FAIL("Not a cons!");
+  }
+
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 1);
+  if (!IS_EMPTY(out_func->chunk.constants.values[1])) {
+    FAIL("Not an empty list!");
+  }
+
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 2);
+  Value constant = out_func->chunk.constants.values[2];
+  if (!IS_CONS(constant) || !IS_SYMBOL(AS_CONS(constant)->car) ||
+      !IS_EMPTY(AS_CONS(AS_CONS(constant)->cdr)->car)) {
+    FAIL("Not a quoted empty list!");
+  }
+
+  CHECK_BYTE(OP_POP);
+  CHECK_BYTES(OP_CONSTANT, 3);
+  if (!IS_NUMBER(out_func->chunk.constants.values[3])) {
+    FAIL("Not a number!");
+  }
+
+  CHECK_BYTE(OP_RETURN);
 
   PASS();
 }
@@ -79,8 +106,33 @@ static void compiles_module_import() {
   COMPILE("(module-import (test alpha))");
 
   CHECK_BYTES(OP_CONSTANT, 0);
-  CHECK_BYTE(OP_RESOLVE_MODULE);
   CHECK_BYTE(OP_IMPORT_MODULE);
+  CHECK_BYTE(OP_RETURN);
+
+  PASS();
+}
+
+static void compiles_lambda() {
+  COMPILER_INIT();
+
+  COMPILE("((lambda (x y)"
+          "  (+ x y))"
+          " 3 4)");
+
+  CHECK_BYTES(OP_CLOSURE, 0);
+  CHECK_BYTES(OP_CONSTANT, 1);
+  CHECK_BYTES(OP_CONSTANT, 2);
+  CHECK_CALL(OP_CALL, 2, 0);
+  CHECK_BYTE(OP_RETURN);
+
+  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[0]));
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 2); */
+  /* CHECK_CALL(OP_TAIL_CALL, 2, 0); */
+  CHECK_BYTES(OP_READ_LOCAL, 1);
+  CHECK_BYTES(OP_READ_LOCAL, 2);
+  CHECK_BYTE(OP_ADD);
   CHECK_BYTE(OP_RETURN);
 
   PASS();
@@ -102,6 +154,10 @@ static void compiles_let() {
   CHECK_BYTE(OP_RETURN);
 
   CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[2]));
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 2); */
+  /* CHECK_CALL(OP_TAIL_CALL, 2, 0); */
   CHECK_BYTES(OP_READ_LOCAL, 1);
   CHECK_BYTES(OP_READ_LOCAL, 2);
   CHECK_BYTE(OP_ADD);
@@ -128,6 +184,10 @@ static void compiles_named_let() {
   CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[2]));
 
   CHECK_BYTES(OP_READ_LOCAL, 0);
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 2); */
+  /* CHECK_CALL(OP_CALL, 2, 0); */
   CHECK_BYTES(OP_READ_LOCAL, 1);
   CHECK_BYTES(OP_READ_LOCAL, 2);
   CHECK_BYTE(OP_MULTIPLY);
@@ -141,19 +201,21 @@ static void compiles_named_let() {
 static void compiles_if_expr() {
   COMPILER_INIT();
 
-  COMPILE("(if t (+ 3 1) 2)");
+  COMPILE("(if #t (+ 3 1) 2)");
 
-  // Whenever a function gets called, as part of call initialization we also
-  // need to store the continuation function.
-
-  CHECK_BYTE(OP_T);
-  CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 13);
+  CHECK_BYTE(OP_TRUE);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 17);
   CHECK_BYTE(OP_POP);
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_CONSTANT, 1); */
+  /* CHECK_BYTES(OP_CONSTANT, 2); */
+  /* CHECK_CALL(OP_CALL, 2, 0); */
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_CONSTANT, 1);
   CHECK_BYTE(OP_ADD);
-  CHECK_JUMP(OP_JUMP, 10, 16);
+  CHECK_JUMP(OP_JUMP, 14, 20);
   CHECK_BYTE(OP_POP);
+  /* CHECK_BYTES(OP_CONSTANT, 3); */
   CHECK_BYTES(OP_CONSTANT, 2);
   CHECK_BYTE(OP_RETURN);
 
@@ -163,9 +225,9 @@ static void compiles_if_expr() {
 static void compiles_or_expr() {
   COMPILER_INIT();
 
-  COMPILE("(or nil 2 3)");
+  COMPILE("(or #f 2 3)");
 
-  CHECK_BYTE(OP_NIL);
+  CHECK_BYTE(OP_FALSE);
   CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 7);
   CHECK_JUMP(OP_JUMP, 4, 19);
 
@@ -184,14 +246,14 @@ static void compiles_or_expr() {
 static void compiles_and_expr() {
   COMPILER_INIT();
 
-  COMPILE("(and 2 nil 3)");
+  COMPILE("(and 2 #f 3)");
 
   CHECK_BYTES(OP_CONSTANT, 0);
-  CHECK_JUMP(OP_JUMP_IF_FALSE, 2, 13);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 2, 21);
 
   CHECK_BYTE(OP_POP);
-  CHECK_BYTE(OP_NIL);
-  CHECK_JUMP(OP_JUMP_IF_FALSE, 7, 13);
+  CHECK_BYTE(OP_FALSE);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 7, 16);
 
   CHECK_BYTE(OP_POP);
   CHECK_BYTES(OP_CONSTANT, 1);
@@ -203,37 +265,147 @@ static void compiles_and_expr() {
 static void compiles_if_expr_no_else() {
   COMPILER_INIT();
 
-  COMPILE("(if t (+ 3 1))");
+  COMPILE("(if #t (+ 3 1))");
 
-  CHECK_BYTE(OP_T);
-  CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 11);
+  CHECK_BYTE(OP_TRUE);
+  CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 17);
   CHECK_BYTE(OP_POP);
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_CONSTANT, 1); */
+  /* CHECK_BYTES(OP_CONSTANT, 2); */
+  /* CHECK_CALL(OP_CALL, 2, 0); */
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_CONSTANT, 1);
   CHECK_BYTE(OP_ADD);
-  CHECK_JUMP(OP_JUMP, 10, 16);
+  CHECK_JUMP(OP_JUMP, 14, 19);
   CHECK_BYTE(OP_POP);
-  CHECK_BYTE(OP_NIL);
+  CHECK_BYTE(OP_FALSE);
   CHECK_BYTE(OP_RETURN);
 
   PASS();
 }
 
-static void compiles_lambda_rest_keyword_args() {
+static void compiles_lambda_rest_args() {
   COMPILER_INIT();
 
-  COMPILE("(define (rest-func x y :rest args)"
+  COMPILE("(define (rest-func x y . args)"
           "  (display args))");
 
   ObjectFunction *func = AS_FUNCTION(out_func->chunk.constants.values[1]);
-  ASSERT_INT(func->rest_arg_index, 3);
+  ASSERT_INT(3, func->rest_arg_index);
 
-  COMPILE("(define (rest-func :rest args :keys x y)"
+  COMPILE("(define x (lambda (x y . args)"
+          "            (display args)))");
+
+  func = AS_FUNCTION(out_func->chunk.constants.values[1]);
+  ASSERT_INT(3, func->rest_arg_index);
+
+  COMPILE("(define (rest-func . args)"
           "  (display args))");
 
   func = AS_FUNCTION(out_func->chunk.constants.values[1]);
-  ASSERT_INT(func->rest_arg_index, 1);
-  ASSERT_INT(func->keyword_args.count, 2);
+  ASSERT_INT(1, func->rest_arg_index);
+
+  COMPILE("(define x (lambda args"
+          "            (display args)))");
+
+  func = AS_FUNCTION(out_func->chunk.constants.values[1]);
+  ASSERT_INT(1, func->rest_arg_index);
+
+  PASS();
+}
+
+static void compiles_define_simple_binding() {
+  COMPILER_INIT();
+
+  COMPILE("(define syntaxes"
+          "  (list (cons 'and 1)"
+          "        (cons 'or 2)))");
+
+  /* CHECK_BYTES(OP_READ_GLOBAL, 1); */
+  /* CHECK_BYTES(OP_READ_GLOBAL, 2); */
+  /* CHECK_BYTES(OP_CONSTANT, 3); */
+  /* CHECK_BYTES(OP_CONSTANT, 4); */
+  /* CHECK_CALL(OP_CALL, 2, 0); */
+  /* CHECK_BYTES(OP_READ_GLOBAL, 2); */
+  /* CHECK_BYTES(OP_CONSTANT, 5); */
+  /* CHECK_BYTES(OP_CONSTANT, 6); */
+  /* CHECK_CALL(OP_CALL, 2, 0); */
+  /* CHECK_CALL(OP_CALL, 2, 0); */
+
+  CHECK_BYTES(OP_CONSTANT, 1);
+  CHECK_BYTES(OP_CONSTANT, 2);
+  CHECK_BYTE(OP_CONS);
+  CHECK_BYTES(OP_CONSTANT, 3);
+  CHECK_BYTES(OP_CONSTANT, 4);
+  CHECK_BYTE(OP_CONS);
+  CHECK_BYTES(OP_LIST, 2);
+  CHECK_BYTES(OP_DEFINE_GLOBAL, 0);
+  CHECK_BYTE(OP_RETURN);
+
+  PASS();
+}
+
+static void compiles_define_record_type() {
+  COMPILER_INIT();
+
+  COMPILE("(define-record-type channel"
+          "  (fields senders receivers))");
+
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_BYTES(OP_CONSTANT, 1);
+  CHECK_BYTES(OP_CONSTANT, 2);
+  CHECK_BYTES(OP_CONSTANT, 3);
+  CHECK_BYTES(OP_CONSTANT, 4);
+  CHECK_BYTES(OP_DEFINE_RECORD, 2);
+  CHECK_BYTE(OP_RETURN);
+
+  PASS();
+}
+
+static void compiles_define_attributes() {
+  COMPILER_INIT();
+
+  COMPILE("(define (test-func x) :export"
+          "  (+ x 1))");
+
+  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[1]));
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTES(OP_CONSTANT, 1); */
+  /* CHECK_CALL(OP_TAIL_CALL, 2, 0); */
+  CHECK_BYTES(OP_READ_LOCAL, 1);
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_BYTE(OP_ADD);
+  CHECK_BYTE(OP_RETURN);
+
+  COMPILE("(define (test-func x)"
+          "\"This is a documentation string!\""
+          "  (+ x 1))");
+
+  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[1]));
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTES(OP_CONSTANT, 1); */
+  /* CHECK_CALL(OP_TAIL_CALL, 2, 0); */
+  CHECK_BYTES(OP_READ_LOCAL, 1);
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_BYTE(OP_ADD);
+  CHECK_BYTE(OP_RETURN);
+
+  COMPILE("(define (test-func x) :export"
+          "\"This is a documentation string!\""
+          "  (+ x 1))");
+
+  CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[1]));
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTES(OP_CONSTANT, 1); */
+  /* CHECK_CALL(OP_TAIL_CALL, 2, 0); */
+  CHECK_BYTES(OP_READ_LOCAL, 1);
+  CHECK_BYTES(OP_CONSTANT, 0);
+  CHECK_BYTE(OP_ADD);
+  CHECK_BYTE(OP_RETURN);
 
   PASS();
 }
@@ -262,12 +434,18 @@ static void compiles_tail_call_basic() {
   CHECK_CALL(OP_TAIL_CALL, 1, 0);
   CHECK_BYTE(OP_RETURN);
 
-  // Not a tail call
+  // The invocation of `next-func` is not a tail call
 
   COMPILE("(define (test-func x)"
           "  (+ 1 (next-func x)))");
 
   CHECK_SET_FUNC(AS_FUNCTION(out_func->chunk.constants.values[1]));
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_CONSTANT, 1); */
+  /* CHECK_BYTES(OP_READ_GLOBAL, 2); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_CALL(OP_CALL, 1, 0); */
+  /* CHECK_CALL(OP_TAIL_CALL, 2, 0); */
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_READ_GLOBAL, 1);
   CHECK_BYTES(OP_READ_LOCAL, 1);
@@ -310,14 +488,20 @@ static void compiles_tail_call_begin() {
   CHECK_CALL(OP_CALL, 1, 0);
   CHECK_BYTE(OP_RETURN);
 
-  // Not a tail call because the return value of `next-func` is modified before
-  // being returned from `test-func`.
+  // `next-func` is not a tail call because the return value of `next-func` is
+  // modified before being returned from `test-func`.
 
   COMPILE("(define (test-func)"
           "  (begin"
           "    (* 1 (next-func x))))");
 
   out_func = AS_FUNCTION(out_func->chunk.constants.values[1]);
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_CONSTANT, 1); */
+  /* CHECK_BYTES(OP_READ_GLOBAL, 2); */
+  /* CHECK_BYTES(OP_READ_GLOBAL, 3); */
+  /* CHECK_CALL(OP_CALL, 1, 0); */
+  /* CHECK_CALL(OP_TAIL_CALL, 2, 0); */
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTES(OP_READ_GLOBAL, 1);
   CHECK_BYTES(OP_READ_GLOBAL, 2);
@@ -357,6 +541,25 @@ static void compiles_tail_call_if_expr() {
           "      x))");
 
   out_func = AS_FUNCTION(out_func->chunk.constants.values[1]);
+  /* CHECK_BYTES(OP_READ_GLOBAL, 0); */
+  /* CHECK_BYTES(OP_READ_GLOBAL, 1); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTES(OP_CONSTANT, 2); */
+  /* CHECK_CALL(OP_CALL, 2, 0); */
+  /* CHECK_CALL(OP_CALL, 1, 0); */
+  /* CHECK_JUMP(OP_JUMP_IF_FALSE, 14, 35); */
+  /* CHECK_BYTE(OP_POP); */
+  /* CHECK_BYTES(OP_READ_GLOBAL, 3); */
+  /* CHECK_BYTES(OP_READ_GLOBAL, 4); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTES(OP_CONSTANT, 5); */
+  /* CHECK_CALL(OP_CALL, 2, 0); */
+  /* CHECK_CALL(OP_TAIL_CALL, 1, 0); */
+  /* CHECK_JUMP(OP_JUMP, 32, 38); */
+  /* CHECK_BYTE(OP_POP); */
+  /* CHECK_BYTES(OP_READ_LOCAL, 1); */
+  /* CHECK_BYTE(OP_RETURN); */
+
   CHECK_BYTES(OP_READ_LOCAL, 1);
   CHECK_BYTES(OP_CONSTANT, 0);
   CHECK_BYTE(OP_EQUAL);
@@ -403,7 +606,7 @@ static void compiles_tail_call_nested() {
   CHECK_BYTES(OP_READ_GLOBAL, 0);
   CHECK_CALL(OP_CALL, 0, 0);
   CHECK_BYTE(OP_POP);
-  CHECK_BYTE(OP_T);
+  CHECK_BYTE(OP_TRUE);
   CHECK_JUMP(OP_JUMP_IF_FALSE, 13, 25);
   CHECK_BYTE(OP_POP);
   CHECK_BYTES(OP_READ_GLOBAL, 0);
@@ -440,15 +643,21 @@ void test_compiler_suite() {
 
   test_suite_cleanup_func = compiler_suite_cleanup;
 
-  compiles_escaped_strings();
-  compiles_module_import();
+  compiles_quoted_exprs();
+  compiles_lambda();
   compiles_let();
   compiles_named_let();
   compiles_if_expr();
   compiles_if_expr_no_else();
-  compiles_or_expr();
+  compiles_define_attributes();
+  compiles_define_simple_binding();
+  compiles_define_record_type();
+
   compiles_and_expr();
-  compiles_lambda_rest_keyword_args();
+  compiles_or_expr();
+
+  compiles_module_import();
+  compiles_lambda_rest_args();
   compiles_tail_call_basic();
   compiles_tail_call_begin();
   compiles_tail_call_let();

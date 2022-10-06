@@ -3,6 +3,8 @@
 # Yes, I know I could just use a Makefile.  This script is for bootstrapping purposes.
 
 CC=${CC:-gcc}
+AR=${AR:-ar}
+
 if [ "$1" == "--debug" ]; then
  FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
 else
@@ -13,22 +15,32 @@ SOURCE_DIR=src
 OUTPUT_DIR=bin
 
 source_files=(
-    "core.c"
-    "chunk.c"
-    "compiler.c"
-    "disasm.c"
-    "io.c"
-    "fs.c"
-    "list.c"
     "array.c"
-    "mem.c"
+    "chunk.c"
+    "closure.c"
+    "compiler.c"
+    "continuation.c"
+    "core.c"
+    "disasm.c"
+    "fs.c"
+    "function.c"
+    "gc.c"
+    "io.c"
+    "keyword.c"
+    "list.c"
     "math.c"
+    "mem.c"
     "module.c"
+    "native.c"
     "object.c"
     "process.c"
+    "reader.c"
+    "record.c"
     "repl.c"
     "scanner.c"
     "string.c"
+    "symbol.c"
+    "syntax.c"
     "table.c"
     "time.c"
     "value.c"
@@ -59,4 +71,4 @@ done
 
 # Build the static library
 echo -e "Creating static library bin/libmesche.a...\n"
-ar rcs bin/libmesche.a "${object_files[@]}"
+$AR rcs bin/libmesche.a "${object_files[@]}"

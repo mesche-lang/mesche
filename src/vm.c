@@ -6,22 +6,28 @@
 #include "array.h"
 #include "chunk.h"
 #include "compiler.h"
+#include "continuation.h"
 #include "core.h"
 #include "disasm.h"
 #include "fs.h"
+#include "gc.h"
 #include "io.h"
+#include "keyword.h"
 #include "list.h"
 #include "math.h"
 #include "mem.h"
 #include "module.h"
+#include "native.h"
 #include "object.h"
 #include "op.h"
 #include "process.h"
+#include "record.h"
 #include "string.h"
+#include "syntax.h"
 #include "time.h"
 #include "util.h"
 #include "value.h"
-#include "vm.h"
+#include "vm-impl.h"
 
 // NOTE: Enable this for diagnostic purposes
 /* #define DEBUG_TRACE_EXECUTION */
@@ -81,258 +87,35 @@ static void vm_free_objects(VM *vm) {
   vm->gray_stack = NULL;
 }
 
-void mesche_mem_mark_object(VM *vm, Object *object) {
-  if (object == NULL)
-    return;
-  if (object->is_marked)
-    return;
-
-#ifdef DEBUG_LOG_GC
-  printf("%p    mark    ", object);
-  mesche_value_print(OBJECT_VAL(object));
-  printf("\n");
-#endif
-
-  object->is_marked = true;
-
-  // Add the object to the gray stack if it has references to trace
-  if ((object->kind != ObjectKindString && object->kind != ObjectKindSymbol &&
-       object->kind != ObjectKindKeyword && object->kind != ObjectKindNativeFunction &&
-       object->kind != ObjectKindPointer && object->kind != ObjectKindStackMarker) ||
-      (object->kind == ObjectKindPointer && ((ObjectPointer *)object)->type != NULL &&
-       ((ObjectPointer *)object)->type->mark_func != NULL)) {
-    // Resize the gray stack if necessary (tracks visited objects)
-    if (vm->gray_capacity < vm->gray_count + 1) {
-      vm->gray_capacity = GROW_CAPACITY(vm->gray_capacity);
-      vm->gray_stack = (Object **)realloc(vm->gray_stack, sizeof(Object *) * vm->gray_capacity);
-
-      // Check if something went wrong with allocation
-      if (vm->gray_stack == NULL) {
-        PANIC("VM's gray stack could not be reallocated.");
-      }
-    }
-
-    // Add the object to the gray stack
-    vm->gray_stack[vm->gray_count++] = object;
-  }
-}
-
-static void mem_mark_value(VM *vm, Value value) {
-  if (IS_OBJECT(value))
-    mesche_mem_mark_object(vm, AS_OBJECT(value));
-}
-
-static void mem_mark_array(VM *vm, ValueArray *array) {
-  for (int i = 0; i < array->count; i++) {
-    mem_mark_value(vm, array->values[i]);
-  }
-}
-
-static void mem_mark_table(VM *vm, Table *table) {
-  for (int i = 0; i < table->capacity; i++) {
-    Entry *entry = &table->entries[i];
-    mesche_mem_mark_object(vm, (Object *)entry->key);
-    mem_mark_value(vm, entry->value);
-  }
-}
-
-static void mem_mark_roots(void *target) {
-  VM *vm = (VM *)target;
-  for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
-    mem_mark_value(vm, *slot);
-  }
-
-  for (int i = 0; i < vm->frame_count; i++) {
-    mesche_mem_mark_object(vm, (Object *)vm->frames[i].closure);
-  }
-
-  for (ObjectUpvalue *upvalue = vm->open_upvalues; upvalue != NULL; upvalue = upvalue->next) {
-    mesche_mem_mark_object(vm, (Object *)upvalue);
-  }
-
-  // Mark the current reset stack marker
-  mesche_mem_mark_object(vm, (Object *)vm->current_reset_marker);
-
-  // Mark the load path list
-  mem_mark_value(vm, OBJECT_VAL(vm->load_paths));
-
-  // Mark roots in every module
-  mem_mark_table(vm, &vm->modules);
-}
-
-static void mem_darken_object(VM *vm, Object *object) {
-#ifdef DEBUG_LOG_GC
-  printf("%p    darken ", (void *)object);
-  mesche_value_print(OBJECT_VAL(object));
-  printf("\n");
-#endif
-
-  switch (object->kind) {
-  case ObjectKindCons: {
-    ObjectCons *cons = (ObjectCons *)object;
-    mem_mark_value(vm, cons->car);
-    mem_mark_value(vm, cons->cdr);
-    break;
-  }
-  case ObjectKindArray: {
-    ObjectArray *array = (ObjectArray *)object;
-    mem_mark_array(vm, &array->objects);
-    break;
-  }
-  case ObjectKindClosure: {
-    ObjectClosure *closure = (ObjectClosure *)object;
-    mesche_mem_mark_object(vm, (Object *)closure->function);
-    for (int i = 0; i < closure->upvalue_count; i++) {
-      mesche_mem_mark_object(vm, (Object *)closure->upvalues[i]);
-    }
-    break;
-  }
-  case ObjectKindContinuation: {
-    ObjectContinuation *continuation = (ObjectContinuation *)object;
-
-    // We could be marking the continuation before it's fully initialized, so be
-    // careful
-    if (continuation->frame_count > 0) {
-      for (int i = 0; i < continuation->frame_count; i++) {
-        mesche_mem_mark_object(vm, (Object *)continuation->frames[i].closure);
-      }
-
-      for (int i = 0; i < continuation->stack_count; i++) {
-        mem_mark_value(vm, continuation->stack[i]);
-      }
-    }
-
-    break;
-  }
-  case ObjectKindFunction: {
-    ObjectFunction *function = (ObjectFunction *)object;
-    mesche_mem_mark_object(vm, (Object *)function->name);
-    mem_mark_array(vm, &function->chunk.constants);
-
-    // Mark strings associated with keyword arguments
-    for (int i = 0; i < function->keyword_args.count; i++) {
-      mesche_mem_mark_object(vm, (Object *)function->keyword_args.args[i].name);
-    }
-    break;
-  }
-  case ObjectKindPointer: {
-    ObjectPointer *pointer = (ObjectPointer *)object;
-    if (pointer->type != NULL && pointer->type->mark_func != NULL) {
-      pointer->type->mark_func(vm, pointer->ptr);
-    }
-    break;
-  }
-  case ObjectKindUpvalue:
-    mem_mark_value(vm, ((ObjectUpvalue *)object)->closed);
-    break;
-  case ObjectKindModule: {
-    ObjectModule *module = (ObjectModule *)object;
-    mesche_mem_mark_object(vm, (Object *)module->name);
-    mem_mark_table(vm, &module->locals);
-    mem_mark_array(vm, &module->imports);
-    mem_mark_array(vm, &module->exports);
-    mesche_mem_mark_object(vm, (Object *)module->init_function);
-    break;
-  }
-  case ObjectKindRecord: {
-    ObjectRecord *record = (ObjectRecord *)object;
-    mesche_mem_mark_object(vm, (Object *)record->name);
-    mem_mark_array(vm, &record->fields);
-    break;
-  }
-  case ObjectKindRecordField: {
-    ObjectRecordField *field = (ObjectRecordField *)object;
-    mesche_mem_mark_object(vm, (Object *)field->name);
-    mem_mark_value(vm, field->default_value);
-    break;
-  }
-  case ObjectKindRecordFieldAccessor: {
-    ObjectRecordFieldAccessor *accessor = (ObjectRecordFieldAccessor *)object;
-    mesche_mem_mark_object(vm, (Object *)accessor->record_type);
-    break;
-  }
-  case ObjectKindRecordFieldSetter: {
-    ObjectRecordFieldSetter *setter = (ObjectRecordFieldSetter *)object;
-    mesche_mem_mark_object(vm, (Object *)setter->record_type);
-    break;
-  }
-  case ObjectKindRecordInstance: {
-    ObjectRecordInstance *instance = (ObjectRecordInstance *)object;
-    mem_mark_array(vm, &instance->field_values);
-    mesche_mem_mark_object(vm, (Object *)instance->record_type);
-    break;
-  }
-  default:
-    break;
-  }
-}
-
-static void mem_trace_references(MescheMemory *mem) {
-  VM *vm = (VM *)mem;
-
-  // Loop through the stack (which may get more entries added during the loop)
-  // to darken all marked objects
-  while (vm->gray_count > 0) {
-    Object *object = vm->gray_stack[--vm->gray_count];
-    mem_darken_object(vm, object);
-  }
-}
-
-static void mem_table_remove_white(Table *table) {
-  for (int i = 0; i < table->capacity; i++) {
-    Entry *entry = &table->entries[i];
-    if (entry->key != NULL && !entry->key->object.is_marked) {
-      mesche_table_delete(table, entry->key);
-    }
-  }
-}
-
-static void mem_sweep_objects(VM *vm) {
-  Object *previous = NULL;
-  Object *object = vm->objects;
-
-  // Walk through the object linked list
-  while (object != NULL) {
-    // If the object is marked, move to the next object, retaining
-    // a pointer this one so that the next live object can be linked
-    // to it
-    if (object->is_marked) {
-      object->is_marked = false; // Seeya next time...
-      previous = object;
-      object = object->next;
-    } else {
-      // If the object is unmarked, remove it from the linked list
-      // and free it
-      Object *unreached = object;
-      object = object->next;
-      if (previous != NULL) {
-        previous->next = object;
-      } else {
-        vm->objects = object;
-      }
-
-      mesche_object_free(vm, unreached);
-    }
-  }
-}
-
-static void mem_collect_garbage(MescheMemory *mem) {
-  VM *vm = (VM *)mem;
-  mem_mark_roots(vm);
-  if (vm->current_compiler != NULL) {
-    mesche_compiler_mark_roots(vm->current_compiler);
-  }
-  mem_trace_references((MescheMemory *)vm);
-  mem_table_remove_white(&vm->strings);
-  mem_table_remove_white(&vm->symbols);
-  mem_sweep_objects(vm);
-}
-
 void mesche_vm_register_core_modules(VM *vm, char *module_path) {
   // Add the module path first so that native functions are loaded in that context
   mesche_vm_load_path_add(vm, module_path);
 
+  // Load the core module first because it serves as the "global" scope
   mesche_core_module_init(vm);
+  if (mesche_vm_eval_string(vm, "(module-import (mesche core))") != INTERPRET_OK) {
+    PANIC("ERROR: Could not load `mesche core` from module path: %s\n\n", module_path);
+  }
+
+  // Store the core module before initializing other core modules
+  Value core_module = mesche_vm_stack_pop(vm);
+  vm->core_module = AS_MODULE(core_module);
+  if (!IS_MODULE(core_module)) {
+    PANIC("ERROR: Unexpected problem loading `mesche core` from module path: %s\n\n", module_path);
+  }
+
+  // Then, load the expander source and store the `expand` function
+  /* if (mesche_vm_eval_string(vm, "(module-import (mesche expander)) expand") != INTERPRET_OK) { */
+  /*   PANIC("ERROR: Could not load `mesche expander` from module path: %s\n\n", module_path); */
+  /* } */
+
+  /* Value expander = mesche_vm_stack_pop(vm); */
+  /* vm->expander = AS_CLOSURE(expander); */
+  /* if (!IS_CLOSURE(expander)) { */
+  /*   PANIC("ERROR: Unexpected problem loading `mesche expander` from module path: %s\n\n", */
+  /*         module_path); */
+  /* } */
+
   mesche_io_module_init(vm);
   mesche_fs_module_init(vm);
   mesche_list_module_init(vm);
@@ -341,24 +124,11 @@ void mesche_vm_register_core_modules(VM *vm, char *module_path) {
   mesche_array_module_init(vm);
   mesche_string_module_init(vm);
   mesche_process_module_init(vm);
-
-  // Load the `mesche core` module to serve as the global scope
-  if (mesche_vm_eval_string(vm, "(module-import (mesche core))") != INTERPRET_OK) {
-    PANIC("ERROR: Could not load `mesche core` from module path: %s\n\n", module_path);
-  }
-
-  Value core_module = mesche_vm_stack_pop(vm);
-  if (!IS_MODULE(core_module)) {
-    PANIC("ERROR: Unexpected problem loading `mesche core` from module path: %s\n\n", module_path);
-  }
-
-  // Store the core module to use in variable lookups
-  vm->core_module = AS_MODULE(core_module);
 }
 
 void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   // Initialize the memory manager
-  mesche_mem_init(&vm->mem, mem_collect_garbage);
+  mesche_mem_init(&vm->mem, mesche_gc_collect_garbage);
 
   // Initialize the gray stack before allocating anything
   vm->gray_count = 0;
@@ -369,9 +139,17 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->objects = NULL;
   vm->load_paths = NULL;
   vm->current_compiler = NULL;
+  vm->core_module = NULL;
+  vm->expander = NULL;
   vm_reset_stack(vm);
+
+  // Initialize the interned string and symbol tables
   mesche_table_init(&vm->strings);
   mesche_table_init(&vm->symbols);
+
+  // Initialize reusable symbols
+  vm->quote_symbol = mesche_object_make_symbol(vm, "quote", 5);
+  vm->quote_symbol->token_kind = TokenKindQuote;
 
   // Initialize the module table root module
   mesche_table_init(&vm->modules);
@@ -390,6 +168,9 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   // Set the program argument variables
   vm->arg_count = arg_count;
   vm->arg_array = arg_array;
+
+  // Set up the reader context
+  mesche_reader_init(&vm->reader_context, vm);
 }
 
 void mesche_vm_free(VM *vm) {
@@ -525,7 +306,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
             vm, closure->function->chunk.constants.values[keyword_arg->default_index - 1]);
       } else {
         // If no default value was provided, choose `nil`
-        mesche_vm_stack_push(vm, NIL_VAL);
+        mesche_vm_stack_push(vm, FALSE_VAL);
       }
 
       keyword_arg++;
@@ -542,7 +323,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
             vm, closure->function->chunk.constants.values[keyword_arg->default_index - 1]);
       } else {
         // If no default value was provided, choose `nil`
-        mesche_vm_stack_push(vm, NIL_VAL);
+        mesche_vm_stack_push(vm, FALSE_VAL);
       }
 
       keyword_arg++;
@@ -598,7 +379,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
       }
 
       // Place the NIL value and update the stack top
-      *(vm->stack_top - num_keyword_args) = NIL_VAL;
+      *(vm->stack_top - num_keyword_args) = FALSE_VAL;
       vm->stack_top = arg_start + closure->function->arity + num_keyword_args;
     }
   }
@@ -668,19 +449,13 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       ObjectRecordInstance *instance = mesche_object_make_record_instance(vm, record_type);
       mesche_vm_stack_push(vm, OBJECT_VAL(instance));
 
-      if (arg_count > 0) {
-        vm_runtime_error(vm, "Constructor for record type '%s' must be given keyword arguments.",
-                         instance->record_type->name->chars);
-        return false;
-      }
-
       // Initialize the value array using keyword values or the default for each field
       for (int i = 0; i < record_type->fields.count; i++) {
         bool found_value = false;
         ObjectRecordField *record_field = AS_RECORD_FIELD(record_type->fields.values[i]);
 
-        // Look for the field's value in the keyword parameters
-        for (int i = (keyword_count * 2); i >= 0; i -= 2) {
+        // Look for the field's value in the arguments
+        for (int i = arg_count; i >= 0; i -= 2) {
           ObjectKeyword *keyword_arg = AS_KEYWORD(vm_stack_peek(vm, i));
           if (mesche_object_string_equalsp((Object *)record_field->name, (Object *)keyword_arg)) {
             mesche_value_array_write((MescheMemory *)vm, &instance->field_values,
@@ -701,7 +476,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       mesche_vm_stack_pop(vm);
 
       // Pop the record and key/value pairs off the stack
-      for (int i = 0; i < (keyword_count * 2) + 1; i++) {
+      for (int i = 0; i < arg_count + 1; i++) {
         mesche_vm_stack_pop(vm);
       }
 
@@ -811,7 +586,17 @@ static bool vm_create_module_binding(VM *vm, ObjectModule *module, ObjectString 
   return binding_exists;
 }
 
+#define PRINT_VALUE_STACK()                                                                        \
+  printf("\nValue Stack:\n");                                                                      \
+  for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {                                    \
+    printf("  %3d: ", abs(slot - vm->stack_top));                                                  \
+    mesche_value_print(*slot);                                                                     \
+    printf("\n");                                                                                  \
+  }                                                                                                \
+  printf("\n");
+
 InterpretResult mesche_vm_run(VM *vm) {
+  int entry_frame = vm->frame_count - 1;
   CallFrame *frame = &vm->frames[vm->frame_count - 1];
   ObjectModule *prev_module = NULL;
 
@@ -893,11 +678,14 @@ InterpretResult mesche_vm_run(VM *vm) {
       value = READ_CONSTANT();
       mesche_vm_stack_push(vm, value);
       break;
-    case OP_NIL:
-      mesche_vm_stack_push(vm, NIL_VAL);
+    case OP_FALSE:
+      mesche_vm_stack_push(vm, FALSE_VAL);
       break;
-    case OP_T:
-      mesche_vm_stack_push(vm, T_VAL);
+    case OP_TRUE:
+      mesche_vm_stack_push(vm, TRUE_VAL);
+      break;
+    case OP_EMPTY:
+      mesche_vm_stack_push(vm, EMPTY_VAL);
       break;
     case OP_POP:
       mesche_vm_stack_pop(vm);
@@ -983,7 +771,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     }
     case OP_NOT:
-      mesche_vm_stack_push(vm, IS_NIL(mesche_vm_stack_pop(vm)) ? T_VAL : NIL_VAL);
+      mesche_vm_stack_push(vm, IS_FALSE(mesche_vm_stack_pop(vm)) ? TRUE_VAL : FALSE_VAL);
       break;
     case OP_GREATER_THAN:
       BINARY_OP(BOOL_VAL, IS_NUMBER, AS_NUMBER, >);
@@ -1155,20 +943,26 @@ InterpretResult mesche_vm_run(VM *vm) {
       // closures
       vm_close_upvalues(vm, frame->slots);
 
-      // If we're out of call frames, end execution
+      // Return the stack back to the previous frame by popping the arguments
+      // and closure off the stack
+      vm->stack_top -= frame->total_arg_count;
       vm->frame_count--;
-      if (vm->frame_count == 0) {
-        // Push the value back on so that it can be read by the REPL
+
+      // If we've returned to the frame index where we entered vm_run(), exit execution
+      if (vm->frame_count == entry_frame) {
+        // The VM is no longer executing if we've exhausted the call frames
+        if (vm->frame_count == 0) {
+          vm->is_running = false;
+        }
+
+        // Pop the entry function off of the stack
         mesche_vm_stack_pop(vm);
+
+        // Push the return value back on so that it can be read by the REPL
         mesche_vm_stack_push(vm, value);
 
-        // Finish execution
-        vm->is_running = false;
         return INTERPRET_OK;
       }
-
-      // Reset the value stack to where it was before this function was called
-      vm->stack_top -= frame->total_arg_count;
 
       // There could be a stray module on the stack if we just executed a script
       // file that defines a module
@@ -1191,13 +985,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     case OP_BREAK:
       // Print out diagnostics and end execution
-      printf("\nValue Stack:\n");
-      for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
-        printf("  %3d: ", abs(slot - vm->stack_top));
-        mesche_value_print(*slot);
-        printf("\n");
-      }
-      printf("\n");
+      PRINT_VALUE_STACK();
 
       printf("Call Stack:\n");
       for (int i = 0; i < vm->frame_count; i++) {
@@ -1251,7 +1039,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       // Duplicate the record type name's symbol as a string
       ObjectSymbol *name_symbol = AS_SYMBOL(vm_stack_peek(vm, field_count * 2));
       ObjectString *record_name =
-          mesche_object_make_string(vm, name_symbol->string.chars, name_symbol->string.length);
+          mesche_object_make_string(vm, name_symbol->name->chars, name_symbol->name->length);
       mesche_vm_stack_push(vm, OBJECT_VAL(record_name));
 
       // Create the record type
@@ -1277,14 +1065,14 @@ InterpretResult mesche_vm_run(VM *vm) {
         int stack_pos = ((field_count - i) * 2) - 1;
         ObjectSymbol *name = AS_SYMBOL(vm_stack_peek(vm, stack_pos));
         Value value = vm_stack_peek(vm, stack_pos + 1);
-        ObjectRecordField *field = mesche_object_make_record_field(vm, &name->string, value);
+        ObjectRecordField *field = mesche_object_make_record_field(vm, name->name, value);
         mesche_vm_stack_push(vm, OBJECT_VAL(field));
         mesche_value_array_write((MescheMemory *)vm, &record->fields, OBJECT_VAL(field));
         mesche_vm_stack_pop(vm);
 
         // Create a binding for the field accessor "function"
         char *accessor_name = mesche_cstring_join(record_name->chars, record_name->length,
-                                                  name->string.chars, name->string.length, "-");
+                                                  name->name->chars, name->name->length, "-");
         ObjectString *accessor_name_string =
             mesche_object_make_string(vm, accessor_name, strlen(accessor_name));
         mesche_vm_stack_push(vm, OBJECT_VAL(accessor_name_string));
@@ -1330,77 +1118,35 @@ InterpretResult mesche_vm_run(VM *vm) {
       // This works because scripts are compiled into functions with
       // their own closure, so a `define-module` will cause that to
       // be set.
-      ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
-      // TODO: Error if module is already set?
-      frame->closure->module = mesche_module_resolve_by_name(vm, module_name);
+      ObjectString *module_name = AS_STRING(vm_stack_peek(vm, 0));
+      frame->closure->module = mesche_module_resolve_by_name(vm, module_name, true);
+
+      // Pop the module name string from the stack
+      mesche_vm_stack_pop(vm);
 
       // Push the defined module onto the stack
       mesche_vm_stack_push(vm, OBJECT_VAL(frame->closure->module));
       break;
     }
-    case OP_RESOLVE_MODULE: {
-      // Resolve the module based on the given path
-      ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
-      ObjectModule *resolved_module = mesche_module_resolve_by_name(vm, module_name);
-
-      // Compiling the module file will push its closure onto the stack, but we
-      // can't accept any closure, need to make sure it matches the one in the
-      // returned module
-      if (resolved_module) {
-        // If the module is resolved but doesn't have an init function to
-        // execute, handle it directly
-        if (!IS_CLOSURE(vm_stack_peek(vm, 0)) ||
-            AS_CLOSURE(vm_stack_peek(vm, 0))->function != resolved_module->init_function) {
-          // This case will happen when the module has previously been executed
-          // and was merely resolved this time.  We have to emulate the load of
-          // a module to keep the stack handling consistent, so push the resolved
-          // module and a nil val so that `OP_IMPORT_MODULE` doesn't have to the
-          // stack first!
-          mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
-          mesche_vm_stack_push(vm, NIL_VAL);
-        } else {
-          ObjectClosure *closure = AS_CLOSURE(vm_stack_peek(vm, 0));
-          if (closure->function->type == TYPE_SCRIPT) {
-            // Set up the module's closure for execution in the next VM loop and
-            // reset the frame back to the current one until the next cycle
-            vm_call(vm, closure, 0, 0, false);
-            frame = &vm->frames[vm->frame_count - 1];
-          }
-
-          // Pop the closure off the stack and push the module on before it so
-          // that it can be imported after the closure finishes executing
-          mesche_vm_stack_pop(vm);
-          mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
-          mesche_vm_stack_push(vm, OBJECT_VAL(closure));
-        }
-      } else {
-        // TODO: What if it didn't get resolved?  Will it ever happen?
-      }
-      break;
-    }
     case OP_IMPORT_MODULE: {
-      // First, pop the result of evaluating the module's body because we don't
-      // need it.
+      // Resolve the module based on the given path
+      ObjectString *module_name = AS_STRING(vm_stack_peek(vm, 0));
+      ObjectModule *resolved_module = mesche_module_resolve_by_name(vm, module_name, true);
+
+      // Pop the module name string from the stack
       mesche_vm_stack_pop(vm);
 
-      // Grab the module that was resolved and pull in its exports
-      ObjectModule *imported_module = AS_MODULE(vm_stack_peek(vm, 0));
-      mesche_module_import(vm, imported_module, CURRENT_MODULE());
+      // Pull in the module's exports
+      mesche_module_import(vm, resolved_module, CURRENT_MODULE());
 
-      // Module import can happen in two ways:
-      // - Via imports in `define-module`
-      // - By calling `module-import`
-      // We do not explicitly pop the module off of the stack here because
-      // the former case emits its own OP_POP and the latter case uses normal
-      // block expression semantics to either pop off the value or return it
-      // when evaluating the expression.
-      //
-      // In other words, leave the module on the stack!
+      // Push the resolved module to the stack
+      mesche_vm_stack_push(vm, OBJECT_VAL(resolved_module));
+
       break;
     }
     case OP_ENTER_MODULE: {
       ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
-      ObjectModule *module = mesche_module_resolve_by_name(vm, module_name);
+      ObjectModule *module = mesche_module_resolve_by_name(vm, module_name, true);
       vm->current_module = module;
       mesche_vm_stack_push(vm, OBJECT_VAL(module));
       break;
@@ -1419,10 +1165,13 @@ InterpretResult mesche_vm_run(VM *vm) {
 
       // First, try to loop up the variable in the current module's locals
       if (!mesche_table_get(&CURRENT_MODULE()->locals, name, &value)) {
-        // Then, look up the variable in the core module's locals
-        if (!mesche_table_get(&vm->core_module->locals, name, &value)) {
-          vm_runtime_error(vm, "Undefined variable '%s'.", name->chars);
-          return INTERPRET_RUNTIME_ERROR;
+        // Then, look up the variable in the core module's locals if it's loaded
+        // by this point
+        if (vm->core_module) {
+          if (!mesche_table_get(&vm->core_module->locals, name, &value)) {
+            vm_runtime_error(vm, "Undefined variable '%s'.", name->chars);
+            return INTERPRET_RUNTIME_ERROR;
+          }
         }
       }
 
@@ -1615,7 +1364,7 @@ void mesche_vm_define_native(VM *vm, ObjectModule *module, const char *name, Fun
 
 void mesche_vm_define_native_funcs(VM *vm, const char *module_name,
                                    MescheNativeFuncDetails *func_array) {
-  ObjectModule *module = mesche_module_resolve_by_name_string(vm, module_name);
+  ObjectModule *module = module = mesche_module_resolve_by_name_string(vm, module_name, false);
   MescheNativeFuncDetails *func_details = func_array;
 
   for (;;) {
@@ -1657,8 +1406,40 @@ void mesche_vm_load_path_add(VM *vm, const char *load_path) {
   }
 }
 
-InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string) {
-  ObjectFunction *function = mesche_compile_source(vm, script_string);
+InterpretResult mesche_vm_call_closure(VM *vm, ObjectClosure *closure, int arg_count, Value *args) {
+  // Set up the closure for execution by pushing it and its arguments to the
+  // stack
+  mesche_vm_stack_push(vm, OBJECT_VAL(closure));
+  for (int i = 0; i < arg_count; i++) {
+    mesche_vm_stack_push(vm, args[i]);
+  }
+
+  // Call the initial closure and run the VM.  If the VM is already running,
+  // `mesche_vm_run` will consider it a sub-prompt.
+  vm_call(vm, closure, arg_count, 0, false);
+  return mesche_vm_run(vm);
+}
+
+static InterpretResult vm_eval_internal(VM *vm, const char *script_string, const char *file_name) {
+  // Create a string for the file name and store it in the stack temporarily
+  ObjectString *file_name_str = NULL;
+  if (file_name) {
+    file_name_str = mesche_object_make_string(vm, file_name, strlen(file_name));
+    mesche_vm_stack_push(vm, OBJECT_VAL(file_name_str));
+  }
+
+  // Create a new reader for this input
+  Reader reader;
+  mesche_reader_from_file(&vm->reader_context, &reader, script_string, file_name_str);
+
+  ObjectFunction *function = mesche_compile_source(vm, &reader);
+
+  // The file name should have been used for syntaxes now so pop it from the stack
+  if (file_name) {
+    mesche_vm_stack_pop(vm);
+  }
+
+  // Report error, if any
   if (function == NULL) {
     return INTERPRET_COMPILE_ERROR;
   }
@@ -1677,6 +1458,10 @@ InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string) {
   }
 }
 
+InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string) {
+  vm_eval_internal(vm, script_string, NULL);
+}
+
 InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *module_path) {
   char *source = mesche_fs_file_read_all(module_path);
   if (source == NULL) {
@@ -1684,37 +1469,38 @@ InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *
     PANIC("ERROR: Could not load script file: %s\n\n", module_path);
   }
 
-  module = mesche_compile_module(vm, module, source);
+  // Create a string for the file name and store it in the stack temporarily
+  ObjectString *module_path_str = mesche_object_make_string(vm, module_path, strlen(module_path));
+  mesche_vm_stack_push(vm, OBJECT_VAL(module_path_str));
+
+  // Create a new reader for this input
+  Reader reader;
+  mesche_reader_from_file(&vm->reader_context, &reader, source, module_path_str);
+
+  // Compile the module source
+  module = mesche_compile_module(vm, module, &reader);
+  mesche_vm_stack_pop(vm);
   if (module == NULL) {
     return INTERPRET_COMPILE_ERROR;
   }
 
-  // Push the top-level function as a closure but do not execute it yet!
-  // The OP_IMPORT_MODULE instruction will check for a new script closure
-  // at the top of the value stack and will execute it if found.
-  ObjectClosure *closure = mesche_object_make_closure(vm, module->init_function, NULL);
-  closure->module = module;
-  mesche_vm_stack_push(vm, OBJECT_VAL(closure));
-
   // Free the module source
   free(source);
 
-  if (!vm->is_running) {
-    // Call the initial closure and run the VM
-    vm_call(vm, closure, 0, 0, false);
-    InterpretResult result = mesche_vm_run(vm);
+  ObjectClosure *closure = mesche_object_make_closure(vm, module->init_function, NULL);
+  closure->module = module;
 
-    // This code path *SHOULD* only get called when the developer has used
-    // `mesche_vm_define_native`, all other module imports are handled with the
-    // OP_IMPORT_MODULE instruction at runtime.  Thus, pop the name string off
-    // of the value stack.
-    mesche_vm_stack_pop(vm);
-
-    return result;
+  // Invoke the module's closure immediately
+  InterpretResult result = mesche_vm_call_closure(vm, closure, 0, NULL);
+  if (result != INTERPRET_OK) {
+    // TODO: Use a legitimate error
+    PANIC("ERROR LOADING MODULE\n");
   }
 
-  // Since we can't run the module body yet, return that things are OK
-  return INTERPRET_OK;
+  // Executing the module body will cause a value to be left on the stack, pop
+  // it and then pass along the result value
+  mesche_vm_stack_pop(vm);
+  return result;
 }
 
 InterpretResult mesche_vm_load_file(VM *vm, const char *file_path) {
@@ -1725,7 +1511,7 @@ InterpretResult mesche_vm_load_file(VM *vm, const char *file_path) {
   }
 
   // Eval the script and then free the source string
-  InterpretResult result = mesche_vm_eval_string(vm, source);
+  InterpretResult result = vm_eval_internal(vm, source, file_path);
   free(source);
 
   if (result == INTERPRET_COMPILE_ERROR) {

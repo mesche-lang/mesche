@@ -1,0 +1,31 @@
+(define-module (mesche expander)
+  (import (mesche core)))
+
+(define (and-syntax form)
+  (if (null? (cdr form))
+      #t
+      (if (pair? (cdr form))
+          (if (pair? (cdr (cdr form)))
+              (append (list 'if (car (cdr form)))
+                      (list (cons 'and (cdr (cdr form)))))
+              (car (cdr form))))))
+
+(define (or-syntax form)
+  (cons 'if (cdr form)))
+
+(define syntaxes
+  (list (cons 'and and-syntax)
+        (cons 'or or-syntax)))
+
+(define (expand form) :export
+  (display "EXPANDING: ")
+  (display form)
+  (display "\n")
+  (if (pair? form)
+      (let ((syn (assq (car form) syntaxes)))
+        ;; (if syn (display "SYN FOUND\n") (display "SYN NOT FOUND\n"))
+        (if syn
+            ;; Recursively expand until we don't find an applicable syntax
+            (expand ((cdr syn) form))
+            form))
+      form))

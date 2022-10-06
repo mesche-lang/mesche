@@ -1,5 +1,6 @@
 #include <sys/time.h>
 
+#include "native.h"
 #include "time.h"
 #include "util.h"
 

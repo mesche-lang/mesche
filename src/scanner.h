@@ -5,13 +5,15 @@ typedef enum {
   TokenKindNone,
   TokenKindLeftParen,
   TokenKindRightParen,
+  TokenKindDot,
   TokenKindList,
   TokenKindCons,
   TokenKindQuote,
+  TokenKindQuoteChar,
   TokenKindBackquote,
   TokenKindUnquote,
   TokenKindSplice,
-  TokenKindNil,
+  TokenKindFalse,
   TokenKindTrue,
   TokenKindString,
   TokenKindSymbol,
@@ -56,6 +58,8 @@ typedef struct {
   const char *start;
   const char *current;
   int line;
+  int column;
+  const char *file_name;
 } Scanner;
 
 typedef struct {

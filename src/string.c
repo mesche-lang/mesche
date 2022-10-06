@@ -1,9 +1,98 @@
 #include <stdlib.h>
 
+#include "mem.h"
+#include "native.h"
 #include "object.h"
 #include "string.h"
 #include "util.h"
 #include "value.h"
+#include "vm-impl.h"
+
+ObjectString *mesche_object_make_string(VM *vm, const char *chars, int length) {
+  // Allocate and initialize the string object
+  ObjectString *string = ALLOC_OBJECT_EX(vm, ObjectString, length + 1, ObjectKindString);
+
+  // Copy each letter one at a time to convert escape sequences
+  int offset = 0;
+  bool escaped = false;
+  for (int i = 0; i < length; i++) {
+    if (escaped) {
+      // Assume we'll find a valid escaped character and increase the offset
+      // with which we will copy the remaining characters
+      escaped = false;
+      offset++;
+
+      // TODO: Error on unexpected escape sequence?
+      switch (chars[i]) {
+      case '\\':
+        string->chars[i - offset] = '\\';
+        continue;
+      case 'n':
+        string->chars[i - offset] = '\n';
+        continue;
+      case 'e':
+        string->chars[i - offset] = '\e';
+        continue;
+      case 't':
+        string->chars[i - offset] = '\t';
+        continue;
+      }
+    } else {
+      if (chars[i] == '\\') {
+        escaped = true;
+        continue;
+      }
+    }
+
+    // If we've reached this point, just copy the character
+    string->chars[i - offset] = chars[i];
+  }
+
+  // Compute the final length and finish the string
+  length = length - offset;
+  string->chars[length] = '\0';
+
+  // Finish initializing the string
+  // TODO: Resize the string buffer in memory to reduce waste
+  uint32_t hash = mesche_string_hash(string->chars, length);
+  string->length = length;
+  string->hash = hash;
+
+  // Is the string already interned?
+  ObjectString *interned_string = mesche_table_find_key(&vm->strings, chars, length, hash);
+  if (interned_string != NULL) {
+    // Return the interned string and don't explicitly free the one we allocated
+    // since it will get cleaned up by the GC
+    return interned_string;
+  }
+
+  // Push the string onto the stack temporarily to avoid GC
+  mesche_vm_stack_push(vm, OBJECT_VAL(string));
+
+  // Add the string to the interned set
+  // TODO: Use an API for this!
+  mesche_table_set((MescheMemory *)vm, &vm->strings, string, FALSE_VAL);
+
+  // Pop the string back off the stack
+  mesche_vm_stack_pop(vm);
+
+  return string;
+}
+
+void mesche_free_string(VM *vm, ObjectString *string) {
+  FREE_SIZE(vm, string, (sizeof(ObjectString) + string->length + 1));
+}
+
+uint32_t mesche_string_hash(const char *key, int length) {
+  // Use the FNV-1a hash algorithm
+  uint32_t hash = 2166136261u;
+  for (int i = 0; i < length; i++) {
+    hash ^= (uint8_t)key[i];
+    hash *= 16777619;
+  }
+
+  return hash;
+}
 
 char *mesche_cstring_join(const char *left, size_t left_length, const char *right,
                           size_t right_length, const char *separator) {
@@ -51,8 +140,8 @@ Value string_append_msc(MescheMemory *mem, int arg_count, Value *args) {
   // Append all string arguments together
   ObjectString *result_string = AS_STRING(args[0]);
   for (int i = 1; i < arg_count; i++) {
-    // Skip all nils
-    if (IS_NIL(args[i]))
+    // Skip all #f's
+    if (IS_FALSE(args[i]))
       continue;
 
     mesche_vm_stack_push((VM *)mem, OBJECT_VAL(result_string));

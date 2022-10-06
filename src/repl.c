@@ -1,10 +1,11 @@
 #include <fcntl.h>
-#include <unistd.h>
 #include <errno.h>
+#include <unistd.h>
 
+#include "module.h"
 #include "repl.h"
 #include "util.h"
-#include "module.h"
+#include "vm-impl.h"
 
 static void mesche_repl_print_prompt(VM *vm) {
   printf("\e[1;92mmesche:\e[0m");

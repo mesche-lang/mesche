@@ -18,7 +18,7 @@
 (define all-suites '())
 (define suite-stack '())
 (define tag-stack '())
-(define current-suite nil)
+(define current-suite #f)
 
 (define pass-count 0)
 (define fail-count 0)
@@ -26,13 +26,13 @@
 
 (define indent-string "   ")
 
-(define test-filter (lambda (desc tags) t))
+(define test-filter (lambda (desc tags) #t))
 
 (define (test-filter-set! filter) :export
   (set! test-filter filter))
 
-(define (suite description :rest args) :export
-  (let ((suite-func nil)
+(define (suite description . args) :export
+  (let ((suite-func #f)
         (tags '()))
     (let loop ((rest args))
       (if (pair? rest)
@@ -78,10 +78,10 @@
                     (append (suite-tests suite)
                             (list test))))
 
-(define (verify description :rest args) :export
+(define (verify description . args) :export
   ;; Loop over the args to gather tags and find the test function
   (let ((tags '())
-        (test-func nil))
+        (test-func #f))
     (let loop ((rest args))
       (if (pair? rest)
           (if (symbol? (car rest))
@@ -121,7 +121,7 @@
                             (car actual))
            (compare-objects (cdr expected)
                             (cdr actual)))
-      nil))
+      #f))
 
 (define (compare-objects expected actual)
   (if (pair? expected)
@@ -180,7 +180,7 @@
           (run-suite (car suites) (+ level 1))
           (loop (cdr suites))))))
 
-(define (run-test-suites :keys print-report) :export
+(define (run-test-suites . args) :export
   ;; Reset the test environment
   (set! pass-count 0)
   (set! fail-count 0)
@@ -194,7 +194,7 @@
           (run-suite (car suites) 0)
           (loop (cdr suites)))))
 
-  (if print-report
+  (if (plist-ref args :print-report)
       (begin
         (display "\nRESULTS:\n")
 

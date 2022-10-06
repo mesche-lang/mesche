@@ -1,10 +1,11 @@
-
-#include "math.h"
-#include "object.h"
-#include "util.h"
 #include <math.h>
 #include <stdlib.h>
 #include <time.h>
+
+#include "math.h"
+#include "native.h"
+#include "object.h"
+#include "util.h"
 
 Value math_floor_msc(MescheMemory *mem, int arg_count, Value *args) {
   // TODO: Add type check

@@ -23,11 +23,11 @@
                      (equal? (car result) 'coroutine-yield))
                 ;; Queue for the next dispatcher frame
                 (dispatcher-queue (cdr result))
-                nil))
+                #f))
 
           ;; Dispatch the next continuation
           (loop))
-        nil)))
+        #f)))
 
 (define (yield)
   (shift (lambda (k)
@@ -84,7 +84,7 @@
 (define c (make-channel :senders '() :receivers '()))
 
 (define max-value 100)
-(define received-value nil)
+(define received-value #f)
 
 (start (lambda ()
          (let loop ((value 1))
@@ -101,8 +101,8 @@
                (begin
                  (set! received-value value)
                  ;; (display (string-append "Received: " (number->string received-value) "\n"))
-                 (loop nil))
-               nil))))
+                 (loop #f))
+               #f))))
 
 (dispatcher-start)
 

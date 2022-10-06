@@ -1,53 +1,136 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "array.h"
+#include "closure.h"
 #include "io.h"
+#include "keyword.h"
+#include "native.h"
 #include "object.h"
+#include "symbol.h"
 #include "util.h"
 #include "value.h"
 #include "vm.h"
 
 Value core_number_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // TODO: Ensure single argument
+  if (arg_count != 1) {
+    PANIC("Function requires a single parameter.");
+  }
+
   return BOOL_VAL(IS_NUMBER(args[0]));
 }
 
 Value core_boolean_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // TODO: Ensure single argument
-  return BOOL_VAL(IS_T(args[0]) || IS_NIL(args[0]));
+  if (arg_count != 1) {
+    PANIC("Function requires a single parameter.");
+  }
+
+  return BOOL_VAL(IS_TRUE(args[0]) || IS_FALSE(args[0]));
 }
 
 Value core_pair_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // TODO: Ensure single argument
+  if (arg_count != 1) {
+    PANIC("Function requires a single parameter.");
+  }
+
   return BOOL_VAL(IS_CONS(args[0]));
 }
 
 Value core_string_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // TODO: Ensure single argument
+  if (arg_count != 1) {
+    PANIC("Function requires a single parameter.");
+  }
+
   return BOOL_VAL(IS_STRING(args[0]));
 }
 
 Value core_symbol_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // TODO: Ensure single argument
+  if (arg_count != 1) {
+    PANIC("Function requires a single parameter.");
+  }
+
   return BOOL_VAL(IS_SYMBOL(args[0]));
 }
 
 Value core_keyword_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // TODO: Ensure single argument
+  if (arg_count != 1) {
+    PANIC("Function requires a single parameter.");
+  }
+
   return BOOL_VAL(IS_KEYWORD(args[0]));
 }
 
 Value core_function_p_msc(MescheMemory *mem, int arg_count, Value *args) {
-  // TODO: Ensure single argument
+  if (arg_count != 1) {
+    PANIC("Function requires a single parameter.");
+  }
+
   return BOOL_VAL(IS_CLOSURE(args[0]) || IS_FUNCTION(args[0]) || IS_NATIVE_FUNC(args[0]));
 }
 
 Value core_array_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   if (arg_count != 1) {
-    PANIC("Function requires 1 parameter.");
+    PANIC("Function requires a single parameter.");
   }
 
   return BOOL_VAL(IS_ARRAY(args[0]));
+}
+
+Value core_equal_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (arg_count != 2) {
+    PANIC("Function requires 2 parameters.");
+  }
+
+  return BOOL_VAL(mesche_value_eqv_p(args[0], args[1]));
+}
+
+Value core_eqv_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (arg_count != 2) {
+    PANIC("Function requires 2 parameters.");
+  }
+
+  return BOOL_VAL(mesche_value_eqv_p(args[0], args[1]));
+}
+
+Value core_not_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (arg_count != 1) {
+    PANIC("Function requires 1 parameter.");
+  }
+
+  // Return true if the value is explicitly #f
+  return BOOL_VAL(IS_FALSE(args[0]));
+}
+
+Value core_cons_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // TODO: Ensure two arguments
+  return OBJECT_VAL(mesche_object_make_cons((VM *)mem, args[0], args[1]));
+}
+
+Value core_list_msc(MescheMemory *mem, int arg_count, Value *args) {
+  Value list = EMPTY_VAL;
+
+  if (arg_count > 0) {
+    ObjectCons *current = NULL;
+    bool pushed_list = false;
+    for (int i = 0; i < arg_count; i++) {
+      if (current == NULL) {
+        current = mesche_object_make_cons((VM *)mem, args[i], EMPTY_VAL);
+        list = OBJECT_VAL(current);
+
+        // Temporarily store the list so it doesn't get collected
+        mesche_vm_stack_push((VM *)mem, list);
+      } else {
+        // Add the new cons to the end of the list
+        current->cdr = OBJECT_VAL(mesche_object_make_cons((VM *)mem, args[i], EMPTY_VAL));
+        current = AS_CONS(current->cdr);
+      }
+    }
+
+    // Pop the list from the stack before we return it
+    mesche_vm_stack_pop((VM *)mem);
+  }
+
+  return list;
 }
 
 Value core_car_msc(MescheMemory *mem, int arg_count, Value *args) {
@@ -125,19 +208,106 @@ Value core_append_msc(MescheMemory *mem, int arg_count, Value *args) {
   return EMPTY_VAL;
 }
 
+Value core_plus_msc(MescheMemory *mem, int arg_count, Value *args) {
+  double result = 0.f;
+  for (int i = 0; i < arg_count; i++) {
+    // TODO: ERROR ON NON-NUMBER
+    if (!IS_NUMBER(args[i])) {
+      PANIC("Object is not a number: %d\n", AS_OBJECT(args[i])->kind);
+    }
+
+    result += AS_NUMBER(args[i]);
+  }
+
+  return NUMBER_VAL(result);
+}
+
+Value core_minus_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // TODO: USE NORMAL ERROR
+  if (arg_count < 1) {
+    PANIC("Procedure `-` requires at least one argument");
+  }
+
+  if (arg_count == 1) {
+    // Special case, single argument should be zero
+    return NUMBER_VAL(0 - AS_NUMBER(args[0]));
+  }
+
+  double result = AS_NUMBER(args[0]);
+  for (int i = 1; i < arg_count; i++) {
+    // TODO: ERROR ON NON-NUMBER
+    if (!IS_NUMBER(args[i])) {
+      PANIC("Object is not a number: %d\n", AS_OBJECT(args[i])->kind);
+    }
+
+    result -= AS_NUMBER(args[i]);
+  }
+
+  return NUMBER_VAL(result);
+}
+
+Value core_multiply_msc(MescheMemory *mem, int arg_count, Value *args) {
+  double result = 1.f;
+  for (int i = 0; i < arg_count; i++) {
+    // TODO: ERROR ON NON-NUMBER
+    if (!IS_NUMBER(args[i])) {
+      PANIC("Object is not a number: %d\n", AS_OBJECT(args[i])->kind);
+    }
+
+    result *= AS_NUMBER(args[i]);
+  }
+
+  return NUMBER_VAL(result);
+}
+
+Value core_divide_msc(MescheMemory *mem, int arg_count, Value *args) {
+  // TODO: USE NORMAL ERROR
+  if (arg_count < 1) {
+    PANIC("Procedure `-` requires at least one argument");
+  }
+
+  if (arg_count == 1) {
+    // Special case, single argument should be inverted
+    return NUMBER_VAL(1 / AS_NUMBER(args[0]));
+  }
+
+  double result = AS_NUMBER(args[0]);
+  for (int i = 1; i < arg_count; i++) {
+    // TODO: ERROR ON NON-NUMBER
+    if (!IS_NUMBER(args[i])) {
+      PANIC("Object is not a number: %d\n", AS_OBJECT(args[i])->kind);
+    }
+
+    result = result / AS_NUMBER(args[i]);
+  }
+
+  return NUMBER_VAL(result);
+}
+
+Value core_display_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (arg_count != 1) {
+    PANIC("Function requires 1 parameter.");
+  }
+
+  // Print the value
+  mesche_value_print(args[0]);
+
+  return UNSPECIFIED_VAL;
+}
+
 void mesche_core_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche core",
-      (MescheNativeFuncDetails[]){{"number?", core_number_p_msc, true},
-                                  {"boolean?", core_boolean_p_msc, true},
-                                  {"pair?", core_pair_p_msc, true},
-                                  {"string?", core_string_p_msc, true},
-                                  {"symbol?", core_symbol_p_msc, true},
-                                  {"keyword?", core_keyword_p_msc, true},
-                                  {"array?", core_array_p_msc, true},
-                                  {"function?", core_function_p_msc, true},
-                                  {"car", core_car_msc, true},
-                                  {"cdr", core_cdr_msc, true},
-                                  {"append", core_append_msc, true},
-                                  {NULL, NULL, false}});
+      (MescheNativeFuncDetails[]){
+          {"number?", core_number_p_msc, true}, {"boolean?", core_boolean_p_msc, true},
+          {"pair?", core_pair_p_msc, true},     {"string?", core_string_p_msc, true},
+          {"symbol?", core_symbol_p_msc, true}, {"keyword?", core_keyword_p_msc, true},
+          {"array?", core_array_p_msc, true},   {"function?", core_function_p_msc, true},
+          {"equal?", core_equal_p_msc, true},   {"eqv?", core_eqv_p_msc, true},
+          {"not", core_not_msc, true},          {"cons", core_cons_msc, true},
+          {"list", core_list_msc, true},        {"car", core_car_msc, true},
+          {"cdr", core_cdr_msc, true},          {"append", core_append_msc, true},
+          {"+", core_plus_msc, true},           {"-", core_minus_msc, true},
+          {"*", core_multiply_msc, true},       {"/", core_divide_msc, true},
+          {"display", core_display_msc, true},  {NULL, NULL, false}});
 }

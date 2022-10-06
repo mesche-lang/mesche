@@ -86,7 +86,7 @@
         (if (eqv? (car remaining) key)
             (car (cdr remaining))
             (loop (cdr remaining)))
-        nil)))
+        #f)))
 
 (define (list-ref lst index) :export
   (let loop ((remaining lst)
@@ -115,3 +115,6 @@
 ;; TODO: Implement merge sort!
 (define (sort items compare-fn)
   items)
+
+;; Import the expander module to continue defining core syntaxes
+;; (module-import (mesche expander))

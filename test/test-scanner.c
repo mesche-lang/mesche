@@ -21,9 +21,9 @@
   ASSERT_KIND(next_token.sub_kind, _sub_kind);
 
 static void scanner_finds_literals() {
-  INIT_SCANNER("t nil -1 2.2 \"three\"");
+  INIT_SCANNER("#t #f -1 2.2 \"three\"");
   CHECK_TOKEN(TokenKindTrue);
-  CHECK_TOKEN(TokenKindNil);
+  CHECK_TOKEN(TokenKindFalse);
   CHECK_TOKEN(TokenKindNumber);
   CHECK_TOKEN(TokenKindNumber);
   CHECK_TOKEN(TokenKindString);
@@ -38,7 +38,7 @@ static void scanner_finds_lists_and_symbols() {
   CHECK_SYMBOL(TokenKindList);
   CHECK_TOKEN(TokenKindKeyword);
   CHECK_TOKEN(TokenKindString);
-  CHECK_TOKEN(TokenKindQuote);
+  CHECK_TOKEN(TokenKindQuoteChar);
   CHECK_TOKEN(TokenKindSymbol);
   CHECK_TOKEN(TokenKindRightParen);
 
@@ -48,10 +48,10 @@ static void scanner_finds_lists_and_symbols() {
 
 static void scanner_finds_operations() {
   INIT_SCANNER("+ - / * and or eqv? equal?");
-  CHECK_TOKEN(TokenKindPlus);
+  CHECK_SYMBOL(TokenKindPlus);
   CHECK_SYMBOL(TokenKindMinus);
-  CHECK_TOKEN(TokenKindSlash);
-  CHECK_TOKEN(TokenKindStar);
+  CHECK_SYMBOL(TokenKindSlash);
+  CHECK_SYMBOL(TokenKindStar);
   CHECK_SYMBOL(TokenKindAnd);
   CHECK_SYMBOL(TokenKindOr);
   CHECK_SYMBOL(TokenKindEqv);

@@ -1,5 +1,5 @@
-#ifndef mesche_fs_h
-#define mesche_fs_h
+#ifndef mesche_math_h
+#define mesche_math_h
 
 #include "vm.h"
 

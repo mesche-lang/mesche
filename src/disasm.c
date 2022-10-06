@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "chunk.h"
+#include "function.h"
 #include "object.h"
 #include "op.h"
 #include "value.h"
@@ -54,10 +55,10 @@ int mesche_disasm_instr(Chunk *chunk, int offset) {
     return mesche_disasm_simple_instr("OP_NOP", offset);
   case OP_CONSTANT:
     return mesche_disasm_const_instr("OP_CONSTANT", chunk, offset);
-  case OP_NIL:
-    return mesche_disasm_simple_instr("OP_NIL", offset);
-  case OP_T:
-    return mesche_disasm_simple_instr("OP_T", offset);
+  case OP_FALSE:
+    return mesche_disasm_simple_instr("OP_FALSE", offset);
+  case OP_TRUE:
+    return mesche_disasm_simple_instr("OP_TRUE", offset);
   case OP_LIST:
     return mesche_disasm_byte_instr("OP_LIST", chunk, offset);
   case OP_POP:

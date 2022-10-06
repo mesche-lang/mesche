@@ -3,6 +3,7 @@
 
 #include "mem.h"
 #include "object.h"
+#include "symbol.h"
 #include "value.h"
 
 void mesche_value_array_init(ValueArray *array) {
@@ -29,20 +30,26 @@ void mesche_value_array_free(MescheMemory *mem, ValueArray *array) {
 
 void mesche_value_print(Value value) {
   switch (value.kind) {
+  case VALUE_UNSPECIFIED:
+    printf("#<unspecified>");
+    break;
   case VALUE_NUMBER:
     printf("%g", AS_NUMBER(value));
     break;
-  case VALUE_NIL:
-    printf("nil");
+  case VALUE_FALSE:
+    printf("#f");
     break;
   case VALUE_TRUE:
-    printf("t");
+    printf("#t");
     break;
   case VALUE_EMPTY:
     printf("()");
     break;
   case VALUE_OBJECT:
     mesche_object_print(value);
+    break;
+  case VALUE_EOF:
+    printf("#<eof>");
     break;
   }
 }
@@ -53,14 +60,20 @@ bool mesche_value_eqv_p(Value a, Value b) {
     return false;
 
   switch (a.kind) {
-  case VALUE_NIL:
+  case VALUE_FALSE:
   case VALUE_TRUE:
   case VALUE_EMPTY:
     return true;
   case VALUE_NUMBER:
     return AS_NUMBER(a) == AS_NUMBER(b);
-  case VALUE_OBJECT:
-    return AS_OBJECT(a) == AS_OBJECT(b);
+  case VALUE_OBJECT: {
+    // Compare the names of the two symbols since they are interned
+    if (IS_SYMBOL(a) && IS_SYMBOL(b)) {
+      return AS_SYMBOL(a)->name == AS_SYMBOL(b)->name;
+    } else {
+      return AS_OBJECT(a) == AS_OBJECT(b);
+    }
+  }
   default:
     return false;
   }
