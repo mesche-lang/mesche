@@ -1,0 +1,7 @@
+#+title: The Mesche Command Line Interface
+
+[More information soon.]
+
+* License
+
+This project is licensed under the [[file:LICENSE][BSD 3-Clause License]].

@@ -1,0 +1,363 @@
+(define-module (mesche build)
+  (import (mesche fs)
+          (mesche io)
+          (mesche list)
+          (mesche process)
+          (mesche string)
+          (mesche project)))
+
+;;; Records
+
+(define-record-type build-output
+  (fields type                    ; The output type symbol: object, static-lib
+          files                   ; The output files from the build step
+          c-flags                 ; C compiler flags and libraries to pass along
+          c-libs))
+
+;;; Utilities
+
+(define (same-config-as-current config) :export
+  (project-config-name config))
+
+(define (gather-object-files outputs)
+  (let next-output ((outputs outputs)
+                    (object-files '()))
+    (if (pair? outputs)
+        (next-output (cdr outputs)
+                     (if (build-output-files (car outputs))
+                         (append object-files
+                                 (build-output-files (car outputs)))
+                         object-files))
+        object-files)))
+
+;;; Dependency Management
+
+(define (dep-path dep)
+  (string-append "./deps/" (project-dep-path dep)))
+
+(define (git-clone repo-url local-path) :export
+  (process-start-sync (string-append "git clone "
+                                     repo-url
+                                     " "
+                                     local-path)
+                      :stderr 'inherit))
+
+(define (download-url url local-path) :export
+  (display (string-append "Downloading URL: " url " to " local-path "...\n"))
+  (process-start-sync (string-append "wget "
+                                     url
+                                     " -q -O "
+                                     local-path)
+                      :stderr 'inherit))
+
+(define (unpack-tar-gz archive-path output-path) :export
+  (process-start-sync (string-append "tar -zxf "
+                                     archive-path
+                                     " -C "
+                                     output-path)
+                      :stdout 'inherit
+                      :stderr 'inherit))
+
+(define (download-musl dep) :export
+  ;; TODO: Parameterize this
+  (let ((build "x86_64-linux-musl-native")
+        (local-path (dep-path dep)))
+    ;; TODO: Don't hardcode deps path
+    (download-url (string-append "https://musl.cc/" build ".tgz")
+                  "./deps/musl.tar.gz")
+    (unpack-tar-gz "./deps/musl.tar.gz" "./deps")
+    ;; TODO: Library functions for this
+    (process-start-sync (string-append "mv " (path-resolve (string-append "./deps/" build)) " " local-path)
+                        :stderr 'inherit)
+    (process-start-sync "rm ./deps/musl.tar.gz"
+                        :stderr 'inherit)))
+
+(define (musl-gcc config deps outputs) :export
+  ;; TODO: Generate this from the dep info
+  (display "musl-gcc"))
+
+(define (musl-toolchain-fetcher musl-version)
+  (lambda (project dep)
+    (download-musl dep)))
+
+(define (musl-toolchain-updater musl-version)
+  (lambda (config)
+    (display "Update musl!\n")))
+
+(define (musl-toolchain . args) :export
+  (let ((version (plist-ref args :version)))
+    (make-project-dep :name "musl toolchain: latest"
+                      :kind 'musl
+                      :path "musl"
+                      :fetcher (musl-toolchain-fetcher version)
+                      :updater (musl-toolchain-updater version))))
+
+(define (mesche-lib-fetcher repo)
+  (lambda (project dep)
+    (let ((local-path (dep-path dep)))
+      ;; TODO: Support other providers or detect "absolute" URL
+      (git-clone repo local-path))))
+
+(define (mesche-lib-updater repo)
+  (lambda (config)
+    (display "TODO: Update Mesche lib!\n")))
+
+(define (mesche-lib name . args) :export
+  (let ((repo (plist-ref args :repo))
+        (local-path (plist-ref args :local-path)))
+    ;; TODO: Use overrides
+    (let ((full-repo (string-append "https://github.com/" name)))
+      (make-project-dep :name (string-append "mesche-lib " name)
+                        :kind 'mesche-lib
+                        :path name
+                        :fetcher (mesche-lib-fetcher full-repo)
+                        :updater (mesche-lib-updater full-repo)))))
+
+(define (pkg-config name . args) :export
+  (let ((exclude-cflags (plist-ref args :exclude-cflags))
+        (exclude-libs (plist-ref args :exclude-libs)))
+    (let ((process (process-start-sync (string-append "pkg-config "
+                                                      name
+                                                      (if exclude-cflags "" " --cflags")
+                                                      (if exclude-libs "" " --libs"))
+                                       :stderr 'inherit)))
+      ;; TODO: Throw error if library not found?
+      (if (equal? (process-exit-code process) 0)
+          (read-all-text (process-stdout process))
+          ""))))
+
+(define (ensure-deps project)
+  (if (project-deps project)
+      (begin
+        (path-ensure "./deps")
+        (let next-dep ((deps (project-deps project)))
+          (if (pair? deps)
+              (let ((dep-local-path (dep-path (car deps))))
+                (if (not (path-exists? dep-local-path))
+                    (begin
+                      (display (string-append "Fetching dependency: " (project-dep-name (car deps)) "\n"))
+                      ((project-dep-fetcher (car deps)) project (car deps))))
+                (next-dep (cdr deps))))))))
+
+;;; Targets
+
+(define (run-target project target config)
+  ;; Run the function for the target
+  ((project-target-runs target) project config '()))
+
+(define (build-target target-name) :export
+  (lambda (project config outputs)
+    (let ((target (project-find-target project target-name)))
+      ;; TODO: Throw error if target isn't found
+      (if target
+          (run-target project target config)
+          (begin
+            (display "Could not find target '")
+            (display target-name)
+            (display  "'!\n"))))))
+
+;;; Build Functions
+
+(define (steps . step-functions) :export
+  (lambda (project config outputs)
+    (let next-step ((step-functions step-functions)
+                    (outputs outputs))
+      (if (pair? step-functions)
+          (let ((step-output ((car step-functions) project config outputs)))
+            ;; TODO: Need record type predicate so we only add an output if it's
+            ;; an instance of the build-output type!
+            (if step-output
+                (let ((new-c-flags (build-output-c-flags step-output))
+                      (new-c-libs (build-output-c-libs step-output)))
+
+                  ;; If there are new flags or libs, add them to the configuration
+                  (if new-c-flags (begin (project-config-c-flags-set! config
+                                                                      (string-append
+                                                                       (if (project-config-c-flags config)
+                                                                           (string-append (project-config-c-flags config) " ")
+                                                                           " ")
+                                                                       new-c-flags))
+                                         ;; (display (string-append "NEW FLAGS: " (project-config-c-flags config) "\n"))
+                                         ))
+                  (if new-c-libs (begin (project-config-c-libs-set! config
+                                                                    (string-append
+                                                                     (if (project-config-c-libs config)
+                                                                         (string-append (project-config-c-libs config) " ")
+                                                                         "")
+                                                                     new-c-libs))
+                                        ;; (display (string-append "NEW LIBS: " (project-config-c-libs config) "\n"))
+                                        ))))
+            (next-step (cdr step-functions)
+                       (if step-output
+                           (cons step-output outputs)
+                           outputs)))
+
+          ;; Return the last step's output
+          (if outputs (car outputs))))))
+
+(define (build-project-inner project-path target-name config-name)
+  (let ((working-path (file-directory (path-resolve project-path)))
+        (resolved-project-path (path-resolve project-path))
+        (original-path (process-directory))
+        (project #f))
+    ;; Set the working directory temporarily
+    (process-directory-set! working-path)
+
+    ;; Load the project after setting working directory to ensure that any
+    ;; inline path resolutions are based on the project path
+    (set! project (project-load resolved-project-path))
+
+    ;; Ensure project dependencies exist
+    (ensure-deps project)
+
+    ;; Use the default target and config if one was not specified
+    (let ((target (project-find-target project target-name))
+          (config (project-find-config project config-name)))
+      (if (not target) (set! target (project-default-target project)))
+      (if (not config) (set! config (project-default-config project)))
+
+      (display (string-append "*** Building " (project-name project)
+                              ", target " (project-target-name target)
+                              ", config " (project-config-name config) "\n"))
+
+      ;; Run the specified target
+      (let ((target-output (run-target project target config)))
+        ;; Restore the original working path
+        (process-directory-set! original-path)
+
+        ;; Return the target's output
+        target-output))))
+
+(define (build-project project-path . args) :export
+  (let ((target-name (plist-ref args :target-name))
+        (config-name (plist-ref args :config-name)))
+    (lambda (project config outputs)
+      ;; By default, use the name of the current project configuration
+      (build-project-inner project-path
+                           target-name
+                           (or config-name (project-config-name config))))))
+
+(define (compile-source . args) :export
+  (let ((source-files (plist-ref args :source-files))
+        (src-path (plist-ref args :src-path))
+        (mesche-main (plist-ref args :mesche-main)))
+    ;; TODO: Use mesche-main to generate a main.c file that invokes it
+    (lambda (project config outputs)
+      (let ((out-path (project-config-output-path config))
+            (c-compiler (or (project-config-c-compiler config) "gcc"))
+            (c-flags (or (project-config-c-flags config) ""))
+            (c-libs (or (project-config-c-libs config) "")))
+
+        (let compile-next ((input-files (or source-files '()))
+                           (output-files '()))
+          (if (pair? input-files)
+              (begin
+                (if (equal? "c" (file-extension (car input-files)))
+                    (let ((source-file (string-append (or src-path "./src") "/" (car input-files)))
+                          (output-file (string-append out-path "/" (file-name (car input-files)) ".o")))
+
+                      ;; Ensure the output path exists
+                      ;; TODO: Do this twice because it sometimes fails the first time...
+                      (path-ensure (file-directory output-file))
+                      (path-ensure (file-directory output-file))
+
+                      ;; Compile the file if the source is newer than the output file
+                      (if (>= (file-modified-time source-file)
+                              (file-modified-time output-file))
+                          (begin
+                            (display "Compiling: ") (display source-file)
+                            (display " to ") (display output-file)
+                            (display "...\n")
+                            (process-start-sync (string-append c-compiler
+                                                               " -c "
+                                                               source-file
+                                                               " -o "
+                                                               output-file
+                                                               " "
+                                                               c-flags)
+
+                                                :stderr 'inherit)))
+                      (set! output-files (cons output-file output-files))))
+                (compile-next (cdr input-files) output-files))
+              (make-build-output :type 'object
+                                 :files output-files)))))))
+
+(define (link-program output-file) :export
+  (lambda (project config outputs)
+    (let ((output-path (string-append (path-ensure (project-config-output-path config))
+                                      "/" output-file))
+          (c-compiler (or (project-config-c-compiler config) "gcc"))
+          (c-flags (or (project-config-c-flags config) ""))
+          (c-libs (or (project-config-c-libs config) "")))
+
+      ;; TODO: Error if no output file is specified
+      ;; TODO: Ensure that the previous output came from a compiler
+
+      ;; Run the linker
+      (display (string-append "Linking " output-file "\n"))
+      (let ((object-files (string-join (gather-object-files outputs) " ")))
+        (process-start-sync (string-append c-compiler
+                                           " -o "
+                                           output-path
+                                           " "
+                                           object-files
+                                           " "
+                                           c-flags
+                                           " "
+                                           c-libs)
+                            :stderr 'inherit))
+
+      ;; Make the file executable
+      (process-start-sync (string-append "chmod +x " output-path)
+                          :stderr 'inherit)
+
+      ;; Return the build output details
+      (make-build-output :type 'program
+                         :files (list output-path)))))
+
+(define (create-static-library output-file . args) :export
+  (let ((c-flags (plist-ref args :c-flags))
+        (c-libs (plist-ref args :c-libs)))
+    (lambda (project config outputs)
+      (let ((output-path (string-append (path-ensure (project-config-output-path config))
+                                        "/" output-file)))
+        ;; Run the linker
+        (display (string-append "Creating static library " output-file "\n"))
+        (process-start-sync (string-append "ar rcs "
+                                           output-path
+                                           " "
+                                           (string-join (gather-object-files outputs) " "))
+                            :stderr 'inherit)
+
+        ;; Return the build output details
+        (make-build-output :type 'static-library
+                           :files (list output-path)
+                           :c-flags c-flags
+                           :c-libs c-libs)))))
+
+;;; CLI Command
+
+(define (build-command) :export
+  (let ((args (cdr (cdr (process-arguments))))
+        (project-path "./project.msc")
+        (target-name #f)
+        (config-name #f)
+        (output-type #f))
+
+    ;; Process arguments
+    (let next-arg ((args args))
+      (if (pair? args)
+          ;; TODO: This 'if tower' is terrible, add argument handler function
+          (if (equal? (car args) "--project")
+              (begin (set! project-path (car (cdr args)))
+                     (next-arg (cdr (cdr args))))
+              (if (equal? (car args) "--config")
+                  (begin (set! config-name (car (cdr args)))
+                         (next-arg (cdr (cdr args))))
+                  ;; The last possibility is that the target name is being specified
+                  ;; TODO: Ensure the name doesn't start with --
+                  (begin (set! target-name (car args))
+                         (next-arg (cdr args)))))))
+
+    ;; Build the specified project
+    (build-project-inner project-path target-name config-name)))
