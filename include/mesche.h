@@ -7,6 +7,6 @@
 #include "../src/process.h"
 #include "../src/repl.h"
 #include "../src/string.h"
-#include "../src/vm.h"
+#include "../src/vm-impl.h"
 
 #endif
