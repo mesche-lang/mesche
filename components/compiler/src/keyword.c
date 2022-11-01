@@ -1,15 +1,26 @@
 #include "keyword.h"
+#include "vm-impl.h"
 
 ObjectKeyword *mesche_object_make_keyword(VM *vm, const char *chars, int length) {
-  // TODO: Do we want to intern keyword strings too?
-  // Allocate and initialize the string object
+  // Is the keyword already interned?
   uint32_t hash = mesche_string_hash(chars, length);
-  ObjectKeyword *keyword = ALLOC_OBJECT_EX(vm, ObjectKeyword, length + 1, ObjectKindKeyword);
-  memcpy(keyword->string.chars, chars, length);
-  keyword->string.chars[length] = '\0';
-  keyword->string.length = length;
-  keyword->string.hash = hash;
+  ObjectString *keyword = (ObjectString *)mesche_table_find_key(&vm->keywords, chars, length, hash);
 
+  // If the keyword's interned string was not found, create a new one
+  if (keyword == NULL) {
+    // Allocate the keyword object
+    keyword = (ObjectString *)ALLOC_OBJECT_EX(vm, ObjectKeyword, length + 1, ObjectKindKeyword);
+    memcpy(keyword->chars, chars, length);
+    keyword->chars[length] = '\0';
+    keyword->length = length;
+    keyword->hash = hash;
+
+    // Add the keyword to the interned set
+    // TODO: Use an API for this!
+    mesche_table_set((MescheMemory *)vm, &vm->keywords, keyword, FALSE_VAL);
+  }
+
+  // Allocate and initialize the string object
   return (ObjectKeyword *)keyword;
 }
 

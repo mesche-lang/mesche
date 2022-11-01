@@ -143,9 +143,10 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->expander = NULL;
   vm_reset_stack(vm);
 
-  // Initialize the interned string and symbol tables
+  // Initialize the interned string, symbol, and keyword tables
   mesche_table_init(&vm->strings);
   mesche_table_init(&vm->symbols);
+  mesche_table_init(&vm->keywords);
 
   // Initialize reusable symbols
   vm->quote_symbol = mesche_object_make_symbol(vm, "quote", 5);
@@ -185,6 +186,7 @@ void mesche_vm_free(VM *vm) {
   mesche_table_free((MescheMemory *)vm, &vm->modules);
   mesche_table_free((MescheMemory *)vm, &vm->symbols);
   mesche_table_free((MescheMemory *)vm, &vm->strings);
+  mesche_table_free((MescheMemory *)vm, &vm->keywords);
   vm_free_objects(vm);
 }
 

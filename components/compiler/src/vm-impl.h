@@ -29,6 +29,7 @@ typedef struct VM {
   Value *stack_top;
   Table strings;
   Table symbols;
+  Table keywords;
 
   // Reusable symbols for code generation that can't be GC'ed during execution
   ObjectSymbol *quote_symbol;
