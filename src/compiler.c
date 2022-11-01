@@ -643,7 +643,7 @@ static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
 static Value compiler_parse_define_attributes(CompilerContext *ctx, Value syntax,
                                               DefineAttributes *define_attributes) {
   ObjectCons *list;
-  for (;;) {
+  while (!IS_EMPTY(syntax)) {
     // Look for :export keyword
     ObjectKeyword *keyword;
     EXPECT_CONS(syntax, list);
@@ -661,13 +661,15 @@ static Value compiler_parse_define_attributes(CompilerContext *ctx, Value syntax
   }
 
   // Look for a docstring
-  ObjectString *string;
-  EXPECT_CONS(syntax, list);
-  MAYBE_STRING(list->car, string);
-  if (string) {
-    // Store it as the documentation string
-    define_attributes->doc_string = string;
-    syntax = list->cdr;
+  if (!IS_EMPTY(syntax)) {
+    ObjectString *string;
+    EXPECT_CONS(syntax, list);
+    MAYBE_STRING(list->car, string);
+    if (string) {
+      // Store it as the documentation string
+      define_attributes->doc_string = string;
+      syntax = list->cdr;
+    }
   }
 
   return syntax;
