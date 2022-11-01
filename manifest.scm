@@ -6,12 +6,13 @@
    "make"
    "pkg-config"
    "gdb"
-   "cmake"
    "zlib"
+   "valgrind"
 
    ;; Command line tools
    "git"
    "tar"
+   "zip"
    "wget"
    "gzip"
    "openssh"
