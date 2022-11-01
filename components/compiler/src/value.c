@@ -55,7 +55,7 @@ void mesche_value_print(Value value) {
 }
 
 bool mesche_value_eqv_p(Value a, Value b) {
-  // This check also covers comparison of t and nil
+  // This check also covers comparison of #t and #f
   if (a.kind != b.kind)
     return false;
 

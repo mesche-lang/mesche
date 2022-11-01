@@ -79,7 +79,7 @@
 
 (define (project-default-target project) :export
   ;; TODO: What if targets list is an array?
-  (let next-target ((last-target nil)
+  (let next-target ((last-target #f)
                     (targets (project-targets project)))
     (if (pair? targets)
         (let ((target (car targets)))

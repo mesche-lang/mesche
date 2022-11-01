@@ -203,7 +203,7 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
 
   // for (int i = 0; i < arg_count; i++) {
   //   // TODO: Verify type
-  //   // TODO: Guard against nil arg value
+  //   // TODO: Guard against #f arg value
   //   argv[i] = AS_CSTRING(args[i]);
   //   printf("%s ", argv[i]);
   // }

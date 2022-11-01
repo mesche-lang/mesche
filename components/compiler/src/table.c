@@ -84,7 +84,7 @@ bool mesche_table_set(MescheMemory *mem, Table *table, ObjectString *key, Value 
   Entry *entry = table_find_entry(table->entries, table->capacity, key);
   bool is_new_key = entry->key == NULL;
   if (is_new_key && IS_FALSE(entry->value)) {
-    // Only increase the count if the returned entry is nil,
+    // Only increase the count if the returned entry is #f,
     // meaning that it wasn't a tombstoned entry
     table->count++;
   }

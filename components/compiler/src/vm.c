@@ -307,7 +307,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
         mesche_vm_stack_push(
             vm, closure->function->chunk.constants.values[keyword_arg->default_index - 1]);
       } else {
-        // If no default value was provided, choose `nil`
+        // If no default value was provided, choose `#f`
         mesche_vm_stack_push(vm, FALSE_VAL);
       }
 
@@ -324,7 +324,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
         mesche_vm_stack_push(
             vm, closure->function->chunk.constants.values[keyword_arg->default_index - 1]);
       } else {
-        // If no default value was provided, choose `nil`
+        // If no default value was provided, choose `#f`
         mesche_vm_stack_push(vm, FALSE_VAL);
       }
 
@@ -373,14 +373,14 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
       // Update the argument count to reflect the reduced amount
       arg_count -= rest_value_count - 1;
     } else {
-      // Fill in rest arg with nil if nothing was passed for it
+      // Fill in rest arg with #f if nothing was passed for it
       if (num_keyword_args > 0) {
         // Shift the keyword args forward by 1
         memmove(arg_start + closure->function->arity + 1, arg_start + closure->function->arity,
                 sizeof(Value) * num_keyword_args);
       }
 
-      // Place the NIL value and update the stack top
+      // Place the #f value and update the stack top
       *(vm->stack_top - num_keyword_args) = FALSE_VAL;
       vm->stack_top = arg_start + closure->function->arity + num_keyword_args;
     }
