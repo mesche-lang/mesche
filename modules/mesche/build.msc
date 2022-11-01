@@ -84,12 +84,13 @@
   (lambda (config)
     (display "Update musl!\n")))
 
-(define (musl-toolchain :keys version) :export
-  (make-project-dep :name "musl toolchain: latest"
-                    :kind 'musl
-                    :path "musl"
-                    :fetcher (musl-toolchain-fetcher version)
-                    :updater (musl-toolchain-updater version)))
+(define (musl-toolchain . args) :export
+  (let ((version (plist-ref args :version)))
+    (make-project-dep :name "musl toolchain: latest"
+                      :kind 'musl
+                      :path "musl"
+                      :fetcher (musl-toolchain-fetcher version)
+                      :updater (musl-toolchain-updater version))))
 
 (define (mesche-lib-fetcher repo)
   (lambda (project dep)
@@ -101,25 +102,29 @@
   (lambda (config)
     (display "TODO: Update Mesche lib!\n")))
 
-(define (mesche-lib name :keys repo local-path) :export
-  ;; TODO: Use overrides
-  (let ((full-repo (string-append "https://github.com/" name)))
-    (make-project-dep :name (string-append "mesche-lib " name)
-                      :kind 'mesche-lib
-                      :path name
-                      :fetcher (mesche-lib-fetcher full-repo)
-                      :updater (mesche-lib-updater full-repo))))
+(define (mesche-lib name . args) :export
+  (let ((repo (plist-ref args :repo))
+        (local-path (plist-ref args :local-path)))
+    ;; TODO: Use overrides
+    (let ((full-repo (string-append "https://github.com/" name)))
+      (make-project-dep :name (string-append "mesche-lib " name)
+                        :kind 'mesche-lib
+                        :path name
+                        :fetcher (mesche-lib-fetcher full-repo)
+                        :updater (mesche-lib-updater full-repo)))))
 
-(define (pkg-config name :keys exclude-cflags exclude-libs) :export
-  (let ((process (process-start-sync (string-append "pkg-config "
-                                                    name
-                                                    (if exclude-cflags "" " --cflags")
-                                                    (if exclude-libs "" " --libs"))
-                                     :stderr 'inherit)))
-    ;; TODO: Throw error if library not found?
-    (if (equal? (process-exit-code process) 0)
-        (read-all-text (process-stdout process))
-        "")))
+(define (pkg-config name . args) :export
+  (let ((exclude-cflags (plist-ref args :exclude-cflags))
+        (exclude-libs (plist-ref args :exclude-libs)))
+    (let ((process (process-start-sync (string-append "pkg-config "
+                                                      name
+                                                      (if exclude-cflags "" " --cflags")
+                                                      (if exclude-libs "" " --libs"))
+                                       :stderr 'inherit)))
+      ;; TODO: Throw error if library not found?
+      (if (equal? (process-exit-code process) 0)
+          (read-all-text (process-stdout process))
+          ""))))
 
 (define (ensure-deps project)
   (if (project-deps project)
@@ -153,7 +158,7 @@
 
 ;;; Build Functions
 
-(define (steps :rest step-functions) :export
+(define (steps . step-functions) :export
   (lambda (project config outputs)
     (let next-step ((step-functions step-functions)
                     (outputs outputs))
@@ -194,7 +199,7 @@
   (let ((working-path (file-directory (path-resolve project-path)))
         (resolved-project-path (path-resolve project-path))
         (original-path (process-directory))
-        (project nil))
+        (project #f))
     ;; Set the working directory temporarily
     (process-directory-set! working-path)
 
@@ -223,54 +228,59 @@
         ;; Return the target's output
         target-output))))
 
-(define (build-project project-path :keys target-name config-name) :export
-  (lambda (project config outputs)
-    ;; By default, use the name of the current project configuration
-    (build-project-inner project-path
-                         target-name
-                         (or config-name (project-config-name config)))))
+(define (build-project project-path . args) :export
+  (let ((target-name (plist-ref args :target-name))
+        (config-name (plist-ref args :config-name)))
+    (lambda (project config outputs)
+      ;; By default, use the name of the current project configuration
+      (build-project-inner project-path
+                           target-name
+                           (or config-name (project-config-name config))))))
 
-(define (compile-source :keys source-files src-path mesche-main) :export
-  ;; TODO: Use mesche-main to generate a main.c file that invokes it
-  (lambda (project config outputs)
-    (let ((out-path (project-config-output-path config))
-          (c-compiler (or (project-config-c-compiler config) "gcc"))
-          (c-flags (or (project-config-c-flags config) ""))
-          (c-libs (or (project-config-c-libs config) "")))
+(define (compile-source . args) :export
+  (let ((source-files (plist-ref args :source-files))
+        (src-path (plist-ref args :src-path))
+        (mesche-main (plist-ref args :mesche-main)))
+    ;; TODO: Use mesche-main to generate a main.c file that invokes it
+    (lambda (project config outputs)
+      (let ((out-path (project-config-output-path config))
+            (c-compiler (or (project-config-c-compiler config) "gcc"))
+            (c-flags (or (project-config-c-flags config) ""))
+            (c-libs (or (project-config-c-libs config) "")))
 
-      (let compile-next ((input-files (or source-files '()))
-                         (output-files '()))
-        (if (pair? input-files)
-            (begin
-              (if (equal? "c" (file-extension (car input-files)))
-                  (let ((source-file (string-append (or src-path "./src") "/" (car input-files)))
-                        (output-file (string-append out-path "/" (file-name (car input-files)) ".o")))
+        (let compile-next ((input-files (or source-files '()))
+                           (output-files '()))
+          (if (pair? input-files)
+              (begin
+                (if (equal? "c" (file-extension (car input-files)))
+                    (let ((source-file (string-append (or src-path "./src") "/" (car input-files)))
+                          (output-file (string-append out-path "/" (file-name (car input-files)) ".o")))
 
-                    ;; Ensure the output path exists
-                    ;; TODO: Do this twice because it sometimes fails the first time...
-                    (path-ensure (file-directory output-file))
-                    (path-ensure (file-directory output-file))
+                      ;; Ensure the output path exists
+                      ;; TODO: Do this twice because it sometimes fails the first time...
+                      (path-ensure (file-directory output-file))
+                      (path-ensure (file-directory output-file))
 
-                    ;; Compile the file if the source is newer than the output file
-                    (if (>= (file-modified-time source-file)
-                            (file-modified-time output-file))
-                        (begin
-                          (display "Compiling: ") (display source-file)
-                          (display " to ") (display output-file)
-                          (display "...\n")
-                          (process-start-sync (string-append c-compiler
-                                                             " -c "
-                                                             source-file
-                                                             " -o "
-                                                             output-file
-                                                             " "
-                                                             c-flags)
+                      ;; Compile the file if the source is newer than the output file
+                      (if (>= (file-modified-time source-file)
+                              (file-modified-time output-file))
+                          (begin
+                            (display "Compiling: ") (display source-file)
+                            (display " to ") (display output-file)
+                            (display "...\n")
+                            (process-start-sync (string-append c-compiler
+                                                               " -c "
+                                                               source-file
+                                                               " -o "
+                                                               output-file
+                                                               " "
+                                                               c-flags)
 
-                                              :stderr 'inherit)))
-                    (set! output-files (cons output-file output-files))))
-              (compile-next (cdr input-files) output-files))
-            (make-build-output :type 'object
-                               :files output-files))))))
+                                                :stderr 'inherit)))
+                      (set! output-files (cons output-file output-files))))
+                (compile-next (cdr input-files) output-files))
+              (make-build-output :type 'object
+                                 :files output-files)))))))
 
 (define (link-program output-file) :export
   (lambda (project config outputs)
@@ -305,32 +315,34 @@
       (make-build-output :type 'program
                          :files (list output-path)))))
 
-(define (create-static-library output-file :keys c-flags c-libs) :export
-  (lambda (project config outputs)
-    (let ((output-path (string-append (path-ensure (project-config-output-path config))
-                                      "/" output-file)))
-      ;; Run the linker
-      (display (string-append "Creating static library " output-file "\n"))
-      (process-start-sync (string-append "ar rcs "
-                                         output-path
-                                         " "
-                                         (string-join (gather-object-files outputs) " "))
-                          :stderr 'inherit)
+(define (create-static-library output-file . args) :export
+  (let ((c-flags (plist-ref args :c-flags))
+        (c-libs (plist-ref args :c-libs)))
+    (lambda (project config outputs)
+      (let ((output-path (string-append (path-ensure (project-config-output-path config))
+                                        "/" output-file)))
+        ;; Run the linker
+        (display (string-append "Creating static library " output-file "\n"))
+        (process-start-sync (string-append "ar rcs "
+                                           output-path
+                                           " "
+                                           (string-join (gather-object-files outputs) " "))
+                            :stderr 'inherit)
 
-      ;; Return the build output details
-      (make-build-output :type 'static-library
-                         :files (list output-path)
-                         :c-flags c-flags
-                         :c-libs c-libs))))
+        ;; Return the build output details
+        (make-build-output :type 'static-library
+                           :files (list output-path)
+                           :c-flags c-flags
+                           :c-libs c-libs)))))
 
 ;;; CLI Command
 
 (define (build-command) :export
   (let ((args (cdr (cdr (process-arguments))))
         (project-path "./project.msc")
-        (target-name nil)
-        (config-name nil)
-        (output-type nil))
+        (target-name #f)
+        (config-name #f)
+        (output-type #f))
 
     ;; Process arguments
     (let next-arg ((args args))
@@ -348,4 +360,4 @@
                          (next-arg (cdr args)))))))
 
     ;; Build the specified project
-    (build-project-inner project-path target-name config-name))
+    (build-project-inner project-path target-name config-name)))
