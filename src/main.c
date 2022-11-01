@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
   VM vm;
   mesche_vm_init(&vm, argc, argv);
   mesche_vm_load_path_add(&vm, modules_path);
-  mesche_vm_register_core_modules(&vm);
+  mesche_vm_register_core_modules(&vm, modules_path);
 
   // Evaluate the main entrypoint file
   mesche_vm_load_file(&vm, main_file_path);
