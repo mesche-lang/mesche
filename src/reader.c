@@ -7,6 +7,7 @@
 #include "reader.h"
 #include "scanner.h"
 #include "symbol.h"
+#include "util.h"
 #include "vm-impl.h"
 
 // The Mesche reader loosely follows the specification in R7RS section 7.1.2,
@@ -83,8 +84,15 @@ ObjectSyntax *mesche_reader_read_next(Reader *reader) {
       printf("Reached a reader error.\n");
       break;
     } else if (current.kind == TokenKindEOF) {
-      // Reached the end of input
-      return SYNTAX(EOF_VAL, current);
+      // Make sure we've parsed a complete form
+      if (list_depth > 0) {
+        PANIC("Unterminated list found at line %d of file %s.\n", current.line,
+              reader->file_name ? reader->file_name->chars : "(unknown)");
+        /* return SYNTAX(UNSPECIFIED_VAL, current); */
+      } else {
+        // Reached the end of input
+        return SYNTAX(EOF_VAL, current);
+      }
     }
 
     // Things left to parse:
@@ -168,15 +176,6 @@ ObjectSyntax *mesche_reader_read_next(Reader *reader) {
 
       // The next datum or expression will be quoted
       is_quoted = true;
-    } else if (current.kind == TokenKindEOF) {
-      // Make sure we've parsed a complete form
-      if (list_depth > 0) {
-        // TODO: Include file and line number
-        printf("Unbalanced parentheses.\n");
-        return SYNTAX(UNSPECIFIED_VAL, current);
-      } else {
-        return SYNTAX(EMPTY_VAL, current);
-      }
     }
   }
 }
