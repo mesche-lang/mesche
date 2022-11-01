@@ -23,8 +23,7 @@ int main(int argc, char **argv) {
 
   char *modules_path = mesche_fs_resolve_path(tmp_path);
   free(tmp_path);
-  tmp_path = mesche_cstring_join(modules_path, strlen(modules_path),
-                                 "/main.msc", 9, NULL);
+  tmp_path = mesche_cstring_join(modules_path, strlen(modules_path), "/main.msc", 9, NULL);
   char *main_file_path = mesche_fs_resolve_path(tmp_path);
 
   VM vm;

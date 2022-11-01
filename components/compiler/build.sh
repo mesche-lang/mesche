@@ -3,16 +3,10 @@
 # Yes, I know I could just use a Makefile.  This script is for bootstrapping purposes.
 
 CC=${CC:-gcc}
-AR=${AR:-ar}
+FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
 
-if [ "$1" == "--debug" ]; then
- FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address"
-else
- FLAGS="-O0 -g -ggdb -fPIE -lm"
-fi
-
-SOURCE_DIR=src
-OUTPUT_DIR=bin
+SOURCE_DIR=./src
+OUTPUT_DIR=./bin/boot
 
 source_files=(
     "array.c"
@@ -49,8 +43,8 @@ source_files=(
 
 object_files=()
 
-if [ ! -d "./bin" ]; then
-    mkdir ./bin
+if [ ! -d $OUTPUT_DIR ]; then
+    mkdir -p $OUTPUT_DIR
 fi
 
 # Build any changed source files
@@ -70,5 +64,5 @@ do
 done
 
 # Build the static library
-echo -e "Creating static library bin/libmesche.a...\n"
-$AR rcs bin/libmesche.a "${object_files[@]}"
+echo -e "Creating static library $OUTPUT_DIR/libmesche.a...\n"
+ar rcs $OUTPUT_DIR/libmesche.a "${object_files[@]}"
