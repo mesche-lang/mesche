@@ -39,7 +39,9 @@ char *mesche_fs_resolve_path(const char *fs_path) {
     path_buf[path_start + i + 1] = '\0';
 
     if (fs_path[i] == '/') {
-      if (realpath(path_buf, &path_buf[0]) != NULL) {
+      char resolve_buf[PATH_MAX];
+      if (realpath(path_buf, &resolve_buf) != NULL) {
+        strcpy(path_buf, resolve_buf);
         path_start = strlen(path_buf) + 1;
         path_buf[path_start - 1] = '/';
         path_buf[path_start] = '\0';
