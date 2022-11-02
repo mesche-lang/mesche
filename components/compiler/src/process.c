@@ -109,7 +109,15 @@ int mesche_process_result(MescheProcess *process) {
     }
   }
 
-  // TODO: There are other ways a process can exit, handle them
+  // Print any exceptional exit status
+  // TODO: Handle these in a more robust way
+  if (WIFSIGNALED(status)) {
+    printf("Child process TERMINATED by signal %d (%s)\n", WTERMSIG(status),
+           strsignal(WTERMSIG(status)));
+  } else if (WIFSTOPPED(status)) {
+    printf("Child process STOPPED by signal %d (%s)\n", WSTOPSIG(status),
+           strsignal(WSTOPSIG(status)));
+  }
 
   process->state = PROCESS_FINISHED;
   process->exit_code = WEXITSTATUS(status);
