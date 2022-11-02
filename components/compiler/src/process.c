@@ -22,7 +22,7 @@ typedef struct {
   MeschePort *stderr_fp;
 } MescheProcess;
 
-void process_free_func(MescheMemory *mem, Object *obj) {
+void process_free_func(MescheMemory *mem, void *obj) {
   // TODO: Close streams
   MescheProcess *process = (MescheProcess *)obj;
   free(process);
@@ -166,7 +166,7 @@ Value process_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
 }
 
 Value process_directory_set_msc(MescheMemory *mem, int arg_count, Value *args) {
-  chdir(AS_CSTRING(args[0])) == 0 ? TRUE_VAL : FALSE_VAL;
+  return chdir(AS_CSTRING(args[0])) == 0 ? TRUE_VAL : FALSE_VAL;
 }
 
 MescheProcess *process_start_inner(int arg_count, Value *args) {
@@ -255,7 +255,7 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
 
 Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
   MescheProcess *process = process_start_inner(arg_count, args);
-  return OBJECT_VAL(mesche_object_make_pointer((VM *)mem, process, &MescheProcessType));
+  return OBJECT_VAL(mesche_object_make_pointer_type((VM *)mem, process, &MescheProcessType));
 }
 
 Value process_start_sync_msc(MescheMemory *mem, int arg_count, Value *args) {
