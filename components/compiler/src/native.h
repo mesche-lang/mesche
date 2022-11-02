@@ -22,7 +22,7 @@ typedef struct {
   Object object;
   bool is_managed;
   void *ptr;
-  ObjectPointerType *type;
+  const ObjectPointerType *type;
 } ObjectPointer;
 
 typedef struct {
@@ -42,7 +42,7 @@ void mesche_free_native_function(VM *vm, ObjectNativeFunction *function);
 ObjectPointer *mesche_object_make_pointer(VM *vm, void *ptr, bool is_managed);
 void mesche_free_pointer(VM *vm, ObjectPointer *pointer);
 
-ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, ObjectPointerType *type);
+ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, const ObjectPointerType *type);
 void mesche_free_pointer_type(VM *vm, ObjectPointer *pointer);
 
 #define IS_POINTER(value) mesche_object_is_kind(value, ObjectKindPointer)

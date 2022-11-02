@@ -38,7 +38,7 @@ void mesche_free_pointer(VM *vm, ObjectPointer *pointer) {
   FREE(vm, ObjectPointer, pointer);
 }
 
-ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, ObjectPointerType *type) {
+ObjectPointer *mesche_object_make_pointer_type(VM *vm, void *ptr, const ObjectPointerType *type) {
   ObjectPointer *pointer = ALLOC_OBJECT(vm, ObjectPointer, ObjectKindPointer);
   pointer->ptr = ptr;
   pointer->is_managed = true;
