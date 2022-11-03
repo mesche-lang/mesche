@@ -24,6 +24,30 @@
         (verify "appends two lists"
           (lambda ()
             (assert-equal? '(1 2 3 4 5)
-                           (append '(1 2) '(3) '(4 5))))))))
+                           (append '(1 2) '(3) '(4 5)))))))
 
-  )
+    (suite "plist-ref:"
+      (lambda ()
+
+        (verify "returns the value for an existing key"
+          (lambda ()
+            (assert-equal? 3 (plist-ref '(:one 1 :three 3 :five 5) :three))))
+
+        (verify "returns #f when key is not found"
+          (lambda ()
+            (assert-equal? #f (plist-ref '(:one 1 :three 3 :five 5) :two))))))
+
+    (suite "plist-set:"
+      (lambda ()
+
+        (verify "sets the value for an existing key"
+          (lambda ()
+            (assert-equal? 3 (plist-ref (plist-set '(:one 1 :three 2 :five 5)
+                                                   :three 3)
+                                        :three))))
+
+        (verify "adds a key with associated value when it does not exist"
+          (lambda ()
+            (assert-equal? 7 (plist-ref (plist-set '(:one 1 :three 3 :five 5)
+                                                   :seven 7)
+                                        :seven))))))))

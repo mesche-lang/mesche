@@ -88,6 +88,23 @@
             (loop (cdr remaining)))
         #f)))
 
+(define (plist-set plist key value) :export
+  (let loop ((new-plist '())
+             (remaining plist))
+    (if (pair? remaining)
+        (if (eqv? (car remaining) key)
+            ;; Add the updated key and value to the new list and reverse it,
+            ;; appending the remaining items
+            (append (reverse (cons value
+                                   (cons (car remaining)
+                                         new-plist)))
+                    ;; Remove the key and value before appending
+                    (cdr (cdr remaining)))
+            (loop (cons (car remaining) new-plist)
+                  (cdr remaining)))
+        ;; If we reach this point, append the key to the front of the plist
+        (cons key (cons value plist)))))
+
 (define (list-ref lst index) :export
   (let loop ((remaining lst)
              (current 0))
