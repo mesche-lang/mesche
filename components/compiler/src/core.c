@@ -305,6 +305,17 @@ Value core_display_msc(MescheMemory *mem, int arg_count, Value *args) {
   return UNSPECIFIED_VAL;
 }
 
+Value core_add_to_load_path_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (arg_count != 1) {
+    PANIC("Function requires 1 parameter.");
+  }
+
+  // Add the specified path to the load path
+  mesche_vm_load_path_add((VM *)mem, AS_CSTRING(args[0]));
+
+  return TRUE_VAL;
+}
+
 void mesche_core_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche core",
@@ -330,5 +341,6 @@ void mesche_core_module_init(VM *vm) {
                                   {"/", core_divide_msc, true},
                                   {"symbol->string", core_symbol_to_string_msc, true},
                                   {"display", core_display_msc, true},
+                                  {"add-to-load-path", core_add_to_load_path_msc, true},
                                   {NULL, NULL, false}});
 }
