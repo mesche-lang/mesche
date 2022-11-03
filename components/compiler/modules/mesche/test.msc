@@ -1,6 +1,8 @@
 (define-module (mesche test)
-  (import (mesche list)
-          (mesche string)))
+  (import (mesche fs)
+          (mesche list)
+          (mesche string)
+          (mesche process)))
 
 ;; TODO: Use classes instead!
 
@@ -196,8 +198,9 @@
 
   (if (plist-ref args :print-report)
       (begin
-        (display "\nRESULTS:\n")
+        ;; (display "\nRESULTS:\n")
 
+        (display "\n")
         (display (string-append " \e[1;92m ✓ "
                                 (number->string pass-count)
                                 " passed\n"))
@@ -217,3 +220,27 @@
 (define (filter-by-tag tag) :export
   (lambda (description tags)
     (contains tag tags)))
+
+;; This is meant to be plugged into Mesche CLI!
+(define (test-command) :export
+  (let ((args (cdr (cdr (process-arguments))))
+        (old-directory (process-directory))
+        (test-main-path #f))
+    ;; TODO:
+    ;; - Look up :tests key in project.msc
+    ;; - Look for standard test entrypoint path?
+
+    ;; TODO: Ensure the test file exists
+    (set! test-main-path (path-resolve (car args)))
+
+    ;; Set the working directory to be relative to the main test file
+    (process-directory-set! (file-directory (path-resolve test-main-path)))
+
+    ;; Load the main test file
+    (load-file test-main-path)
+
+    ;; Run all registered suites
+    (run-test-suites :print-report t)
+
+    ;; TODO: This should be executed no matter what happens during test execution!
+    (process-directory-set! old-directory)))

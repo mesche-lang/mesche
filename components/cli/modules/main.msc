@@ -1,5 +1,6 @@
 (define-module (mesche cli main)
   (import (mesche list)
+          (mesche test)
           (mesche build)
           (mesche string)
           (mesche process)
@@ -69,6 +70,9 @@
        (make-cli-command :name "run"
                          :summary "Builds a Mesche project target and runs its output immediately."
                          :run-function run-command)
+       (make-cli-command :name "test"
+                         :summary "Runs tests against a Mesche project."
+                         :run-function test-command)
        (make-cli-command :name "install"
                          :summary "Installs the output files of a Mesche project to your system."
                          :run-function install-command)
