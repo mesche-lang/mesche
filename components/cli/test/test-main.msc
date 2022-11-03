@@ -1,0 +1,2 @@
+;; Load test files containing suites
+(load-file "./test-build.msc")

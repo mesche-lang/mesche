@@ -30,6 +30,122 @@
                          object-files))
         object-files)))
 
+;;; Build Context
+
+(define (context-get context entry-name key) :export
+  (let ((entry-plist (assq entry-name context)))
+    (if entry-plist
+        (plist-ref (cdr entry-plist) key)
+        #f)))
+
+(define (context-set context entry-name key value) :export
+  (let ((entry-plist (assq entry-name context)))
+    (if entry-plist
+        (map (lambda (entry)
+               (if (equal? (car entry) entry-name)
+                   ;; When we find the entry, update its plist
+                   (cons (car entry)
+                         (plist-set (cdr entry) key value))
+                   entry))
+             context)
+        ;; Append the new entry to the context
+        (cons (list entry-name key value)
+              context))))
+
+(define (context-set-many context entry-name key-values)
+  (let loop ((context context)
+             (rest key-values))
+    (if (pair? rest)
+        (loop (context-set context
+                           entry-name
+                           (car rest)
+                           (cadr rest))
+              (cdr (cdr rest)))
+        context)))
+
+(define (default-combiner previous next)
+  (if (equal? previous #f)
+      next
+      (if (string? previous)
+          ;; TODO: More robust behavior
+          (string-append previous
+                         (if (string? next)
+                             (string-append " " next)
+                             ""))
+          ;; TODO: Error
+          (display "DON'T KNOW HOW TO COMBINE"))))
+
+(define (from-context entry-name key . args) :export
+  (let ((combiner (or (plist-ref args :combiner)
+                      default-combiner))
+        (default-value (plist-ref args :default)))
+    (lambda (project task context)
+      (let loop ((value default-value)
+                 (rest (if (pair? entry-name)
+                           entry-name
+                           (list entry-name))))
+        (if (pair? rest)
+            (loop (combiner value (context-get context (car rest) key))
+                  (cdr rest))
+            value)))))
+
+(define (default-collector previous next)
+  (append (if previous
+              (if (pair? previous)
+                  previous
+                  (list previous)))
+          (if next
+              (if (pair? next)
+                  next
+                  (list next)))))
+
+(define (collect entry-pairs . args) :export
+  (let ((collector (or (plist-ref args :collector)
+                      default-collector)))
+    (lambda (project task context)
+      (let loop ((value #f)
+                 (rest entry-pairs))
+        (if (pair? rest)
+            (loop (collector value (context-get context
+                                                (car (car rest))
+                                                (cadr (car rest))))
+                  (cdr rest))
+            value)))))
+
+(define (resolve-value value project task context)
+  (if (function? value)
+      (value project task context)
+      value))
+
+(define (resolve-values key-values project task context)
+  (map (lambda (item)
+         (if (not (keyword? item))
+             (resolve-value item project task context)
+             item))
+       key-values))
+
+(define (provide-context . args) :export
+  (lambda (project task context)
+    (context-set-many context
+                      (project-task-name task)
+                      (resolve-values args project task context))))
+
+(define (finalize-step step-name . args) :export
+  (lambda (project task context)
+    (let ((entry-name (string->symbol
+                       (string-append (symbol->string (project-task-name task))
+                                      "/"
+                                      (symbol->string step-name)))))
+      (context-set-many context
+                        entry-name
+                        (resolve-values args project task context)))))
+
+(define (resolve-arg key args project task context)
+  (let ((arg (plist-ref args key)))
+    (if (function? arg)
+        (arg project task context)
+        arg)))
+
 ;;; Dependency Management
 
 (define (dep-path dep)

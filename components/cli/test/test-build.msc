@@ -1,0 +1,110 @@
+(define-module (test build)
+  (import (mesche test)
+          (mesche build)
+          (mesche project)))
+
+(define test-context
+  (list (list 'current :foo 7 :files "test.o")
+        (list 'test :foo 3 :bar "affirmative" :files '("foo.o" "bar.o"))))
+
+(define test-combiner
+  (list (list 'one :c-flags "-I foo")
+        (list 'two :c-flags #f)
+        (list 'three :c-flags "-I bar")))
+
+(define test-collector
+  (list (list 'one :files "test.o")
+        (list 'two :files '("foo.o" "bar.o"))
+        (list 'three :files #f)
+        (list 'four :files "baz.o")))
+
+(suite "(mesche build)"
+  (lambda ()
+
+    (suite "context-get:"
+      (lambda ()
+
+        (verify "reads an existing value from context entry"
+          (lambda ()
+            (assert-equal? "affirmative"
+                           (context-get test-context 'test :bar))))
+
+        (verify "returns #f if value not found in context entry"
+          (lambda ()
+            (assert-equal? #f
+                           (context-get test-context 'current :bar))))
+
+        (verify "returns #f if context entry is not found"
+          (lambda ()
+            (assert-equal? #f
+                           (context-get test-context 'grue :foo))))))
+
+    (suite "context-set:"
+      (lambda ()
+
+        (verify "set an existing key value in a context entry"
+          (lambda ()
+            (assert-equal? "OK"
+                           (context-get (context-set test-context 'test :bar "OK")
+                                        'test :bar))))
+
+        (verify "adds a key value if it doesn't exist in the context entry"
+          (lambda ()
+            (assert-equal? 42
+                           (context-get (context-set test-context 'current :bar 42)
+                                        'current :bar))))
+
+        (verify "returns #f if context entry is not found"
+          (lambda ()
+            (assert-equal? 311
+                           (context-get (context-set test-context 'grue :foo 311)
+                                        'grue :foo))))))
+
+    (suite "from-context:"
+      (lambda ()
+
+        (verify "aggregates values from entries into a list"
+          (lambda ()
+            (let ((result ((from-context '(one two three) :c-flags)
+                           #f
+                           (task :name 'current)
+                           test-combiner)))
+              (assert-equal? "-I foo -I bar" result))))))
+
+    (suite "collect:"
+      (lambda ()
+
+        (verify "aggregates values from the keys of multiple entries into a list"
+          (lambda ()
+            (let ((result ((collect '((one :files)
+                                      (two :files)
+                                      (three :files)
+                                      (four :files)))
+                           #f
+                           (task :name 'current)
+                           test-collector)))
+              (assert-equal? '("test.o" "foo.o" "bar.o" "baz.o") result))))))
+
+    (suite "provide-context:"
+      (lambda ()
+
+        (verify "provides context for an existing entry"
+          (lambda ()
+            (let ((result ((provide-context :foo 5 :bar "yes") #f (task :name 'current) test-context)))
+              (assert-equal? 5 (context-get result 'current :foo))
+              (assert-equal? "yes" (context-get result 'current :bar)))))
+
+        (verify "provides context for a new entry"
+          (lambda ()
+            (let ((result ((provide-context :foo 5 :bar "yes") #f (task :name 'test-entry) test-context)))
+              (assert-equal? 5 (context-get result 'test-entry :foo))
+              (assert-equal? "yes" (context-get result 'test-entry :bar)))))))
+
+    (suite "finalize-step:"
+      (lambda ()
+
+        (verify "provides context for a completed step"
+          (lambda ()
+            (let ((result ((finalize-step 'test-step :foo 5 :bar "yes") #f (task :name 'test-task) test-context)))
+              (assert-equal? 5 (context-get result 'test-task/test-step :foo))
+              (assert-equal? "yes" (context-get result 'test-task/test-step :bar)))))))))
