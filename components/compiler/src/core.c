@@ -284,6 +284,16 @@ Value core_divide_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(result);
 }
 
+Value core_symbol_to_string_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (arg_count != 1) {
+    PANIC("Function requires 1 parameter.");
+  }
+
+  // Print the value
+  ObjectSymbol *symbol = AS_SYMBOL(args[0]);
+  return OBJECT_VAL(symbol->name);
+}
+
 Value core_display_msc(MescheMemory *mem, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
@@ -298,16 +308,27 @@ Value core_display_msc(MescheMemory *mem, int arg_count, Value *args) {
 void mesche_core_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche core",
-      (MescheNativeFuncDetails[]){
-          {"number?", core_number_p_msc, true}, {"boolean?", core_boolean_p_msc, true},
-          {"pair?", core_pair_p_msc, true},     {"string?", core_string_p_msc, true},
-          {"symbol?", core_symbol_p_msc, true}, {"keyword?", core_keyword_p_msc, true},
-          {"array?", core_array_p_msc, true},   {"function?", core_function_p_msc, true},
-          {"equal?", core_equal_p_msc, true},   {"eqv?", core_eqv_p_msc, true},
-          {"not", core_not_msc, true},          {"cons", core_cons_msc, true},
-          {"list", core_list_msc, true},        {"car", core_car_msc, true},
-          {"cdr", core_cdr_msc, true},          {"append", core_append_msc, true},
-          {"+", core_plus_msc, true},           {"-", core_minus_msc, true},
-          {"*", core_multiply_msc, true},       {"/", core_divide_msc, true},
-          {"display", core_display_msc, true},  {NULL, NULL, false}});
+      (MescheNativeFuncDetails[]){{"number?", core_number_p_msc, true},
+                                  {"boolean?", core_boolean_p_msc, true},
+                                  {"pair?", core_pair_p_msc, true},
+                                  {"string?", core_string_p_msc, true},
+                                  {"symbol?", core_symbol_p_msc, true},
+                                  {"keyword?", core_keyword_p_msc, true},
+                                  {"array?", core_array_p_msc, true},
+                                  {"function?", core_function_p_msc, true},
+                                  {"equal?", core_equal_p_msc, true},
+                                  {"eqv?", core_eqv_p_msc, true},
+                                  {"not", core_not_msc, true},
+                                  {"cons", core_cons_msc, true},
+                                  {"list", core_list_msc, true},
+                                  {"car", core_car_msc, true},
+                                  {"cdr", core_cdr_msc, true},
+                                  {"append", core_append_msc, true},
+                                  {"+", core_plus_msc, true},
+                                  {"-", core_minus_msc, true},
+                                  {"*", core_multiply_msc, true},
+                                  {"/", core_divide_msc, true},
+                                  {"symbol->string", core_symbol_to_string_msc, true},
+                                  {"display", core_display_msc, true},
+                                  {NULL, NULL, false}});
 }
