@@ -5,7 +5,7 @@
 (suite "(mesche string)"
   (lambda ()
 
-    (suite "substring" 'only
+    (suite "substring"
       (lambda ()
 
         (verify "returns the requested substring"
@@ -15,7 +15,7 @@
             (assert-equal? "cool"
                            (substring "Mesche is cool!" 10 14))))))
 
-    (suite "string-split:" 'only
+    (suite "string-split:"
       (lambda ()
 
         (verify "returns the sub-list starting with the specified key"

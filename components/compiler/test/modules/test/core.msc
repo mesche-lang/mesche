@@ -5,7 +5,7 @@
 (suite "(mesche core)"
   (lambda ()
 
-    (suite "assq:" 'only
+    (suite "assq:"
       (lambda ()
 
         (verify "returns the sub-list starting with the specified key"

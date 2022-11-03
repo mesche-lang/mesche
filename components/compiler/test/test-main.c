@@ -11,23 +11,6 @@ char fail_message[2048];
 
 TestSuiteCleanup test_suite_cleanup_func = NULL;
 
-void test_mesche_suite() {
-  SUITE();
-
-  // Add some space before the Mesche runner output
-  printf("\n");
-
-  VM vm;
-  mesche_vm_init(&vm, 0, NULL);
-  mesche_vm_register_core_modules(&vm, "./modules");
-  mesche_vm_load_path_add(&vm, "./test/modules");
-  InterpretResult result = mesche_vm_load_file(&vm, "./test/test-mesche.msc");
-  if (result != INTERPRET_OK) {
-    FAIL("Expected interpret result %s, got %d", __stringify(expected_result), result);
-  }
-  mesche_vm_free(&vm);
-}
-
 int main(void) {
   printf("\n\e[1;36mMesche Test Runner\e[0m\n");
 
@@ -35,9 +18,6 @@ int main(void) {
   test_reader_suite();
   test_compiler_suite();
   test_vm_suite();
-
-  // TODO: Eventually these tests will be invoked by `mesche test`
-  test_mesche_suite();
 
   // Print the test report
   printf("\nTest run complete.\n\n");
