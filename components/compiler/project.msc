@@ -9,22 +9,16 @@
          :version "0.0.1"
          :description "This is the compiler for the Mesche language."
 
-         :deps (list (musl-toolchain))
-
          :configs (list (config :name "dev"
                                 :output-path "./bin/dev"
-                                :c-compiler "gcc"
-                                :c-flags "-O0 -g -ggdb -DDEV_BUILD -fsanitize=address"
                                 :default t)
 
                         (config :name "debug"
                                 :output-path "./bin/debug"
-                                :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
                                 :c-flags "-O0 -g -ggdb -DDEBUG -fPIE")
 
                         (config :name "release"
                                 :output-path "./bin/release"
-                                :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
                                 :c-flags "-O2 -fPIE"))
 
          :tasks (list (task :name 'mesche-compiler:lib

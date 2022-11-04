@@ -12,14 +12,20 @@
 
                         (config :name "debug"
                                 :output-path "./dist/debug"
-                                :default t)
+                                :default #t)
 
                         (config :name "release"
                                 :output-path "./dist/release"))
 
-         :tasks (list (task :name 'mesche:dist
-                            :description "Builds the Mesche distribution."
+         :tasks (list (task :name 'mesche-compiler:lib
+                            :description "Builds the Mesche static library."
                             :default t
+                            :runs (steps (build-project "./components/compiler/project.msc"
+                                                        :task 'mesche-compiler:lib
+                                                        :config (from-context 'config :name))))
+                      (task :name 'mesche:dist
+                            :description "Builds the Mesche distribution."
+                            :default #t
                             :runs (steps (build-project "./components/compiler/project.msc"
                                                         :task 'mesche-compiler:lib
                                                         :config (from-context 'config :name))
