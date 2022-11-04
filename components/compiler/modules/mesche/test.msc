@@ -105,10 +105,10 @@
                                       :function test-func))))))
 
 (define (fail message) :export
-  (shift (lambda (k) `(mesche-test-failed ,message))))
+  (shift (lambda (k) (list 'mesche-test-failed message))))
 
 (define (skip message) :export
-  (shift (lambda (k) `(mesche-test-skipped ,message))))
+  (shift (lambda (k) (list 'mesche-test-skipped message))))
 
 (define (assert-if? value message) :export
   (if value t (fail message)))
