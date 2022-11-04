@@ -23,6 +23,22 @@ jobs:
           cd ./components/compiler
           ./run-tests.sh
 
+      - name: Compile Mesche Tools: Debug
+        run: ./tools/mesche/mesche build --project project.msc --config debug
+
+      - name: Run Tests: Debug
+        run: |
+          ./components/cli/dist/debug/mesche test ./components/compiler/test/test-mesche.msc
+          ./components/cli/dist/debug/mesche test ./components/cli/test/test-main.msc
+
+      - name: Compile Mesche Tools: Release
+        run: ./tools/mesche/mesche build --project project.msc --config release
+
+      - name: Run Tests: Debug
+        run: |
+          ./components/cli/dist/release/mesche test ./components/compiler/test/test-mesche.msc
+          ./components/cli/dist/release/mesche test ./components/cli/test/test-main.msc
+
       # - name: Test Mesche Examples
       #   run: find lib/mesche/samples -type f -print -exec ./build/flux-compose "{}" \;
 
