@@ -15,11 +15,11 @@ jobs:
           sudo apt-get update
           sudo apt-get --no-install-recommends -y install pkg-config
 
-      - name: Build
-        run: ./build.sh
+      - name: Bootstrap Mesche
+        run: ./scripts/bootstrap.sh
 
-      - name: Test
-        run: ./run-tests.sh
+      - name: Run Compiler Test
+        run: ./components/compiler/run-tests.sh
 
       # - name: Test Mesche Examples
       #   run: find lib/mesche/samples -type f -print -exec ./build/flux-compose "{}" \;
