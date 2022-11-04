@@ -298,9 +298,17 @@ Value core_symbol_to_string_msc(MescheMemory *mem, int arg_count, Value *args) {
     PANIC("Function requires 1 parameter.");
   }
 
-  // Print the value
   ObjectSymbol *symbol = AS_SYMBOL(args[0]);
   return OBJECT_VAL(symbol->name);
+}
+
+Value core_string_to_symbol_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (arg_count != 1) {
+    PANIC("Function requires 1 parameter.");
+  }
+
+  ObjectString *string = AS_STRING(args[0]);
+  return OBJECT_VAL(mesche_object_make_symbol((VM *)mem, string->chars, string->length));
 }
 
 Value core_display_msc(MescheMemory *mem, int arg_count, Value *args) {
@@ -350,6 +358,7 @@ void mesche_core_module_init(VM *vm) {
                                   {"*", core_multiply_msc, true},
                                   {"/", core_divide_msc, true},
                                   {"symbol->string", core_symbol_to_string_msc, true},
+                                  {"string->symbol", core_string_to_symbol_msc, true},
                                   {"display", core_display_msc, true},
                                   {"add-to-load-path", core_add_to_load_path_msc, true},
                                   {NULL, NULL, false}});
