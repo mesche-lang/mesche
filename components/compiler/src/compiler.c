@@ -91,6 +91,8 @@ typedef struct CompilerContext {
   MescheMemory *mem;
   Parser *parser;
 
+  // `module` should only be set when parsing a module body!  Sub-functions
+  // should not have the same module set.
   ObjectModule *module; // NOTE: Might be null if not compiling module
   ObjectFunction *function;
   FunctionType function_type;
@@ -125,8 +127,8 @@ void mesche_compiler_mark_roots(void *target) {
   }
 }
 
-static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
-                                  FunctionType type) {
+static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent, FunctionType type,
+                                  ObjectModule *module) {
   if (parent != NULL) {
     ctx->parent = parent;
     ctx->vm = parent->vm;
@@ -136,6 +138,7 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
   // Set up the compiler state for this scope
   ctx->function = mesche_object_make_function(ctx->vm, type);
   ctx->function_type = type;
+  ctx->module = module;
   ctx->local_count = 0;
   ctx->scope_depth = 0;
   ctx->tail_site_count = 0;
@@ -549,7 +552,7 @@ static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
   // Create a new compiler context for parsing the let body as an inline
   // function
   CompilerContext let_ctx;
-  compiler_init_context(&let_ctx, ctx, TYPE_FUNCTION);
+  compiler_init_context(&let_ctx, ctx, TYPE_FUNCTION, NULL);
   compiler_begin_scope(&let_ctx);
 
   // Parse the name of the let, if any
@@ -591,11 +594,23 @@ static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
       uint8_t constant = compiler_parse_symbol(&let_ctx, symbol, false);
       compiler_define_variable(&let_ctx, constant);
 
+      // This is a tricky situation: we are going to parse the next expression
+      // in the parent context and it's possible that another function will be
+      // parsed as a let binding value.  This will cause the current let_ctx to
+      // be removed from the ctx chain so it won't be marked in GC sweeps.  To
+      // avoid the let_ctx function being reclaimed during this time, we need to
+      // push it to the value stack.
+      mesche_vm_stack_push(let_ctx.vm, OBJECT_VAL(let_ctx.function));
+
       // Parse the binding value into the *original context* where the let
       // function will be called so that it gets passed as a parameter to the
       // lambda.
       EXPECT_CONS(binding->cdr, binding);
       compiler_parse_expr(ctx, binding->car);
+
+      // Pop the function back off the stack and restore the correct context
+      mesche_vm_stack_pop(let_ctx.vm);
+      let_ctx.vm->current_compiler = &let_ctx;
 
       // Reset the tail site count so that the binding expression will not be
       // treated as a tail call site
@@ -686,7 +701,7 @@ static void compiler_parse_lambda_inner(CompilerContext *ctx, Value formals, Val
 
   // Create a new compiler context for parsing the function body
   CompilerContext func_ctx;
-  compiler_init_context(&func_ctx, ctx, TYPE_FUNCTION);
+  compiler_init_context(&func_ctx, ctx, TYPE_FUNCTION, NULL);
   compiler_begin_scope(&func_ctx);
 
   ArgType arg_type = ARG_POSITIONAL;
@@ -1393,10 +1408,9 @@ ObjectFunction *compile_all(CompilerContext *ctx, Reader *reader) {
   for (;;) {
     // Read the next expression
     ObjectSyntax *next_expr = mesche_reader_read_next(reader);
+    mesche_vm_stack_push(ctx->vm, OBJECT_VAL(next_expr));
 
-    /* printf("EXPR: "); */
-    /* mesche_value_print(OBJECT_VAL(next_expr)); */
-    /* printf("\n"); */
+    /* PRINT_VALUE("EXPR: ", OBJECT_VAL(next_expr)); */
 
     if (!IS_EOF(next_expr->value)) {
       // Should we pop the previous result before compiling the next expression?
@@ -1410,10 +1424,15 @@ ObjectFunction *compile_all(CompilerContext *ctx, Reader *reader) {
 
       // Pop the result previous result before the next expression
       pop_previous = true;
+
+      mesche_vm_stack_pop(ctx->vm);
     } else {
       break;
     }
   }
+
+  // Pop the last syntax from the stack
+  mesche_vm_stack_pop(ctx->vm);
 
   // Retrieve the final function
   return compiler_end(ctx);
@@ -1421,12 +1440,10 @@ ObjectFunction *compile_all(CompilerContext *ctx, Reader *reader) {
 
 ObjectFunction *mesche_compile_source(VM *vm, Reader *reader) {
   // Set up the context
-  CompilerContext ctx = {
-      .vm = vm,
-  };
+  CompilerContext ctx = {.vm = vm};
 
   // Set up the compilation context
-  compiler_init_context(&ctx, NULL, TYPE_SCRIPT);
+  compiler_init_context(&ctx, NULL, TYPE_SCRIPT, NULL);
 
   // Compile the whole source
   ObjectFunction *function = compile_all(&ctx, reader);
@@ -1440,10 +1457,10 @@ ObjectFunction *mesche_compile_source(VM *vm, Reader *reader) {
 
 ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, Reader *reader) {
   // Set up the context
-  CompilerContext ctx = {.vm = vm, .module = module};
+  CompilerContext ctx = {.vm = vm};
 
   // Set up the compilation context
-  compiler_init_context(&ctx, NULL, TYPE_SCRIPT);
+  compiler_init_context(&ctx, NULL, TYPE_SCRIPT, module);
 
   // Compile the whole source
   ObjectFunction *function = compile_all(&ctx, reader);

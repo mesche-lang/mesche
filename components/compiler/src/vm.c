@@ -32,6 +32,15 @@
 // NOTE: Enable this for diagnostic purposes
 /* #define DEBUG_TRACE_EXECUTION */
 
+#define PRINT_VALUE_STACK()                                                                        \
+  printf("\nValue Stack:\n");                                                                      \
+  for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {                                    \
+    printf("  %3d: ", abs(slot - vm->stack_top));                                                  \
+    mesche_value_print(*slot);                                                                     \
+    printf("\n");                                                                                  \
+  }                                                                                                \
+  printf("\n");
+
 void mesche_vm_stack_push(VM *vm, Value value) {
   *vm->stack_top = value;
   vm->stack_top++;
@@ -141,19 +150,21 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->current_compiler = NULL;
   vm->core_module = NULL;
   vm->expander = NULL;
-  vm_reset_stack(vm);
+  vm->quote_symbol = NULL;
+  vm->current_reset_marker = NULL;
+  vm->stack_top = vm->stack;
 
   // Initialize the interned string, symbol, and keyword tables
   mesche_table_init(&vm->strings);
   mesche_table_init(&vm->symbols);
   mesche_table_init(&vm->keywords);
+  mesche_table_init(&vm->modules);
 
   // Initialize reusable symbols
   vm->quote_symbol = mesche_object_make_symbol(vm, "quote", 5);
   vm->quote_symbol->token_kind = TokenKindQuote;
 
   // Initialize the module table root module
-  mesche_table_init(&vm->modules);
   ObjectString *module_name = mesche_object_make_string(vm, "mesche-user", 11);
   mesche_vm_stack_push(vm, OBJECT_VAL(module_name));
   vm->root_module = mesche_object_make_module(vm, module_name);
@@ -169,6 +180,9 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   // Set the program argument variables
   vm->arg_count = arg_count;
   vm->arg_array = arg_array;
+
+  // Reset the stack
+  vm_reset_stack(vm);
 
   // Set up the reader context
   mesche_reader_init(&vm->reader_context, vm);
@@ -587,15 +601,6 @@ static bool vm_create_module_binding(VM *vm, ObjectModule *module, ObjectString 
 
   return binding_exists;
 }
-
-#define PRINT_VALUE_STACK()                                                                        \
-  printf("\nValue Stack:\n");                                                                      \
-  for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {                                    \
-    printf("  %3d: ", abs(slot - vm->stack_top));                                                  \
-    mesche_value_print(*slot);                                                                     \
-    printf("\n");                                                                                  \
-  }                                                                                                \
-  printf("\n");
 
 InterpretResult mesche_vm_run(VM *vm) {
   int entry_frame = vm->frame_count - 1;

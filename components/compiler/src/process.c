@@ -161,8 +161,23 @@ Value process_arguments_msc(MescheMemory *mem, int arg_count, Value *args) {
   for (int i = vm->arg_count - 1; i >= 0; i--) {
     ObjectString *arg_string =
         mesche_object_make_string(vm, vm->arg_array[i], strlen(vm->arg_array[i]));
+    mesche_vm_stack_push(vm, OBJECT_VAL(arg_string));
+
+    // Cons with the previous argument
     first = OBJECT_VAL(mesche_object_make_cons(vm, OBJECT_VAL(arg_string), first));
+
+    // Wait until after we use the previous cons before we pop it
+    if (i < vm->arg_count - 1) {
+      mesche_vm_stack_pop(vm);
+    }
+
+    // Ensure that the cons and string don't get collected immediately
+    mesche_vm_stack_pop(vm);
+    mesche_vm_stack_push(vm, first);
   }
+
+  // Pop the list from the stack
+  mesche_vm_stack_pop(vm);
 
   return first;
 }

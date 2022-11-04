@@ -2,6 +2,7 @@
 #include "native.h"
 #include "syntax.h"
 #include "util.h"
+#include "vm.h"
 
 ObjectSyntax *mesche_object_make_syntax(VM *vm, uint32_t line, uint32_t column, uint32_t position,
                                         uint32_t span, ObjectString *file_name, Value value) {
@@ -51,8 +52,22 @@ Value mesche_syntax_to_datum(VM *vm, Value syntax) {
   if (IS_SYNTAX(syntax)) {
     if (IS_CONS(AS_SYNTAX(syntax)->value)) {
       ObjectCons *cons = AS_CONS(AS_SYNTAX(syntax)->value);
-      return OBJECT_VAL(mesche_object_make_cons(vm, mesche_syntax_to_datum(vm, cons->car),
-                                                mesche_syntax_to_datum(vm, cons->cdr)));
+
+      // Convert the car and cdr syntaxes and store them on the value stack
+      // temporarily to avoid being claimed by the GC
+      Value left = mesche_syntax_to_datum(vm, cons->car);
+      mesche_vm_stack_push(vm, left);
+      Value right = mesche_syntax_to_datum(vm, cons->cdr);
+      mesche_vm_stack_push(vm, right);
+
+      // Create the result cons
+      Value result = OBJECT_VAL(mesche_object_make_cons(vm, left, right));
+
+      // Pop the intermediate values from the stack
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
+
+      return result;
     } else {
       return AS_SYNTAX(syntax)->value;
     }

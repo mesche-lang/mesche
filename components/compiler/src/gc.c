@@ -43,29 +43,29 @@ void mesche_gc_mark_object(VM *vm, Object *object) {
   }
 }
 
-static void mem_mark_value(VM *vm, Value value) {
+static void gc_mark_value(VM *vm, Value value) {
   if (IS_OBJECT(value))
     mesche_gc_mark_object(vm, AS_OBJECT(value));
 }
 
-static void mem_mark_array(VM *vm, ValueArray *array) {
+static void gc_mark_array(VM *vm, ValueArray *array) {
   for (int i = 0; i < array->count; i++) {
-    mem_mark_value(vm, array->values[i]);
+    gc_mark_value(vm, array->values[i]);
   }
 }
 
-static void mem_mark_table(VM *vm, Table *table) {
+static void gc_mark_table(VM *vm, Table *table) {
   for (int i = 0; i < table->capacity; i++) {
     Entry *entry = &table->entries[i];
     mesche_gc_mark_object(vm, (Object *)entry->key);
-    mem_mark_value(vm, entry->value);
+    gc_mark_value(vm, entry->value);
   }
 }
 
-static void mem_mark_roots(void *target) {
+static void gc_mark_roots(void *target) {
   VM *vm = (VM *)target;
   for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
-    mem_mark_value(vm, *slot);
+    gc_mark_value(vm, *slot);
   }
 
   for (int i = 0; i < vm->frame_count; i++) {
@@ -77,19 +77,25 @@ static void mem_mark_roots(void *target) {
   }
 
   // Mark reusable symbols
-  mesche_gc_mark_object(vm, (Object *)vm->quote_symbol);
+  if (vm->quote_symbol) {
+    mesche_gc_mark_object(vm, (Object *)vm->quote_symbol);
+  }
 
   // Mark the current reset stack marker
-  mesche_gc_mark_object(vm, (Object *)vm->current_reset_marker);
+  if (vm->current_reset_marker) {
+    mesche_gc_mark_object(vm, (Object *)vm->current_reset_marker);
+  }
 
   // Mark the load path list
-  mem_mark_value(vm, OBJECT_VAL(vm->load_paths));
+  if (vm->load_paths) {
+    gc_mark_value(vm, OBJECT_VAL(vm->load_paths));
+  }
 
   // Mark roots in every module
-  mem_mark_table(vm, &vm->modules);
+  gc_mark_table(vm, &vm->modules);
 }
 
-static void mem_darken_object(VM *vm, Object *object) {
+static void gc_darken_object(VM *vm, Object *object) {
 #ifdef DEBUG_LOG_GC
   printf("%p    darken ", (void *)object);
   mesche_value_print(OBJECT_VAL(object));
@@ -99,8 +105,8 @@ static void mem_darken_object(VM *vm, Object *object) {
   switch (object->kind) {
   case ObjectKindCons: {
     ObjectCons *cons = (ObjectCons *)object;
-    mem_mark_value(vm, cons->car);
-    mem_mark_value(vm, cons->cdr);
+    gc_mark_value(vm, cons->car);
+    gc_mark_value(vm, cons->cdr);
     break;
   }
   case ObjectKindSymbol: {
@@ -110,13 +116,13 @@ static void mem_darken_object(VM *vm, Object *object) {
   }
   case ObjectKindSyntax: {
     ObjectSyntax *syntax = (ObjectSyntax *)object;
-    mem_mark_value(vm, syntax->value);
+    gc_mark_value(vm, syntax->value);
     mesche_gc_mark_object(vm, (Object *)syntax->file_name);
     break;
   }
   case ObjectKindArray: {
     ObjectArray *array = (ObjectArray *)object;
-    mem_mark_array(vm, &array->objects);
+    gc_mark_array(vm, &array->objects);
     break;
   }
   case ObjectKindClosure: {
@@ -138,7 +144,7 @@ static void mem_darken_object(VM *vm, Object *object) {
       }
 
       for (int i = 0; i < continuation->stack_count; i++) {
-        mem_mark_value(vm, continuation->stack[i]);
+        gc_mark_value(vm, continuation->stack[i]);
       }
     }
 
@@ -147,7 +153,7 @@ static void mem_darken_object(VM *vm, Object *object) {
   case ObjectKindFunction: {
     ObjectFunction *function = (ObjectFunction *)object;
     mesche_gc_mark_object(vm, (Object *)function->name);
-    mem_mark_array(vm, &function->chunk.constants);
+    gc_mark_array(vm, &function->chunk.constants);
 
     // Mark strings associated with keyword arguments
     for (int i = 0; i < function->keyword_args.count; i++) {
@@ -163,27 +169,27 @@ static void mem_darken_object(VM *vm, Object *object) {
     break;
   }
   case ObjectKindUpvalue:
-    mem_mark_value(vm, ((ObjectUpvalue *)object)->closed);
+    gc_mark_value(vm, ((ObjectUpvalue *)object)->closed);
     break;
   case ObjectKindModule: {
     ObjectModule *module = (ObjectModule *)object;
     mesche_gc_mark_object(vm, (Object *)module->name);
-    mem_mark_table(vm, &module->locals);
-    mem_mark_array(vm, &module->imports);
-    mem_mark_array(vm, &module->exports);
+    gc_mark_table(vm, &module->locals);
+    gc_mark_array(vm, &module->imports);
+    gc_mark_array(vm, &module->exports);
     mesche_gc_mark_object(vm, (Object *)module->init_function);
     break;
   }
   case ObjectKindRecord: {
     ObjectRecord *record = (ObjectRecord *)object;
     mesche_gc_mark_object(vm, (Object *)record->name);
-    mem_mark_array(vm, &record->fields);
+    gc_mark_array(vm, &record->fields);
     break;
   }
   case ObjectKindRecordField: {
     ObjectRecordField *field = (ObjectRecordField *)object;
     mesche_gc_mark_object(vm, (Object *)field->name);
-    mem_mark_value(vm, field->default_value);
+    gc_mark_value(vm, field->default_value);
     break;
   }
   case ObjectKindRecordFieldAccessor: {
@@ -198,7 +204,7 @@ static void mem_darken_object(VM *vm, Object *object) {
   }
   case ObjectKindRecordInstance: {
     ObjectRecordInstance *instance = (ObjectRecordInstance *)object;
-    mem_mark_array(vm, &instance->field_values);
+    gc_mark_array(vm, &instance->field_values);
     mesche_gc_mark_object(vm, (Object *)instance->record_type);
     break;
   }
@@ -207,18 +213,18 @@ static void mem_darken_object(VM *vm, Object *object) {
   }
 }
 
-static void mem_trace_references(MescheMemory *mem) {
+static void gc_trace_references(MescheMemory *mem) {
   VM *vm = (VM *)mem;
 
   // Loop through the stack (which may get more entries added during the loop)
   // to darken all marked objects
   while (vm->gray_count > 0) {
     Object *object = vm->gray_stack[--vm->gray_count];
-    mem_darken_object(vm, object);
+    gc_darken_object(vm, object);
   }
 }
 
-static void mem_table_remove_white(Table *table) {
+static void gc_table_remove_white(Table *table) {
   for (int i = 0; i < table->capacity; i++) {
     Entry *entry = &table->entries[i];
     if (entry->key != NULL && !entry->key->object.is_marked) {
@@ -227,7 +233,7 @@ static void mem_table_remove_white(Table *table) {
   }
 }
 
-static void mem_sweep_objects(VM *vm) {
+static void gc_sweep_objects(VM *vm) {
   Object *previous = NULL;
   Object *object = vm->objects;
 
@@ -258,12 +264,13 @@ static void mem_sweep_objects(VM *vm) {
 
 void mesche_gc_collect_garbage(MescheMemory *mem) {
   VM *vm = (VM *)mem;
-  mem_mark_roots(vm);
+  gc_mark_roots(vm);
   if (vm->current_compiler != NULL) {
     mesche_compiler_mark_roots(vm->current_compiler);
   }
-  mem_trace_references((MescheMemory *)vm);
-  mem_table_remove_white(&vm->strings);
-  mem_table_remove_white(&vm->symbols);
-  mem_sweep_objects(vm);
+  gc_trace_references((MescheMemory *)vm);
+  gc_table_remove_white(&vm->strings);
+  gc_table_remove_white(&vm->symbols);
+  gc_table_remove_white(&vm->keywords);
+  gc_sweep_objects(vm);
 }

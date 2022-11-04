@@ -14,6 +14,9 @@ void mesche_table_init(Table *table) {
 
 void mesche_table_free(MescheMemory *mem, Table *table) {
   FREE_ARRAY(mem, Entry, table->entries, table->capacity);
+  table->entries = NULL;
+  table->count = 0;
+  table->capacity = 0;
 }
 
 static Entry *table_find_entry(Entry *entries, int capacity, ObjectString *key) {

@@ -131,7 +131,9 @@ ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_name, b
 ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_name, bool run_init) {
   // Allocate the name string and push it to the stack temporarily to avoid GC
   ObjectString *module_name_str = mesche_object_make_string(vm, module_name, strlen(module_name));
+  mesche_vm_stack_push(vm, OBJECT_VAL(module_name_str));
   ObjectModule *module = mesche_module_resolve_by_name(vm, module_name_str, run_init);
+  mesche_vm_stack_pop(vm);
 
   return module;
 }

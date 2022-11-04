@@ -4,24 +4,29 @@
 ObjectKeyword *mesche_object_make_keyword(VM *vm, const char *chars, int length) {
   // Is the keyword already interned?
   uint32_t hash = mesche_string_hash(chars, length);
-  ObjectString *keyword = (ObjectString *)mesche_table_find_key(&vm->keywords, chars, length, hash);
+  ObjectKeyword *keyword =
+      (ObjectString *)mesche_table_find_key(&vm->keywords, chars, length, hash);
 
   // If the keyword's interned string was not found, create a new one
   if (keyword == NULL) {
     // Allocate the keyword object
-    keyword = (ObjectString *)ALLOC_OBJECT_EX(vm, ObjectKeyword, length + 1, ObjectKindKeyword);
-    memcpy(keyword->chars, chars, length);
-    keyword->chars[length] = '\0';
-    keyword->length = length;
-    keyword->hash = hash;
+    keyword = (ObjectKeyword *)ALLOC_OBJECT_EX(vm, ObjectKeyword, length + 1, ObjectKindKeyword);
+    memcpy(keyword->string.chars, chars, length);
+    keyword->string.chars[length] = '\0';
+    keyword->string.length = length;
+    keyword->string.hash = hash;
+
+    // Push the keyword temporarily to avoid GC
+    mesche_vm_stack_push(vm, OBJECT_VAL(keyword));
 
     // Add the keyword to the interned set
-    // TODO: Use an API for this!
-    mesche_table_set((MescheMemory *)vm, &vm->keywords, keyword, FALSE_VAL);
+    mesche_table_set((MescheMemory *)vm, &vm->keywords, (ObjectString *)keyword, FALSE_VAL);
+
+    // Pop the keyword back off the stack
+    mesche_vm_stack_pop(vm);
   }
 
-  // Allocate and initialize the string object
-  return (ObjectKeyword *)keyword;
+  return keyword;
 }
 
 void mesche_free_keyword(VM *vm, ObjectKeyword *keyword) {
