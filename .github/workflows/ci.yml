@@ -42,9 +42,26 @@ jobs:
       # - name: Test Mesche Examples
       #   run: find lib/mesche/samples -type f -print -exec ./build/flux-compose "{}" \;
 
-      - name: Archive workflow results
+      - name: Upload Mesche Library - Debug
         uses: actions/upload-artifact@v2
         with:
-          name: libmesche
-          path: |
-            bin/libmesche.a
+          name: libmesche-debug
+          path: components/compiler/bin/debug/libmesche.a
+
+      - name: Upload Mesche Library - Release
+        uses: actions/upload-artifact@v2
+        with:
+          name: libmesche-release
+          path: components/compiler/bin/release/libmesche.a
+
+      - name: Upload Mesche CLI - Debug
+        uses: actions/upload-artifact@v2
+        with:
+          name: mesche-linux-x86_64-debug
+          path: components/cli/dist/debug/*
+
+      - name: Upload Mesche CLI - Release
+        uses: actions/upload-artifact@v2
+        with:
+          name: mesche-linux-x86_64
+          path: components/cli/dist/release/*
