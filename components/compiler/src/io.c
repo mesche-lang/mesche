@@ -9,7 +9,7 @@
 
 char *mesche_io_read_all_text(MeschePort *port) {
   int size = 256;
-  char *buffer = malloc(sizeof(char) * size);
+  char *buffer = malloc(sizeof(char) * (size + 1));
   FILE *fp = (FILE *)port;
 
   int length = 0;
@@ -19,7 +19,7 @@ char *mesche_io_read_all_text(MeschePort *port) {
     if (feof(fp) != 0 && length >= size) {
       // Increase the size of the buffer
       size = size + 1024;
-      buffer = realloc(buffer, size);
+      buffer = realloc(buffer, size + 1);
     }
   }
 
