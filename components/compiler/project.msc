@@ -27,14 +27,25 @@
                                 :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
                                 :c-flags "-O2 -fPIE"))
 
-         :targets (list (target :name "lib"
-                                :description "Builds the Mesche compiler library."
-                                :default t
-                                :runs (steps (compile-source :source-files
-                                                             '("core.c" "chunk.c" "compiler.c" "disasm.c" "math.c" "io.c"
-                                                               "fs.c" "list.c" "array.c" "mem.c" "module.c"
-                                                               "time.c" "object.c" "process.c" "repl.c" "scanner.c"
-                                                               "string.c" "syntax.c" "table.c" "value.c" "vm.c"))
-                                             (create-static-library "libmesche.a"
-                                                                    :c-flags (string-append "-I " (path-resolve "./include"))
-                                                                    :c-libs "-lm")))))
+         :tasks (list (task :name 'mesche-compiler:lib
+                            :description "Builds the Mesche compiler library."
+                            :default t
+                            :runs (steps (compile-source :source-files
+                                                         '("array.c" "chunk.c" "closure.c"
+                                                           "compiler.c" "continuation.c"
+                                                           "core.c" "disasm.c" "fs.c"
+                                                           "function.c" "gc.c" "io.c"
+                                                           "keyword.c" "list.c" "math.c"
+                                                           "mem.c" "module.c" "native.c"
+                                                           "object.c" "process.c" "reader.c"
+                                                           "record.c" "repl.c" "scanner.c"
+                                                           "string.c" "symbol.c" "syntax.c"
+                                                           "table.c" "time.c" "value.c" "vm.c"))
+                                         (create-static-library :library-name "libmesche.a"
+                                                                :input-files (from-context 'mesche-compiler:lib/compile-source
+                                                                                           :object-files))
+                                         (provide-context :c-libs "-lm"
+                                                          :c-flags (string-append "-I " (path-resolve "./include"))
+                                                          :module-path (path-resolve "./modules")
+                                                          :library-path (from-context 'mesche-compiler:lib/static-library
+                                                                                      :library-path))))))

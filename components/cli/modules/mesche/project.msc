@@ -10,16 +10,7 @@
           fetcher
           updater))
 
-(define-record-type project-config
-  (fields name
-          description
-          default
-          output-path
-          c-compiler
-          c-flags
-          c-libs))
-
-(define-record-type project-target
+(define-record-type project-task
   (fields name
           description
           default
@@ -31,20 +22,38 @@
           version
           description
           deps
-          targets
+          tasks
           configs))
 
 ;; Alias some record constructors for convenience
 (define project make-project :export)
-(define target make-project-target :export)
-(define config make-project-config :export)
+(define task make-project-task :export)
+
+(define (config . args) :export
+  ;; Return the args directly, they will be passed as initial context for the
+  ;; build
+  ;; TODO: Verify that name and description are included
+  args)
+
+(define (project-config-name config) :export
+  (or (plist-ref config :name)
+      "(unnamed)"))
+
+(define (project-config-default config) :export
+  (plist-ref config :default))
+
+(define (project-config-output-path config) :export
+  (plist-ref config :output-path))
 
 (define (project-load project-path) :export
   ;; Load the project file
   ;; TODO: Automatically add 'project.msc' to path if absent
   ;; TODO: Ensure that what we get back is actually a project
   ;; TODO: Don't load the project more than once if already loaded
-  (load-file (path-resolve project-path)))
+  ;; Does the specified project file exist?
+  (if (path-exists? project-path)
+      (load-file (path-resolve project-path))
+      #f))
 
 (define (project-find-config project config-name) :export
   ;; TODO: What if configs list is an array?
@@ -57,7 +66,7 @@
 
 (define (project-default-config project) :export
   ;; TODO: What if configs list is an array?
-  (let next-config ((last-config nil)
+  (let next-config ((last-config #f)
                     (configs (project-configs project)))
     (if (pair? configs)
         (let ((config (car configs)))
@@ -66,26 +75,28 @@
               (next-config config (cdr configs))))
         ;; If we've reached the end of the list, return the last item
         ;; TODO: Throw error if no default set?
-        last-config)))
+        (if last-config
+            last-config
+            (config :name "(none)")))))
 
-(define (project-find-target project target-name) :export
-  ;; TODO: What if targets list is an array?
-  (let next-target ((targets (project-targets project)))
-    (if (pair? targets)
-        (let ((target (car targets)))
-          (if (equal? (project-target-name target) target-name)
-              target
-              (next-target (cdr targets)))))))
+(define (project-find-task project task-name) :export
+  ;; TODO: What if tasks list is an array?
+  (let next-task ((tasks (project-tasks project)))
+    (if (pair? tasks)
+        (let ((task (car tasks)))
+          (if (equal? (project-task-name task) task-name)
+              task
+              (next-task (cdr tasks)))))))
 
-(define (project-default-target project) :export
-  ;; TODO: What if targets list is an array?
-  (let next-target ((last-target #f)
-                    (targets (project-targets project)))
-    (if (pair? targets)
-        (let ((target (car targets)))
-          (if (project-target-default target)
-              target
-              (next-target target (cdr targets))))
+(define (project-default-task project) :export
+  ;; TODO: What if tasks list is an array?
+  (let next-task ((last-task #f)
+                    (tasks (project-tasks project)))
+    (if (pair? tasks)
+        (let ((task (car tasks)))
+          (if (project-task-default task)
+              task
+              (next-task task (cdr tasks))))
         ;; If we've reached the end of the list, return the last item
         ;; TODO: Throw error if no default set?
-        last-target)))
+        last-task)))

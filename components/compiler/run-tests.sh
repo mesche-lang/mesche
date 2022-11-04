@@ -39,7 +39,7 @@ done
 
 # Build the static library
 echo -e "\nCreating test harness bin/run-tests..."
-$CC -o bin/run-tests "${object_files[@]}" bin/libmesche.a $DEBUG_FLAGS
+$CC -o bin/run-tests "${object_files[@]}" bin/boot/libmesche.a $DEBUG_FLAGS
 [ $? -eq 1 ] && exit 1
 chmod +x bin/run-tests
 ./bin/run-tests

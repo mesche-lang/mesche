@@ -30,6 +30,16 @@
                          object-files))
         object-files)))
 
+;;; Logging
+
+(define debug #f)
+(define (debug-log str)
+  (if debug
+      (begin
+        (display "[DBG] ")
+        (display str)
+        (display "\n"))))
+
 ;;; Build Context
 
 (define (context-get context entry-name key) :export
@@ -255,67 +265,59 @@
                       ((project-dep-fetcher (car deps)) project (car deps))))
                 (next-dep (cdr deps))))))))
 
-;;; Targets
+;;; Tasks
 
-(define (run-target project target config)
-  ;; Run the function for the target
-  ((project-target-runs target) project config '()))
+(define (run-task project task context)
+  ;; Run the function for the task populating
+  ((project-task-runs task) project task context))
 
-(define (build-target target-name) :export
-  (lambda (project config outputs)
-    (let ((target (project-find-target project target-name)))
-      ;; TODO: Throw error if target isn't found
-      (if target
-          (run-target project target config)
+(define (build-task task-name) :export
+  (lambda (project task context)
+    (let ((task (project-find-task project task-name)))
+      ;; TODO: Throw error if task isn't found
+      (if task
+          (run-task project task context)
           (begin
-            (display "Could not find target '")
-            (display target-name)
+            (display "Could not find task '")
+            (display task-name)
             (display  "'!\n"))))))
 
 ;;; Build Functions
 
+(define (apply-step-output output project task context)
+  (if (function? output)
+      (output project task context)
+      (if (pair? output)
+          output
+          ;; TODO: Raise error
+          (begin
+            (display "INVALID OUTPUT!\n")
+            context))))
+
 (define (steps . step-functions) :export
-  (lambda (project config outputs)
+  (lambda (project task context)
     (let next-step ((step-functions step-functions)
-                    (outputs outputs))
+                    (context context))
+      ;; (display "\nSTEP CONTEXT: ")
+      ;; (display context)
+      ;; (display "\n")
       (if (pair? step-functions)
-          (let ((step-output ((car step-functions) project config outputs)))
-            ;; TODO: Need record type predicate so we only add an output if it's
-            ;; an instance of the build-output type!
-            (if step-output
-                (let ((new-c-flags (build-output-c-flags step-output))
-                      (new-c-libs (build-output-c-libs step-output)))
-
-                  ;; If there are new flags or libs, add them to the configuration
-                  (if new-c-flags (begin (project-config-c-flags-set! config
-                                                                      (string-append
-                                                                       (if (project-config-c-flags config)
-                                                                           (string-append (project-config-c-flags config) " ")
-                                                                           " ")
-                                                                       new-c-flags))
-                                         ;; (display (string-append "NEW FLAGS: " (project-config-c-flags config) "\n"))
-                                         ))
-                  (if new-c-libs (begin (project-config-c-libs-set! config
-                                                                    (string-append
-                                                                     (if (project-config-c-libs config)
-                                                                         (string-append (project-config-c-libs config) " ")
-                                                                         "")
-                                                                     new-c-libs))
-                                        ;; (display (string-append "NEW LIBS: " (project-config-c-libs config) "\n"))
-                                        ))))
-            (next-step (cdr step-functions)
-                       (if step-output
-                           (cons step-output outputs)
-                           outputs)))
-
+          (next-step (cdr step-functions)
+                     ;; This executes the step function and
+                     (apply-step-output ((car step-functions) project task context)
+                                        project
+                                        task
+                                        context))
           ;; Return the last step's output
-          (if outputs (car outputs))))))
+          ;; TODO: Remove 'current entry?
+          context))))
 
-(define (build-project-inner project-path target-name config-name)
+(define (build-project-inner project-path task-name config-name context)
   (let ((working-path (file-directory (path-resolve project-path)))
         (resolved-project-path (path-resolve project-path))
         (original-path (process-directory))
         (project #f))
+
     ;; Set the working directory temporarily
     (process-directory-set! working-path)
 
@@ -323,46 +325,67 @@
     ;; inline path resolutions are based on the project path
     (set! project (project-load resolved-project-path))
 
-    ;; Ensure project dependencies exist
-    (ensure-deps project)
+    (if project
+        (begin
+          ;; Locate the specified task and configuration
+          (let ((task (project-find-task project task-name))
+                (config (project-find-config project config-name)))
+            ;; Use the default task and config if one was not specified
+            (if (not task) (set! task (project-default-task project)))
+            (if (not config) (set! config (project-default-config project)))
 
-    ;; Use the default target and config if one was not specified
-    (let ((target (project-find-target project target-name))
-          (config (project-find-config project config-name)))
-      (if (not target) (set! target (project-default-target project)))
-      (if (not config) (set! config (project-default-config project)))
+            (display (string-append "*** Building " (project-name project)
+                                    ", task " (symbol->string (project-task-name task))
+                                    ", config " (if config (project-config-name config) "(none)")
+                                    "\n"))
 
-      (display (string-append "*** Building " (project-name project)
-                              ", target " (project-target-name target)
-                              ", config " (project-config-name config) "\n"))
+            ;; Ensure project dependencies exist
+            (ensure-deps project)
 
-      ;; Run the specified target
-      (let ((target-output (run-target project target config)))
-        ;; Restore the original working path
-        (process-directory-set! original-path)
+            ;; Run the specified task
+            (let ((task-output (run-task project task (context-set-many context 'config config))))
+              ;; Restore the original working path
+              (process-directory-set! original-path)
 
-        ;; Return the target's output
-        target-output))))
+              ;; Return the task's output
+              task-output)))
+        (begin
+          (display "[mesche build] Project path not found: ")
+          (display project-path)
+          (display "\n")
+          #f))))
 
 (define (build-project project-path . args) :export
-  (let ((target-name (plist-ref args :target-name))
-        (config-name (plist-ref args :config-name)))
-    (lambda (project config outputs)
+  (lambda (project task context)
+    (let ((task-name (resolve-arg :task args project task context))
+          (config-name (resolve-arg :config args project task context)))
       ;; By default, use the name of the current project configuration
       (build-project-inner project-path
-                           target-name
-                           (or config-name (project-config-name config))))))
+                           task-name
+                           config-name
+                           context))))
 
 (define (compile-source . args) :export
   (let ((source-files (plist-ref args :source-files))
         (src-path (plist-ref args :src-path))
         (mesche-main (plist-ref args :mesche-main)))
     ;; TODO: Use mesche-main to generate a main.c file that invokes it
-    (lambda (project config outputs)
-      (let ((out-path (project-config-output-path config))
-            (c-compiler (or (project-config-c-compiler config) "gcc"))
-            (c-flags (or (project-config-c-flags config) ""))
-            (c-libs (or (project-config-c-libs config) "")))
+    (lambda (project task context)
+      (let ((out-path (context-get context 'config :output-path))
+            (c-compiler (or (resolve-arg :c-compiler args project task context)
+                            (context-get context 'config :c-compiler)
+                            "gcc"))
+            (c-flags (or (resolve-arg :c-flags args project task context)
+                         (context-get context 'config :c-flags)
+                         ""))
+            (c-libs (or (resolve-arg :c-libs args project task context)
+                        (context-get context 'config :c-libs)
+                        "")))
+
+        (debug-log (string-append "Compilation starting from " (process-directory)))
+        (debug-log (string-append "CC: " c-compiler))
+        (debug-log (string-append "IN CFLAGS: " c-flags))
+        (debug-log (string-append "IN CLIBS: " c-libs))
 
         (let compile-next ((input-files (or source-files '()))
                            (output-files '()))
@@ -380,41 +403,51 @@
                       ;; Compile the file if the source is newer than the output file
                       (if (>= (file-modified-time source-file)
                               (file-modified-time output-file))
-                          (begin
+                          (let ((cmd (string-append c-compiler
+                                                    " -c "
+                                                    source-file
+                                                    " -o "
+                                                    output-file
+                                                    " "
+                                                    c-flags)))
                             (display "Compiling: ") (display source-file)
                             (display " to ") (display output-file)
                             (display "...\n")
-                            (process-start-sync (string-append c-compiler
-                                                               " -c "
-                                                               source-file
-                                                               " -o "
-                                                               output-file
-                                                               " "
-                                                               c-flags)
+                            (debug-log (string-append "RUN: " cmd))
 
-                                                :stderr 'inherit)))
+                            (process-start-sync cmd :stderr 'inherit)))
                       (set! output-files (cons output-file output-files))))
                 (compile-next (cdr input-files) output-files))
-              (make-build-output :type 'object
-                                 :files output-files)))))))
 
-(define (link-program output-file) :export
-  (lambda (project config outputs)
-    (let ((output-path (string-append (path-ensure (project-config-output-path config))
-                                      "/" output-file))
-          (c-compiler (or (project-config-c-compiler config) "gcc"))
-          (c-flags (or (project-config-c-flags config) ""))
-          (c-libs (or (project-config-c-libs config) "")))
+              (finalize-step 'compile-source
+                             :object-files output-files)))))))
+
+(define (link-program . args) :export
+  (lambda (project task context)
+    (let ((input-files (resolve-arg :input-files args project task context))
+          (program-path (string-append (path-ensure (context-get context 'config :output-path))
+                                       "/"
+                                       (plist-ref args :name)))
+          (c-compiler (or (context-get context 'config :c-compiler) "gcc"))
+          (c-flags (or (resolve-arg :c-flags args project task context)
+                       (context-get context 'config :c-flags)
+                       ""))
+          (c-libs (or (resolve-arg :c-libs args project task context)
+                      (context-get context 'config :c-libs)
+                      "")))
 
       ;; TODO: Error if no output file is specified
       ;; TODO: Ensure that the previous output came from a compiler
 
       ;; Run the linker
-      (display (string-append "Linking " output-file "\n"))
-      (let ((object-files (string-join (gather-object-files outputs) " ")))
+      (display (string-append "Linking " program-path "\n"))
+      (let ((object-files (string-join (if (pair? input-files)
+                                           input-files
+                                           (list input-files))
+                                       " ")))
         (process-start-sync (string-append c-compiler
                                            " -o "
-                                           output-path
+                                           program-path
                                            " "
                                            object-files
                                            " "
@@ -424,39 +457,38 @@
                             :stderr 'inherit))
 
       ;; Make the file executable
-      (process-start-sync (string-append "chmod +x " output-path)
+      (process-start-sync (string-append "chmod +x " program-path)
                           :stderr 'inherit)
 
       ;; Return the build output details
-      (make-build-output :type 'program
-                         :files (list output-path)))))
+      (finalize-step 'program
+                     :program-path program-path))))
 
-(define (create-static-library output-file . args) :export
-  (let ((c-flags (plist-ref args :c-flags))
-        (c-libs (plist-ref args :c-libs)))
-    (lambda (project config outputs)
-      (let ((output-path (string-append (path-ensure (project-config-output-path config))
-                                        "/" output-file)))
-        ;; Run the linker
-        (display (string-append "Creating static library " output-file "\n"))
-        (process-start-sync (string-append "ar rcs "
-                                           output-path
-                                           " "
-                                           (string-join (gather-object-files outputs) " "))
-                            :stderr 'inherit)
+(define (create-static-library . args) :export
+  (lambda (project task context)
+    (let ((input-files (resolve-arg :input-files args project task context))
+          (library-name (resolve-arg :library-name args project task context))
+          (output-path (string-append (path-ensure (context-get context 'config :output-path))
+                                      "/"
+                                      (resolve-arg :library-name args project task context))))
+      ;; Run the linker
+      (display (string-append "Creating static library " library-name "\n"))
+      (process-start-sync (string-append "ar rcs "
+                                         output-path
+                                         " "
+                                         (string-join input-files " "))
+                          :stderr 'inherit)
 
-        ;; Return the build output details
-        (make-build-output :type 'static-library
-                           :files (list output-path)
-                           :c-flags c-flags
-                           :c-libs c-libs)))))
+      ;; Return the build output details
+      (finalize-step 'static-library
+                     :library-path output-path))))
 
 ;;; CLI Command
 
 (define (build-command) :export
   (let ((args (cdr (cdr (process-arguments))))
         (project-path "./project.msc")
-        (target-name #f)
+        (task-name #f)
         (config-name #f)
         (output-type #f))
 
@@ -465,15 +497,15 @@
       (if (pair? args)
           ;; TODO: This 'if tower' is terrible, add argument handler function
           (if (equal? (car args) "--project")
-              (begin (set! project-path (car (cdr args)))
+              (begin (set! project-path (cadr args))
                      (next-arg (cdr (cdr args))))
               (if (equal? (car args) "--config")
-                  (begin (set! config-name (car (cdr args)))
+                  (begin (set! config-name (cadr args))
                          (next-arg (cdr (cdr args))))
-                  ;; The last possibility is that the target name is being specified
+                  ;; The last possibility is that the task name is being specified
                   ;; TODO: Ensure the name doesn't start with --
-                  (begin (set! target-name (car args))
+                  (begin (set! task-name (car args))
                          (next-arg (cdr args)))))))
 
     ;; Build the specified project
-    (build-project-inner project-path target-name config-name)))
+    (build-project-inner project-path task-name config-name '())))

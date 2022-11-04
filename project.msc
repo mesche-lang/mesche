@@ -1,0 +1,28 @@
+(define-module (projects mesche)
+  (import (mesche build)
+          (mesche project)))
+
+(project :name "Mesche Compiler Toolchain"
+         :url "https://github.com/mesche-lang/compiler"
+         :version "0.0.1"
+         :description "This is the meta-project for the Mesche Compiler Toolchain."
+
+         :configs (list (config :name "dev"
+                                :output-path "./dist/dev")
+
+                        (config :name "debug"
+                                :output-path "./dist/debug"
+                                :default t)
+
+                        (config :name "release"
+                                :output-path "./dist/release"))
+
+         :tasks (list (task :name 'mesche:dist
+                            :description "Builds the Mesche distribution."
+                            :default t
+                            :runs (steps (build-project "./components/compiler/project.msc"
+                                                        :task 'mesche-compiler:lib
+                                                        :config (from-context 'config :name))
+                                         (build-project "./components/cli/project.msc"
+                                                        :task 'mesche-cli:dist
+                                                        :config (from-context 'config :name))))))
