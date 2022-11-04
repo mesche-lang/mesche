@@ -151,6 +151,15 @@ Value core_cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
   return current_cons->cdr;
 }
 
+Value core_cadr_msc(MescheMemory *mem, int arg_count, Value *args) {
+  if (!IS_CONS(args[0])) {
+    PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
+  }
+
+  ObjectCons *current_cons = AS_CONS(args[0]);
+  return AS_CONS(current_cons->cdr)->car;
+}
+
 Value core_append_msc(MescheMemory *mem, int arg_count, Value *args) {
   Value result = EMPTY_VAL;
 
@@ -334,6 +343,7 @@ void mesche_core_module_init(VM *vm) {
                                   {"list", core_list_msc, true},
                                   {"car", core_car_msc, true},
                                   {"cdr", core_cdr_msc, true},
+                                  {"cadr", core_car_msc, true},
                                   {"append", core_append_msc, true},
                                   {"+", core_plus_msc, true},
                                   {"-", core_minus_msc, true},
