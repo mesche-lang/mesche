@@ -31,10 +31,10 @@ jobs:
           ./components/cli/dist/debug/mesche test ./components/compiler/test/test-mesche.msc
           ./components/cli/dist/debug/mesche test ./components/cli/test/test-main.msc
 
-      - name: Compile Mesche Tools -Release
+      - name: Compile Mesche Tools - Release
         run: ./tools/mesche/mesche build --project project.msc --config release
 
-      - name: Run Tests - Debug
+      - name: Run Tests - Release
         run: |
           ./components/cli/dist/release/mesche test ./components/compiler/test/test-mesche.msc
           ./components/cli/dist/release/mesche test ./components/cli/test/test-main.msc
