@@ -284,7 +284,8 @@ static Token scanner_read_identifier(Scanner *scanner) {
          scanner_peek(scanner) == '-' || scanner_peek(scanner) == '?' ||
          scanner_peek(scanner) == '<' || scanner_peek(scanner) == '>' ||
          scanner_peek(scanner) == '=' || scanner_peek(scanner) == '!' ||
-         scanner_peek(scanner) == ':' || scanner_peek(scanner) == '%') {
+         scanner_peek(scanner) == ':' || scanner_peek(scanner) == '%' ||
+         scanner_peek(scanner) == '/') {
     scanner_next_char(scanner);
   }
 
