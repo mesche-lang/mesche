@@ -32,7 +32,7 @@
 
 ;;; Logging
 
-(define debug #f)
+(define debug #t)
 (define (debug-log str)
   (if debug
       (begin
@@ -346,6 +346,9 @@
             (let ((task-output (run-task project task (context-set-many context 'config config))))
               ;; Restore the original working path
               (process-directory-set! original-path)
+
+              ;; TODO: Overwrite any changes made to the config object by child steps
+              ;; TODO: Need a way to replace a context entry
 
               ;; Return the task's output
               task-output)))
