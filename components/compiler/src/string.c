@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <stdlib.h>
 
 #include "mem.h"
@@ -209,6 +210,31 @@ Value string_length_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(strlen(str->chars));
 }
 
+Value string_trim_msc(MescheMemory *mem, int arg_count, Value *args) {
+  ObjectString *str = AS_STRING(args[0]);
+
+  int start = 0, end = 0, len = strlen(str->chars);
+  for (int i = 0; i < len; i++) {
+    start = i;
+    if (!isspace(str->chars[i])) {
+      break;
+    }
+  }
+
+  for (int i = len - 1; i >= 0; i--) {
+    end = i;
+    if (!isspace(str->chars[i])) {
+      break;
+    }
+  }
+
+  // TODO: Checks
+  // - start and end are the same index
+  // - if start is greater than end?
+
+  return OBJECT_VAL(mesche_object_make_string((VM *)mem, &str->chars[start], (end - start) + 1));
+}
+
 Value string_equal_msc(MescheMemory *mem, int arg_count, Value *args) {
   ObjectString *str1 = AS_STRING(args[0]);
   ObjectString *str2 = AS_STRING(args[1]);
@@ -233,6 +259,7 @@ void mesche_string_module_init(VM *vm) {
       (MescheNativeFuncDetails[]){{"string-append", string_append_msc, true},
                                   {"string-join", string_join_msc, true},
                                   {"string-length", string_length_msc, true},
+                                  {"string-trim", string_trim_msc, true},
                                   {"string=?", string_equal_msc, true},
                                   {"substring", string_substring_msc, true},
                                   {"string->number", string_string_to_number_msc, true},
