@@ -38,6 +38,7 @@
                                                            "record.c" "repl.c" "scanner.c"
                                                            "string.c" "symbol.c" "syntax.c"
                                                            "table.c" "time.c" "value.c" "vm.c"))
+
                                          (create-static-library :library-name "libmesche.a"
                                                                 :input-files (from-context 'mesche-compiler:lib/compile-source
                                                                                            :object-files))

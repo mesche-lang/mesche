@@ -26,9 +26,6 @@
                       (task :name 'mesche:dist
                             :description "Builds the Mesche distribution."
                             :default #t
-                            :runs (steps (build-project "./components/compiler/project.msc"
-                                                        :task 'mesche-compiler:lib
-                                                        :config (from-context 'config :name))
-                                         (build-project "./components/cli/project.msc"
+                            :runs (steps (build-project "./components/cli/project.msc"
                                                         :task 'mesche-cli:dist
                                                         :config (from-context 'config :name))))))

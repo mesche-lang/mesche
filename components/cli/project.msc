@@ -30,8 +30,11 @@
 
          :tasks (list (task :name 'mesche-cli:bin
                             :description "Builds the Mesche CLI program."
-                            :default t
-                            :runs (steps (compile-source :source-files (list "main.c")
+                            :runs (steps (build-project "../compiler/project.msc"
+                                                        :task 'mesche-compiler:lib
+                                                        :config (from-context 'config :name))
+
+                                         (compile-source :source-files (list "main.c")
                                                          :mesche-main "modules/main.msc"
                                                          :c-flags (from-context '(config mesche-compiler:lib) :c-flags)
                                                          :c-libs (from-context '(config mesche-compiler:lib) :c-libs))
@@ -45,6 +48,7 @@
 
                       (task :name 'mesche-cli:dist
                             :description "Prepares the Mesche CLI distribution."
+                            :default #t
                             :runs (steps (build-task 'mesche-cli:bin)
                                          (lambda (project task context)
                                            ;; TODO: Clean existing dist folder?
