@@ -76,7 +76,8 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
 
   size_t instruction = frame->ip - frame->closure->function->chunk.code - 1;
   int line = frame->closure->function->chunk.lines[instruction];
-  fprintf(stderr, "[line %d] in script\n", line);
+  ObjectString *file_name = frame->closure->function->chunk.file_name;
+  fprintf(stderr, "[line %d] in %s\n", line, file_name ? file_name->chars : "script");
 
   vm_reset_stack(vm);
 }

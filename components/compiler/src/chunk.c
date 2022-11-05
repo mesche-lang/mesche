@@ -10,6 +10,7 @@ void mesche_chunk_init(Chunk *chunk) {
   chunk->capacity = 0;
   chunk->code = NULL;
   chunk->lines = NULL;
+  chunk->file_name = NULL;
   mesche_value_array_init(&chunk->constants);
 }
 

@@ -1,9 +1,11 @@
 #ifndef mesche_chunk_h
 #define mesche_chunk_h
 
-#include "mem.h"
-#include "value.h"
 #include <stdint.h>
+
+#include "mem.h"
+#include "string.h"
+#include "value.h"
 
 typedef struct {
   int capacity;
@@ -11,6 +13,7 @@ typedef struct {
   uint8_t *code;
   int *lines;
   ValueArray constants;
+  ObjectString *file_name;
 } Chunk;
 
 void mesche_chunk_init(Chunk *chunk);

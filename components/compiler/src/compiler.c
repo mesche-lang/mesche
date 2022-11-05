@@ -90,6 +90,8 @@ typedef struct CompilerContext {
   VM *vm;
   MescheMemory *mem;
   Parser *parser;
+  ObjectSyntax *current_syntax;
+  ObjectString *current_file;
 
   // `module` should only be set when parsing a module body!  Sub-functions
   // should not have the same module set.
@@ -133,6 +135,7 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
     ctx->parent = parent;
     ctx->vm = parent->vm;
     ctx->parser = parent->parser;
+    ctx->current_syntax = parent->current_syntax;
   }
 
   // Set up the compiler state for this scope
@@ -156,7 +159,8 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
 
 static void compiler_emit_byte(CompilerContext *ctx, uint8_t byte) {
   // TODO: How do I get the line/col here?
-  mesche_chunk_write(ctx->mem, &ctx->function->chunk, byte, 0);
+  ctx->function->chunk.file_name = ctx->current_file;
+  mesche_chunk_write(ctx->mem, &ctx->function->chunk, byte, ctx->current_syntax->line);
 }
 
 static void compiler_emit_bytes(CompilerContext *ctx, uint8_t byte1, uint8_t byte2) {
@@ -1409,6 +1413,11 @@ ObjectFunction *compile_all(CompilerContext *ctx, Reader *reader) {
     // Read the next expression
     ObjectSyntax *next_expr = mesche_reader_read_next(reader);
     mesche_vm_stack_push(ctx->vm, OBJECT_VAL(next_expr));
+
+    // TODO: This is temporary to make it so we can get a reasonable
+    // triangulation for line numbers
+    ctx->current_syntax = next_expr;
+    ctx->current_file = next_expr->file_name;
 
     /* PRINT_VALUE("EXPR: ", OBJECT_VAL(next_expr)); */
 
