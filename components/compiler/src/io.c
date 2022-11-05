@@ -14,9 +14,9 @@ char *mesche_io_read_all_text(MeschePort *port) {
 
   int length = 0;
   int read_count = 0;
-  while (read_count = fread(buffer, sizeof(char), size - read_count, fp)) {
+  while ((read_count = fread(buffer + length, sizeof(char), size - read_count, fp))) {
     length += read_count;
-    if (feof(fp) != 0 && length >= size) {
+    if (feof(fp) == 0 && length >= size) {
       // Increase the size of the buffer
       size = size + 1024;
       buffer = realloc(buffer, size + 1);
