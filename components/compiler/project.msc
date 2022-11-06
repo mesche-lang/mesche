@@ -11,18 +11,13 @@
 
          :configs (list (config :name "dev"
                                 :output-path "./bin/dev"
-                                ;; :c-flags "-O0 -g -ggdb -DDEV_BUILD -fsanitize=address" ;
                                 :default t)
 
                         (config :name "debug"
-                                :output-path "./bin/debug"
-                                ;; :c-flags "-O0 -g -ggdb -DDEBUG -fPIE"
-                                )
+                                :output-path "./bin/debug")
 
                         (config :name "release"
-                                :output-path "./bin/release"
-                                ;; :c-flags "-O2 -fPIE"
-                                ))
+                                :output-path "./bin/release"))
 
          :tasks (list (task :name 'mesche-compiler:lib
                             :description "Builds the Mesche compiler library."

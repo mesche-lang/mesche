@@ -5,6 +5,9 @@
           (mesche project)
           (mesche process)))
 
+(define muslc-path (string-append (path-resolve "./deps/musl/bin/x86_64-linux-musl-gcc")
+                                  " -static"))
+
 (project :name "Mesche Command Line Interface"
          :url "https://github.com/mesche-lang/cli"
          :version "0.0.1"
@@ -20,12 +23,12 @@
 
                         (config :name "debug"
                                 :output-path "./bin/debug"
-                                :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
+                                :c-compiler muslc-path
                                 :c-flags "-O0 -g -ggdb -DDEBUG -fPIE")
 
                         (config :name "release"
                                 :output-path "./bin/release"
-                                :c-compiler "./deps/musl/bin/x86_64-linux-musl-gcc -static"
+                                :c-compiler muslc-path
                                 :c-flags "-O2 -fPIE"))
 
          :tasks (list (task :name 'mesche-cli:bin
@@ -38,6 +41,7 @@
                                                          :mesche-main "modules/main.msc"
                                                          :c-flags (from-context '(config mesche-compiler:lib) :c-flags)
                                                          :c-libs (from-context '(config mesche-compiler:lib) :c-libs))
+
                                          (link-program :name "mesche"
                                                        :input-files (collect '((mesche-cli:bin/compile-source :object-files)
                                                                                (mesche-compiler:lib :library-path)))

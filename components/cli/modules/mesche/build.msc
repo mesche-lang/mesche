@@ -32,7 +32,7 @@
 
 ;;; Logging
 
-(define debug #t)
+(define debug #f)
 (define (debug-log str)
   (if debug
       (begin
@@ -448,16 +448,17 @@
                                            input-files
                                            (list input-files))
                                        " ")))
-        (process-start-sync (string-append c-compiler
-                                           " -o "
-                                           program-path
-                                           " "
-                                           object-files
-                                           " "
-                                           c-flags
-                                           " "
-                                           c-libs)
-                            :stderr 'inherit))
+        (let ((cmd (string-append c-compiler
+                                  " -o "
+                                  program-path
+                                  " "
+                                  object-files
+                                  " "
+                                  c-flags
+                                  " "
+                                  c-libs)))
+          (debug-log (string-append "LINK: " cmd))
+          (process-start-sync cmd :stderr 'inherit)))
 
       ;; Make the file executable
       (process-start-sync (string-append "chmod +x " program-path)
