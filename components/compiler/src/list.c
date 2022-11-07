@@ -21,12 +21,12 @@ Value mesche_list_nth(VM *vm, ObjectCons *list, int index) {
   return FALSE_VAL;
 }
 
-Value list_nth_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value list_nth_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 2) {
     PANIC("Function requires 2 parameters.");
   }
 
-  return mesche_list_nth((VM *)mem, AS_CONS(args[0]), (int)AS_NUMBER(args[1]));
+  return mesche_list_nth(vm, AS_CONS(args[0]), (int)AS_NUMBER(args[1]));
 }
 
 void mesche_list_module_init(VM *vm) {

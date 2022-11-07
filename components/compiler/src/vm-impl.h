@@ -7,6 +7,7 @@
 #include "closure.h"
 #include "module.h"
 #include "object.h"
+#include "port.h"
 #include "reader.h"
 #include "symbol.h"
 #include "table.h"
@@ -36,6 +37,11 @@ typedef struct VM {
 
   // The expander function to expand macros
   ObjectClosure *expander;
+
+  // The default ports
+  MeschePort *input_port;  // stdin
+  MeschePort *output_port; // stdout
+  MeschePort *error_port;  // stderr
 
   // Module management
   Table modules;

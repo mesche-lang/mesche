@@ -29,6 +29,9 @@
 #include "value.h"
 #include "vm-impl.h"
 
+// Predeclare module init functions
+void mesche_io_module_init(VM *vm);
+
 // NOTE: Enable this for diagnostic purposes
 /* #define DEBUG_TRACE_EXECUTION */
 
@@ -36,7 +39,7 @@
   printf("\nValue Stack:\n");                                                                      \
   for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {                                    \
     printf("  %3d: ", abs(slot - vm->stack_top));                                                  \
-    mesche_value_print(*slot);                                                                     \
+    mesche_value_print(vm->output_port, *slot);                                                    \
     printf("\n");                                                                                  \
   }                                                                                                \
   printf("\n");
@@ -79,6 +82,7 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
   ObjectString *file_name = frame->closure->function->chunk.file_name;
   fprintf(stderr, "[line %d] in %s\n", line, file_name ? file_name->chars : "script");
 
+  // TODO: Start debugger if necessary
   vm_reset_stack(vm);
 }
 
@@ -155,6 +159,14 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->current_reset_marker = NULL;
   vm->stack_top = vm->stack;
 
+  // Set up ports for standard file descriptors
+  vm->input_port = mesche_io_make_port(vm, MeschePortKindInput, stdin);
+  vm->input_port->can_close = false;
+  vm->output_port = mesche_io_make_port(vm, MeschePortKindOutput, stdout);
+  vm->output_port->can_close = false;
+  vm->error_port = mesche_io_make_port(vm, MeschePortKindOutput, stderr);
+  vm->error_port->can_close = false;
+
   // Initialize the interned string, symbol, and keyword tables
   mesche_table_init(&vm->strings);
   mesche_table_init(&vm->symbols);
@@ -193,6 +205,11 @@ void mesche_vm_free(VM *vm) {
   // Reset stacks to lose references to things allocated there
   vm_reset_stack(vm);
   vm->open_upvalues = NULL;
+
+  // Release handles to standard I/O ports
+  vm->input_port = NULL;
+  vm->output_port = NULL;
+  vm->error_port = NULL;
 
   // Do one final GC pass
   mesche_mem_collect_garbage((MescheMemory *)vm);
@@ -258,11 +275,12 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
                     bool is_tail_call) {
   // Arity checks differ depending on whether a :rest argument is present
   if (closure->function->rest_arg_index == 0 && arg_count != closure->function->arity) {
-    vm_runtime_error(vm, "Expected %d arguments but got %d.", closure->function->arity, arg_count);
+    mesche_vm_raise_error(vm, "Expected %d arguments but got %d.", closure->function->arity,
+                          arg_count);
     return false;
   } else if (closure->function->rest_arg_index > 0 && arg_count < closure->function->arity - 1) {
-    vm_runtime_error(vm, "Expected at least %d arguments but got %d.", closure->function->arity - 1,
-                     arg_count);
+    mesche_vm_raise_error(vm, "Expected at least %d arguments but got %d.",
+                          closure->function->arity - 1, arg_count);
     return false;
   }
 
@@ -275,7 +293,7 @@ static bool vm_call(VM *vm, ObjectClosure *closure, uint8_t arg_count, uint8_t k
   // Process keyword arguments, if any
   if (keyword_count > 0) {
     if (num_keyword_args == 0) {
-      vm_runtime_error(vm, "Function does not accept keyword arguments.");
+      mesche_vm_raise_error(vm, "Function does not accept keyword arguments.");
       return false;
     }
 
@@ -450,7 +468,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
     case ObjectKindNativeFunction: {
       FunctionPtr func_ptr = AS_NATIVE_FUNC(callee);
       int total_args = arg_count + keyword_count * 2;
-      Value result = func_ptr((MescheMemory *)vm, total_args, vm->stack_top - total_args);
+      Value result = func_ptr(vm, total_args, vm->stack_top - total_args);
 
       // Pop off all of the arguments and the function itself
       for (int i = 0; i < total_args + 1; i++) {
@@ -505,7 +523,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       ObjectRecordFieldAccessor *accessor = AS_RECORD_FIELD_ACCESSOR(callee);
 
       if (arg_count != 1) {
-        vm_runtime_error(
+        mesche_vm_raise_error(
             vm, "Record field accessor for type '%s' requires a single record instance argument.",
             accessor->record_type->name->chars);
         return false;
@@ -513,22 +531,25 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
 
       Value possible_instance = vm_stack_peek(vm, 0);
       if (!IS_OBJECT(possible_instance)) {
-        vm_runtime_error(vm, "Expected instance of record type %s but received non-object kind %d.",
-                         accessor->record_type->name->chars, possible_instance.kind);
+        mesche_vm_raise_error(
+            vm, "Expected instance of record type %s but received non-object kind %d.",
+            accessor->record_type->name->chars, possible_instance.kind);
         return false;
       }
 
       if (!IS_RECORD_INSTANCE(possible_instance)) {
-        vm_runtime_error(vm, "Expected instance of record type %s but received object kind %d.",
-                         accessor->record_type->name->chars, AS_OBJECT(possible_instance)->kind);
+        mesche_vm_raise_error(
+            vm, "Expected instance of record type %s but received object kind %d.",
+            accessor->record_type->name->chars, AS_OBJECT(possible_instance)->kind);
         return false;
       }
 
       // TODO: Be somewhat tolerant to record type version?
       ObjectRecordInstance *instance = AS_RECORD_INSTANCE(possible_instance);
       if (instance->record_type != accessor->record_type) {
-        vm_runtime_error(vm, "Passed record of type %s to accessor that expects %s.",
-                         instance->record_type->name->chars, accessor->record_type->name->chars);
+        mesche_vm_raise_error(vm, "Passed record of type %s to accessor that expects %s.",
+                              instance->record_type->name->chars,
+                              accessor->record_type->name->chars);
         return false;
       }
 
@@ -544,31 +565,34 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       ObjectRecordFieldSetter *setter = AS_RECORD_FIELD_SETTER(callee);
 
       if (arg_count != 2) {
-        vm_runtime_error(vm,
-                         "Record field setter for type '%s' requires a record instance argument "
-                         "and a value to set for the associated field.",
-                         setter->record_type->name->chars);
+        mesche_vm_raise_error(
+            vm,
+            "Record field setter for type '%s' requires a record instance argument "
+            "and a value to set for the associated field.",
+            setter->record_type->name->chars);
         return false;
       }
 
       Value possible_instance = vm_stack_peek(vm, 1);
       if (!IS_OBJECT(possible_instance)) {
-        vm_runtime_error(vm, "Expected instance of record type %s but received non-object kind %d.",
-                         setter->record_type->name->chars, possible_instance.kind);
+        mesche_vm_raise_error(
+            vm, "Expected instance of record type %s but received non-object kind %d.",
+            setter->record_type->name->chars, possible_instance.kind);
         return false;
       }
 
       if (!IS_RECORD_INSTANCE(possible_instance)) {
-        vm_runtime_error(vm, "Expected instance of record type %s but received object kind %d.",
-                         setter->record_type->name->chars, AS_OBJECT(possible_instance)->kind);
+        mesche_vm_raise_error(vm,
+                              "Expected instance of record type %s but received object kind %d.",
+                              setter->record_type->name->chars, AS_OBJECT(possible_instance)->kind);
         return false;
       }
 
       // TODO: Be somewhat tolerant to record type version?
       ObjectRecordInstance *instance = AS_RECORD_INSTANCE(possible_instance);
       if (instance->record_type != setter->record_type) {
-        vm_runtime_error(vm, "Passed record of type %s to setter that expects %s.",
-                         instance->record_type->name->chars, setter->record_type->name->chars);
+        mesche_vm_raise_error(vm, "Passed record of type %s to setter that expects %s.",
+                              instance->record_type->name->chars, setter->record_type->name->chars);
         return false;
       }
 
@@ -587,7 +611,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
     }
   }
 
-  vm_runtime_error(vm, "Only functions can be called (received kind %d)", OBJECT_KIND(callee));
+  mesche_vm_raise_error(vm, "Only functions can be called (received kind %d)", OBJECT_KIND(callee));
 
   return false;
 }
@@ -618,7 +642,7 @@ InterpretResult mesche_vm_run(VM *vm) {
 #define BINARY_OP(value_type, pred, cast, op)                                                      \
   do {                                                                                             \
     if (!pred(vm_stack_peek(vm, 0)) || !pred(vm_stack_peek(vm, 1))) {                              \
-      vm_runtime_error(vm, "Operands must be numbers.");                                           \
+      mesche_vm_raise_error(vm, "Operands must be numbers.");                                      \
       return INTERPRET_RUNTIME_ERROR;                                                              \
     }                                                                                              \
     double b = cast(mesche_vm_stack_pop(vm));                                                      \
@@ -770,7 +794,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       break;
     case OP_MODULO: {
       if (!IS_NUMBER(vm_stack_peek(vm, 0)) || !IS_NUMBER(vm_stack_peek(vm, 1))) {
-        vm_runtime_error(vm, "Operands must be numbers.");
+        mesche_vm_raise_error(vm, "Operands must be numbers.");
         return INTERPRET_RUNTIME_ERROR;
       }
       int b = (int)AS_NUMBER(mesche_vm_stack_pop(vm));
@@ -998,7 +1022,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       printf("Call Stack:\n");
       for (int i = 0; i < vm->frame_count; i++) {
         printf("  %3d: ", i);
-        mesche_value_print(OBJECT_VAL(vm->frames[i].closure));
+        mesche_value_print(vm->output_port, OBJECT_VAL(vm->frames[i].closure));
         if (i == vm->current_reset_marker->frame_index) {
           printf(" [reset]");
         }
@@ -1011,11 +1035,11 @@ InterpretResult mesche_vm_run(VM *vm) {
       mesche_disasm_function(frame->closure->function);
       printf("\n");
 
-      vm_runtime_error(vm, "Exiting due to `break`.");
+      mesche_vm_raise_error(vm, "Exiting due to `break`.");
       return INTERPRET_RUNTIME_ERROR;
     case OP_DISPLAY:
       // Peek at the value on the stack
-      mesche_value_print(vm_stack_peek(vm, 0));
+      mesche_value_print(vm->output_port, vm_stack_peek(vm, 0));
       break;
     case OP_LOAD_FILE: {
       ObjectString *path = AS_STRING(vm_stack_peek(vm, 0));
@@ -1177,7 +1201,7 @@ InterpretResult mesche_vm_run(VM *vm) {
         // by this point
         if (vm->core_module) {
           if (!mesche_table_get(&vm->core_module->locals, name, &value)) {
-            vm_runtime_error(vm, "Undefined variable '%s'.", name->chars);
+            mesche_vm_raise_error(vm, "Undefined variable '%s'.", name->chars);
             return INTERPRET_RUNTIME_ERROR;
           }
         }
@@ -1197,7 +1221,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       name = READ_STRING();
       Table *globals = &CURRENT_MODULE()->locals;
       if (mesche_table_set((MescheMemory *)vm, globals, name, vm_stack_peek(vm, 0))) {
-        vm_runtime_error(vm, "Undefined variable '%s'.", name->chars);
+        mesche_vm_raise_error(vm, "Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
       break;
@@ -1277,10 +1301,10 @@ InterpretResult mesche_vm_run(VM *vm) {
 
       // Are they the expected types?
       if (!IS_CLOSURE(func_value) && !IS_NATIVE_FUNC(func_value)) {
-        vm_runtime_error(vm, "Cannot apply non-function value.");
+        mesche_vm_raise_error(vm, "Cannot apply non-function value.");
         return INTERPRET_RUNTIME_ERROR;
       } else if (!IS_CONS(list_value) && !IS_EMPTY(list_value)) {
-        vm_runtime_error(vm, "Cannot apply function to non-list value.");
+        mesche_vm_raise_error(vm, "Cannot apply function to non-list value.");
         return INTERPRET_RUNTIME_ERROR;
       }
 
@@ -1523,7 +1547,7 @@ InterpretResult mesche_vm_load_file(VM *vm, const char *file_path) {
   free(source);
 
   if (result == INTERPRET_COMPILE_ERROR) {
-    vm_runtime_error(vm, "Could not load file due to compilation error: %s\n", file_path);
+    mesche_vm_raise_error(vm, "Could not load file due to compilation error: %s\n", file_path);
     return result;
   }
 

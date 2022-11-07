@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "io.h"
 #include "mem.h"
 #include "object.h"
+#include "port.h"
 #include "symbol.h"
 #include "value.h"
 
@@ -28,28 +30,36 @@ void mesche_value_array_free(MescheMemory *mem, ValueArray *array) {
   mesche_value_array_init(array);
 }
 
-void mesche_value_print(Value value) {
+void mesche_value_print(MeschePort *port, Value value) {
+  mesche_value_print_ex(port, value, PrintStyleOutput);
+}
+
+void mesche_value_print_ex(MeschePort *port, Value value, MeschePrintStyle style) {
   switch (value.kind) {
   case VALUE_UNSPECIFIED:
-    printf("#<unspecified>");
+    fprintf(port->fp, "#<unspecified>");
     break;
   case VALUE_NUMBER:
-    printf("%g", AS_NUMBER(value));
+    fprintf(port->fp, "%g", AS_NUMBER(value));
     break;
   case VALUE_FALSE:
-    printf("#f");
+    fprintf(port->fp, "#f");
     break;
   case VALUE_TRUE:
-    printf("#t");
+    fprintf(port->fp, "#t");
     break;
   case VALUE_EMPTY:
-    printf("()");
+    if (style == PrintStyleOutput) {
+      fprintf(port->fp, "()");
+    } else {
+      fprintf(port->fp, "'()");
+    }
     break;
   case VALUE_OBJECT:
-    mesche_object_print(value);
+    mesche_object_print_ex(port, value, style);
     break;
   case VALUE_EOF:
-    printf("#<eof>");
+    fprintf(port->fp, "#<eof>");
     break;
   }
 }

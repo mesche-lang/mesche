@@ -5,7 +5,7 @@
 #include "module.h"
 #include "object.h"
 
-typedef Value (*FunctionPtr)(MescheMemory *mem, int arg_count, Value *args);
+typedef Value (*FunctionPtr)(VM *vm, int arg_count, Value *args);
 
 typedef struct {
   Object object;

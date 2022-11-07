@@ -1,5 +1,8 @@
+#include <stdio.h>
+
 #include "mem.h"
 #include "native.h"
+#include "port.h"
 #include "syntax.h"
 #include "util.h"
 #include "vm.h"
@@ -19,7 +22,7 @@ ObjectSyntax *mesche_object_make_syntax(VM *vm, uint32_t line, uint32_t column, 
 
 void mesche_free_syntax(VM *vm, ObjectSyntax *syntax) { FREE(vm, ObjectSyntax, syntax); }
 
-static void mesche_syntax_print_value(Value value) {
+static void mesche_syntax_print_value(MeschePort *port, Value value, MeschePrintStyle style) {
   if (IS_SYNTAX(value)) {
     ObjectSyntax *syntax = AS_SYNTAX(value);
     value = syntax->value;
@@ -27,25 +30,29 @@ static void mesche_syntax_print_value(Value value) {
 
   if (IS_CONS(value)) {
     ObjectCons *cons = AS_CONS(value);
-    printf("(");
-    mesche_syntax_print_value(cons->car);
+    fputs("(", port->fp);
+    mesche_syntax_print_value(port, cons->car, style);
     if (IS_CONS(cons->cdr) || (IS_SYNTAX(cons->cdr) && IS_CONS(AS_SYNTAX(cons->cdr)->value))) {
-      printf(" ");
-      mesche_syntax_print_value(cons->cdr);
+      fputs(" ", port->fp);
+      mesche_syntax_print_value(port, cons->cdr, style);
     } else if (!IS_EMPTY(cons->cdr)) {
-      printf(" . ");
-      mesche_syntax_print_value(cons->cdr);
+      fputs(" . ", port->fp);
+      mesche_syntax_print_value(port, cons->cdr, style);
     }
-    printf(")");
+    fputs(")", port->fp);
   } else {
-    mesche_value_print(value);
+    mesche_value_print_ex(port, value, style);
   }
 }
 
-void mesche_syntax_print(ObjectSyntax *syntax) {
-  printf("#<syntax:%d:%d ", syntax->line, syntax->column);
-  mesche_syntax_print_value(syntax->value);
-  printf(">");
+void mesche_syntax_print(MeschePort *port, ObjectSyntax *syntax) {
+  mesche_syntax_print_ex(port, syntax, PrintStyleOutput);
+}
+
+void mesche_syntax_print_ex(MeschePort *port, ObjectSyntax *syntax, MeschePrintStyle style) {
+  fprintf(port->fp, "#<syntax:%d:%d ", syntax->line, syntax->column);
+  mesche_syntax_print_value(port, syntax->value, style);
+  fputs(">", port->fp);
 }
 
 Value mesche_syntax_to_datum(VM *vm, Value syntax) {
@@ -76,7 +83,7 @@ Value mesche_syntax_to_datum(VM *vm, Value syntax) {
   }
 }
 
-Value syntax_line_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value syntax_line_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -85,7 +92,7 @@ Value syntax_line_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(syntax->line);
 }
 
-Value syntax_column_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value syntax_column_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -94,7 +101,7 @@ Value syntax_column_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(syntax->column);
 }
 
-Value syntax_position_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value syntax_position_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -103,7 +110,7 @@ Value syntax_position_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(syntax->position);
 }
 
-Value syntax_span_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value syntax_span_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -112,7 +119,7 @@ Value syntax_span_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(syntax->span);
 }
 
-Value syntax_source_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value syntax_source_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -121,7 +128,7 @@ Value syntax_source_msc(MescheMemory *mem, int arg_count, Value *args) {
   return OBJECT_VAL(syntax->file_name);
 }
 
-Value syntax_value_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value syntax_value_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }

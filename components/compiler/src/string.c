@@ -137,7 +137,7 @@ ObjectString *mesche_string_join(VM *vm, ObjectString *left, ObjectString *right
   return new_string;
 }
 
-Value string_append_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value string_append_msc(VM *vm, int arg_count, Value *args) {
   // Append all string arguments together
   ObjectString *result_string = AS_STRING(args[0]);
   for (int i = 1; i < arg_count; i++) {
@@ -145,16 +145,16 @@ Value string_append_msc(MescheMemory *mem, int arg_count, Value *args) {
     if (IS_FALSE(args[i]))
       continue;
 
-    mesche_vm_stack_push((VM *)mem, OBJECT_VAL(result_string));
-    result_string = mesche_string_join((VM *)mem, result_string, AS_STRING(args[i]), NULL);
-    mesche_vm_stack_pop((VM *)mem);
+    mesche_vm_stack_push(vm, OBJECT_VAL(result_string));
+    result_string = mesche_string_join(vm, result_string, AS_STRING(args[i]), NULL);
+    mesche_vm_stack_pop(vm);
   }
 
   // TODO: Support specifying a separator string
   return OBJECT_VAL(result_string);
 }
 
-static Value string_join_list(MescheMemory *mem, ObjectCons *list, const char *separator) {
+static Value string_join_list(VM *vm, ObjectCons *list, const char *separator) {
   Value current = OBJECT_VAL(list);
   ObjectString *result_string = NULL;
   while (IS_CONS(current)) {
@@ -163,10 +163,9 @@ static Value string_join_list(MescheMemory *mem, ObjectCons *list, const char *s
       if (result_string == NULL) {
         result_string = AS_STRING(cons->car);
       } else {
-        mesche_vm_stack_push((VM *)mem, OBJECT_VAL(result_string));
-        result_string =
-            mesche_string_join((VM *)mem, result_string, AS_STRING(cons->car), separator);
-        mesche_vm_stack_pop((VM *)mem);
+        mesche_vm_stack_push(vm, OBJECT_VAL(result_string));
+        result_string = mesche_string_join(vm, result_string, AS_STRING(cons->car), separator);
+        mesche_vm_stack_pop(vm);
       }
     } else {
       // ERROR?
@@ -178,7 +177,7 @@ static Value string_join_list(MescheMemory *mem, ObjectCons *list, const char *s
   return OBJECT_VAL(result_string);
 }
 
-Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value string_join_msc(VM *vm, int arg_count, Value *args) {
   char *separator = NULL;
   if (arg_count > 1) {
     separator = AS_CSTRING(args[1]);
@@ -186,7 +185,7 @@ Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
 
   Value collection = args[0];
   if (IS_CONS(collection)) {
-    return string_join_list(mem, AS_CONS(collection), separator);
+    return string_join_list(vm, AS_CONS(collection), separator);
     /* } else if (IS_ARRAY(collection)) { */
     /*   return string_join_array(mem, AS_ARRAY(collection), separator); */
   } else {
@@ -194,7 +193,7 @@ Value string_join_msc(MescheMemory *mem, int arg_count, Value *args) {
   }
 }
 
-Value string_substring_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value string_substring_msc(VM *vm, int arg_count, Value *args) {
   ObjectString *str = AS_STRING(args[0]);
 
   // TODO: Verify that end_index is higher than start_index
@@ -202,15 +201,15 @@ Value string_substring_msc(MescheMemory *mem, int arg_count, Value *args) {
   int end_index = (arg_count > 2) ? AS_NUMBER(args[2]) : strlen(AS_CSTRING(args[0]));
 
   return OBJECT_VAL(
-      mesche_object_make_string((VM *)mem, &str->chars[start_index], end_index - start_index));
+      mesche_object_make_string(vm, &str->chars[start_index], end_index - start_index));
 }
 
-Value string_length_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value string_length_msc(VM *vm, int arg_count, Value *args) {
   ObjectString *str = AS_STRING(args[0]);
   return NUMBER_VAL(strlen(str->chars));
 }
 
-Value string_trim_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value string_trim_msc(VM *vm, int arg_count, Value *args) {
   ObjectString *str = AS_STRING(args[0]);
 
   int start = 0, end = 0, len = strlen(str->chars);
@@ -232,23 +231,23 @@ Value string_trim_msc(MescheMemory *mem, int arg_count, Value *args) {
   // - start and end are the same index
   // - if start is greater than end?
 
-  return OBJECT_VAL(mesche_object_make_string((VM *)mem, &str->chars[start], (end - start) + 1));
+  return OBJECT_VAL(mesche_object_make_string(vm, &str->chars[start], (end - start) + 1));
 }
 
-Value string_equal_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value string_equal_msc(VM *vm, int arg_count, Value *args) {
   ObjectString *str1 = AS_STRING(args[0]);
   ObjectString *str2 = AS_STRING(args[1]);
   return BOOL_VAL(strcmp(str1->chars, str2->chars) == 0);
 }
 
-Value string_number_to_string_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value string_number_to_string_msc(VM *vm, int arg_count, Value *args) {
   char buffer[256];
   int decimal_places = arg_count > 1 ? (int)AS_NUMBER(args[1]) : 0;
   sprintf(buffer, "%.*f", decimal_places, AS_NUMBER(args[0]));
-  return OBJECT_VAL(mesche_object_make_string((VM *)mem, buffer, strlen(buffer)));
+  return OBJECT_VAL(mesche_object_make_string(vm, buffer, strlen(buffer)));
 }
 
-Value string_string_to_number_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value string_string_to_number_msc(VM *vm, int arg_count, Value *args) {
   ObjectString *str = AS_STRING(args[0]);
   return NUMBER_VAL(atof(str->chars));
 }

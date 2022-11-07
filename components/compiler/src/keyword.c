@@ -5,7 +5,7 @@ ObjectKeyword *mesche_object_make_keyword(VM *vm, const char *chars, int length)
   // Is the keyword already interned?
   uint32_t hash = mesche_string_hash(chars, length);
   ObjectKeyword *keyword =
-      (ObjectString *)mesche_table_find_key(&vm->keywords, chars, length, hash);
+      (ObjectKeyword *)mesche_table_find_key(&vm->keywords, chars, length, hash);
 
   // If the keyword's interned string was not found, create a new one
   if (keyword == NULL) {

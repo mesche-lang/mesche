@@ -10,9 +10,9 @@
 #include "symbol.h"
 #include "util.h"
 #include "value.h"
-#include "vm.h"
+#include "vm-impl.h"
 
-Value core_number_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_number_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -20,7 +20,7 @@ Value core_number_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_NUMBER(args[0]));
 }
 
-Value core_boolean_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_boolean_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -28,7 +28,7 @@ Value core_boolean_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_TRUE(args[0]) || IS_FALSE(args[0]));
 }
 
-Value core_pair_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_pair_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -36,7 +36,7 @@ Value core_pair_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_CONS(args[0]));
 }
 
-Value core_string_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_string_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -44,7 +44,7 @@ Value core_string_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_STRING(args[0]));
 }
 
-Value core_symbol_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_symbol_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -52,7 +52,7 @@ Value core_symbol_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_SYMBOL(args[0]));
 }
 
-Value core_keyword_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_keyword_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -60,7 +60,7 @@ Value core_keyword_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_KEYWORD(args[0]));
 }
 
-Value core_function_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_function_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -68,7 +68,7 @@ Value core_function_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_CLOSURE(args[0]) || IS_FUNCTION(args[0]) || IS_NATIVE_FUNC(args[0]));
 }
 
-Value core_array_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_array_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires a single parameter.");
   }
@@ -76,7 +76,7 @@ Value core_array_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_ARRAY(args[0]));
 }
 
-Value core_equal_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_equal_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 2) {
     PANIC("Function requires 2 parameters.");
   }
@@ -84,7 +84,7 @@ Value core_equal_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(mesche_value_eqv_p(args[0], args[1]));
 }
 
-Value core_eqv_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_eqv_p_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 2) {
     PANIC("Function requires 2 parameters.");
   }
@@ -92,7 +92,7 @@ Value core_eqv_p_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(mesche_value_eqv_p(args[0], args[1]));
 }
 
-Value core_not_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_not_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
@@ -101,12 +101,12 @@ Value core_not_msc(MescheMemory *mem, int arg_count, Value *args) {
   return BOOL_VAL(IS_FALSE(args[0]));
 }
 
-Value core_cons_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_cons_msc(VM *vm, int arg_count, Value *args) {
   // TODO: Ensure two arguments
-  return OBJECT_VAL(mesche_object_make_cons((VM *)mem, args[0], args[1]));
+  return OBJECT_VAL(mesche_object_make_cons(vm, args[0], args[1]));
 }
 
-Value core_list_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_list_msc(VM *vm, int arg_count, Value *args) {
   Value list = EMPTY_VAL;
 
   if (arg_count > 0) {
@@ -114,26 +114,26 @@ Value core_list_msc(MescheMemory *mem, int arg_count, Value *args) {
     bool pushed_list = false;
     for (int i = 0; i < arg_count; i++) {
       if (current == NULL) {
-        current = mesche_object_make_cons((VM *)mem, args[i], EMPTY_VAL);
+        current = mesche_object_make_cons(vm, args[i], EMPTY_VAL);
         list = OBJECT_VAL(current);
 
         // Temporarily store the list so it doesn't get collected
-        mesche_vm_stack_push((VM *)mem, list);
+        mesche_vm_stack_push(vm, list);
       } else {
         // Add the new cons to the end of the list
-        current->cdr = OBJECT_VAL(mesche_object_make_cons((VM *)mem, args[i], EMPTY_VAL));
+        current->cdr = OBJECT_VAL(mesche_object_make_cons(vm, args[i], EMPTY_VAL));
         current = AS_CONS(current->cdr);
       }
     }
 
     // Pop the list from the stack before we return it
-    mesche_vm_stack_pop((VM *)mem);
+    mesche_vm_stack_pop(vm);
   }
 
   return list;
 }
 
-Value core_car_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_car_msc(VM *vm, int arg_count, Value *args) {
   if (!IS_CONS(args[0])) {
     PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
   }
@@ -142,7 +142,7 @@ Value core_car_msc(MescheMemory *mem, int arg_count, Value *args) {
   return current_cons->car;
 }
 
-Value core_cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_cdr_msc(VM *vm, int arg_count, Value *args) {
   if (!IS_CONS(args[0])) {
     PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
   }
@@ -151,7 +151,7 @@ Value core_cdr_msc(MescheMemory *mem, int arg_count, Value *args) {
   return current_cons->cdr;
 }
 
-Value core_cadr_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_cadr_msc(VM *vm, int arg_count, Value *args) {
   if (!IS_CONS(args[0])) {
     PANIC("Object is not a pair: %d\n", AS_OBJECT(args[0])->kind);
   }
@@ -160,7 +160,7 @@ Value core_cadr_msc(MescheMemory *mem, int arg_count, Value *args) {
   return AS_CONS(current_cons->cdr)->car;
 }
 
-Value core_append_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_append_msc(VM *vm, int arg_count, Value *args) {
   Value result = EMPTY_VAL;
 
   // Is there at least one argument?
@@ -217,7 +217,7 @@ Value core_append_msc(MescheMemory *mem, int arg_count, Value *args) {
   return EMPTY_VAL;
 }
 
-Value core_plus_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_plus_msc(VM *vm, int arg_count, Value *args) {
   double result = 0.f;
   for (int i = 0; i < arg_count; i++) {
     // TODO: ERROR ON NON-NUMBER
@@ -231,7 +231,7 @@ Value core_plus_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(result);
 }
 
-Value core_minus_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_minus_msc(VM *vm, int arg_count, Value *args) {
   // TODO: USE NORMAL ERROR
   if (arg_count < 1) {
     PANIC("Procedure `-` requires at least one argument");
@@ -255,7 +255,7 @@ Value core_minus_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(result);
 }
 
-Value core_multiply_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_multiply_msc(VM *vm, int arg_count, Value *args) {
   double result = 1.f;
   for (int i = 0; i < arg_count; i++) {
     // TODO: ERROR ON NON-NUMBER
@@ -269,7 +269,7 @@ Value core_multiply_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(result);
 }
 
-Value core_divide_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_divide_msc(VM *vm, int arg_count, Value *args) {
   // TODO: USE NORMAL ERROR
   if (arg_count < 1) {
     PANIC("Procedure `-` requires at least one argument");
@@ -293,7 +293,7 @@ Value core_divide_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(result);
 }
 
-Value core_symbol_to_string_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_symbol_to_string_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
@@ -302,33 +302,34 @@ Value core_symbol_to_string_msc(MescheMemory *mem, int arg_count, Value *args) {
   return OBJECT_VAL(symbol->name);
 }
 
-Value core_string_to_symbol_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_string_to_symbol_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
 
   ObjectString *string = AS_STRING(args[0]);
-  return OBJECT_VAL(mesche_object_make_symbol((VM *)mem, string->chars, string->length));
+  return OBJECT_VAL(mesche_object_make_symbol(vm, string->chars, string->length));
 }
 
-Value core_display_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_display_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
 
   // Print the value
-  mesche_value_print(args[0]);
+  // TODO: Use parameterized current-output-port!
+  mesche_value_print(vm->output_port, args[0]);
 
   return UNSPECIFIED_VAL;
 }
 
-Value core_add_to_load_path_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value core_add_to_load_path_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
 
   // Add the specified path to the load path
-  mesche_vm_load_path_add((VM *)mem, AS_CSTRING(args[0]));
+  mesche_vm_load_path_add(vm, AS_CSTRING(args[0]));
 
   return TRUE_VAL;
 }

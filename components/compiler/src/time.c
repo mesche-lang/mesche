@@ -4,7 +4,7 @@
 #include "time.h"
 #include "util.h"
 
-Value time_current_msec_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value time_current_msec_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 0) {
     PANIC("Function accepts no parameters.");
   }

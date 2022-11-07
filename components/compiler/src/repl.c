@@ -1,5 +1,5 @@
-#include <fcntl.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #include "module.h"
@@ -38,7 +38,7 @@ int mesche_repl_poll(MescheRepl *repl) {
 
         // Print the last remaining value on the stack
         Value result = mesche_vm_stack_pop(repl->vm);
-        mesche_value_print(result);
+        mesche_value_print(repl->vm->output_port, result);
         printf("\n");
 
         // Print the next prompt
@@ -87,7 +87,7 @@ void mesche_repl_start(VM *vm, FILE *fp) {
 
     // Print the last remaining value on the stack
     Value result = mesche_vm_stack_pop(vm);
-    mesche_value_print(result);
+    mesche_value_print(vm->output_port, result);
     printf("\n");
   }
 }

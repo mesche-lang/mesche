@@ -20,22 +20,22 @@ Value mesche_array_push(MescheMemory *mem, ObjectArray *array, Value value) {
   return value;
 }
 
-Value array_make_msc(MescheMemory *mem, int arg_count, Value *args) {
-  ObjectArray *array = mesche_object_make_array((VM *)mem);
+Value array_make_msc(VM *vm, int arg_count, Value *args) {
+  ObjectArray *array = mesche_object_make_array(vm);
 
   if (arg_count == 1) {
     // Initialize the array to the specified size
     // TODO: Type check the argument
     int length = AS_NUMBER(args[0]);
     for (int i = 0; i < length; i++) {
-      mesche_array_push(mem, array, FALSE_VAL);
+      mesche_array_push((MescheMemory *)vm, array, FALSE_VAL);
     }
   }
 
   return OBJECT_VAL(array);
 }
 
-Value array_push_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value array_push_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 2) {
     PANIC("Function requires 2 parameters.");
   }
@@ -43,12 +43,12 @@ Value array_push_msc(MescheMemory *mem, int arg_count, Value *args) {
   ObjectArray *array = AS_ARRAY(args[0]);
   Value value = args[1];
 
-  mesche_array_push(mem, array, value);
+  mesche_array_push((MescheMemory *)vm, array, value);
 
   return value;
 }
 
-Value array_length_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value array_length_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
@@ -57,7 +57,7 @@ Value array_length_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(array->objects.count);
 }
 
-Value array_nth_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value array_nth_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 2) {
     PANIC("Function requires 2 parameters.");
   }
@@ -68,7 +68,7 @@ Value array_nth_msc(MescheMemory *mem, int arg_count, Value *args) {
   return array->objects.values[(int)AS_NUMBER(value)];
 }
 
-Value array_nth_set_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value array_nth_set_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 3) {
     PANIC("Function requires 3 parameters.");
   }

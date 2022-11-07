@@ -76,6 +76,17 @@ static void gc_mark_roots(void *target) {
     mesche_gc_mark_object(vm, (Object *)upvalue);
   }
 
+  // Mark standard I/O ports
+  if (vm->input_port) {
+    mesche_gc_mark_object(vm, (Object *)vm->input_port);
+  }
+  if (vm->output_port) {
+    mesche_gc_mark_object(vm, (Object *)vm->output_port);
+  }
+  if (vm->error_port) {
+    mesche_gc_mark_object(vm, (Object *)vm->error_port);
+  }
+
   // Mark reusable symbols
   if (vm->quote_symbol) {
     mesche_gc_mark_object(vm, (Object *)vm->quote_symbol);

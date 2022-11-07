@@ -90,44 +90,43 @@ char *mesche_fs_file_read_all(const char *file_path) {
   return buffer;
 }
 
-Value fs_path_exists_p_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_path_exists_p_msc(VM *vm, int arg_count, Value *args) {
   return BOOL_VAL(access(AS_CSTRING(args[0]), F_OK) != -1);
 }
 
-Value fs_path_resolve_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_path_resolve_msc(VM *vm, int arg_count, Value *args) {
   char *resolved_path = mesche_fs_resolve_path(AS_CSTRING(args[0]));
   ObjectString *resolved_path_str =
-      mesche_object_make_string((VM *)mem, resolved_path, strlen(resolved_path));
+      mesche_object_make_string(vm, resolved_path, strlen(resolved_path));
   free(resolved_path);
 
   return OBJECT_VAL(resolved_path_str);
 }
 
-Value fs_file_extension_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_file_extension_msc(VM *vm, int arg_count, Value *args) {
   const char *file_path = AS_CSTRING(args[0]);
   const char *dot = strrchr(file_path, '.');
   const char *ext = dot ? dot + 1 : "";
-  ObjectString *ext_str = mesche_object_make_string((VM *)mem, ext, strlen(ext));
+  ObjectString *ext_str = mesche_object_make_string(vm, ext, strlen(ext));
 
   return OBJECT_VAL(ext_str);
 }
 
-Value fs_file_name_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_file_name_msc(VM *vm, int arg_count, Value *args) {
   ObjectString *file_name_str = AS_STRING(args[0]);
   const char *dot = strrchr(file_name_str->chars, '.');
   if (dot) {
-    file_name_str =
-        mesche_object_make_string((VM *)mem, file_name_str->chars, dot - file_name_str->chars);
+    file_name_str = mesche_object_make_string(vm, file_name_str->chars, dot - file_name_str->chars);
   }
 
   return OBJECT_VAL(file_name_str);
 }
 
-Value fs_file_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_file_directory_msc(VM *vm, int arg_count, Value *args) {
   // dirname may change the original string, so duplicate it first
   char *file_path = strdup(AS_CSTRING(args[0]));
   char *dir_name = dirname(file_path);
-  ObjectString *dir_name_str = mesche_object_make_string((VM *)mem, dir_name, strlen(dir_name));
+  ObjectString *dir_name_str = mesche_object_make_string(vm, dir_name, strlen(dir_name));
 
   // NOTE: dir_name doesn't need to be freed because it doesn't cause an allocation
   free(file_path);
@@ -135,7 +134,7 @@ Value fs_file_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
   return OBJECT_VAL(dir_name_str);
 }
 
-Value fs_file_modified_time_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_file_modified_time_msc(VM *vm, int arg_count, Value *args) {
   const char *file_path = AS_CSTRING(args[0]);
   struct stat file_stat;
 
@@ -146,10 +145,10 @@ Value fs_file_modified_time_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(file_stat.st_mtime);
 }
 
-Value fs_file_read_all_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_file_read_all_msc(VM *vm, int arg_count, Value *args) {
   char *file_contents = mesche_fs_file_read_all(AS_CSTRING(args[0]));
   ObjectString *file_contents_str =
-      mesche_object_make_string((VM *)mem, file_contents, strlen(file_contents));
+      mesche_object_make_string(vm, file_contents, strlen(file_contents));
 
   // Free the string that we read from the file
   free(file_contents);
@@ -162,14 +161,14 @@ int fs_directory_create(const char *dir_path) {
   return mkdir(dir_path, 0777);
 }
 
-Value fs_directory_create_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_directory_create_msc(VM *vm, int arg_count, Value *args) {
   // TODO: Write out error on failure
   int result = fs_directory_create(AS_CSTRING(args[0]));
 
   return result == 0 ? TRUE_VAL : FALSE_VAL;
 }
 
-Value fs_path_ensure_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value fs_path_ensure_msc(VM *vm, int arg_count, Value *args) {
   // Ensure we're looking at a string
   if (!IS_STRING(args[0])) {
     // TODO: Throw an error
@@ -209,7 +208,7 @@ Value fs_path_ensure_msc(MescheMemory *mem, int arg_count, Value *args) {
 
   // Create a resolved string to be returned
   ObjectString *resolved_path_str =
-      mesche_object_make_string((VM *)mem, resolved_path, strlen(resolved_path));
+      mesche_object_make_string(vm, resolved_path, strlen(resolved_path));
   free(resolved_path);
 
   return OBJECT_VAL(resolved_path_str);

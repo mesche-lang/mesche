@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "io.h"
 #include "value.h"
 #include "vm.h"
 
@@ -38,6 +39,7 @@ typedef enum {
   ObjectKindNativeFunction,
   ObjectKindPointer,
   ObjectKindModule,
+  ObjectKindPort,
   ObjectKindRecord,
   ObjectKindRecordInstance,
   ObjectKindRecordField,
@@ -70,7 +72,8 @@ ObjectStackMarker *mesche_object_make_stack_marker(VM *vm, StackMarkerKind kind,
                                                    uint8_t frame_index);
 
 void mesche_object_free(VM *vm, struct Object *object);
-void mesche_object_print(Value value);
+void mesche_object_print(MeschePort *port, Value value);
+void mesche_object_print_ex(MeschePort *port, Value value, MeschePrintStyle style);
 
 bool mesche_object_is_kind(Value value, ObjectKind kind);
 bool mesche_object_string_equalsp(Object *left, Object *right);

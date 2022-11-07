@@ -7,6 +7,7 @@ typedef struct Object Object;
 
 #include <stdbool.h>
 
+#include "io.h"
 #include "mem.h"
 
 #define UNSPECIFIED_VAL ((Value){VALUE_UNSPECIFIED, {.number = 0}})
@@ -29,9 +30,9 @@ typedef struct Object Object;
 #define IS_NUMBER(value) ((value).kind == VALUE_NUMBER)
 #define IS_EOF(value) ((value).kind == VALUE_EOF)
 
-#define PRINT_VALUE(label, value)                                                                  \
+#define PRINT_VALUE(vm, label, value)                                                              \
   printf(label);                                                                                   \
-  mesche_value_print(value);                                                                       \
+  mesche_value_print(vm->output_port, value);                                                      \
   printf("\n");
 
 typedef enum {
@@ -61,7 +62,8 @@ typedef struct {
 void mesche_value_array_init(ValueArray *array);
 void mesche_value_array_write(MescheMemory *mem, ValueArray *array, Value value);
 void mesche_value_array_free(MescheMemory *mem, ValueArray *array);
-void mesche_value_print(Value value);
+void mesche_value_print(MeschePort *port, Value value);
+void mesche_value_print_ex(MeschePort *port, Value value, MeschePrintStyle style);
 bool mesche_value_eqv_p(Value a, Value b);
 
 #endif

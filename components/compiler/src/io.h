@@ -1,11 +1,14 @@
 #ifndef mesche_io_h
 #define mesche_io_h
 
-#include "vm.h"
+#include <stdbool.h>
+#include <stdio.h>
 
-// For now, a MeschePort is just a file pointer
-typedef FILE MeschePort;
+typedef struct MeschePort MeschePort;
 
-void mesche_io_module_init(VM *vm);
+typedef enum { PrintStyleData, PrintStyleOutput } MeschePrintStyle;
+typedef enum { MeschePortKindInput, MeschePortKindOutput } MeschePortKind;
+
+void mesche_io_port_print(MeschePort *output_port, MeschePort *port, MeschePrintStyle style);
 
 #endif

@@ -4,6 +4,7 @@
 #include "closure.h"
 #include "continuation.h"
 #include "function.h"
+#include "io.h"
 #include "keyword.h"
 #include "mem.h"
 #include "native.h"
@@ -51,7 +52,7 @@ ObjectStackMarker *mesche_object_make_stack_marker(VM *vm, StackMarkerKind kind,
 void mesche_object_free(VM *vm, Object *object) {
 #ifdef DEBUG_LOG_GC
   printf("%p    free   ", (void *)object);
-  mesche_value_print(OBJECT_VAL(object));
+  mesche_value_print(port, OBJECT_VAL(object));
   printf(" - kind: %d", object->kind);
   printf("\n");
 #endif
@@ -101,6 +102,9 @@ void mesche_object_free(VM *vm, Object *object) {
   case ObjectKindModule:
     mesche_free_module(vm, (ObjectModule *)object);
     break;
+  case ObjectKindPort:
+    mesche_free_port(vm, (MeschePort *)object);
+    break;
   case ObjectKindRecord: {
     mesche_free_record(vm, (ObjectRecord *)object);
     break;
@@ -125,7 +129,7 @@ void mesche_object_free(VM *vm, Object *object) {
   }
 }
 
-static void print_function(ObjectFunction *function) {
+static void print_function(MeschePort *port, ObjectFunction *function) {
   if (function->name == NULL) {
     if (function->type == TYPE_SCRIPT) {
       printf("<script 0x%p>", function);
@@ -138,110 +142,118 @@ static void print_function(ObjectFunction *function) {
   printf("<fn %s 0x%p>", function->name->chars, function);
 }
 
-void mesche_object_print(Value value) {
+void mesche_object_print(MeschePort *port, Value value) {
+  mesche_object_print_ex(port, value, PrintStyleOutput);
+}
+
+void mesche_object_print_ex(MeschePort *port, Value value, MeschePrintStyle style) {
   switch (OBJECT_KIND(value)) {
   case ObjectKindString:
-    printf("%s", AS_CSTRING(value));
+    fprintf(port->fp, "%s", AS_CSTRING(value));
     break;
   case ObjectKindSymbol:
-    printf("%s", AS_SYMBOL(value)->name->chars);
+    fprintf(port->fp, "%s", AS_SYMBOL(value)->name->chars);
     break;
   case ObjectKindKeyword:
-    printf(":%s", AS_CSTRING(value));
+    fprintf(port->fp, ":%s", AS_CSTRING(value));
     break;
   case ObjectKindSyntax:
-    mesche_syntax_print(AS_SYNTAX(value));
+    mesche_syntax_print_ex(port, AS_SYNTAX(value), style);
     break;
   case ObjectKindCons: {
     ObjectCons *cons = AS_CONS(value);
-    printf("(");
+    fputs("(", port->fp);
 
     for (;;) {
-      mesche_value_print(cons->car);
+      mesche_value_print_ex(port, cons->car, style);
       if (IS_EMPTY(cons->cdr)) {
         break;
       } else if (IS_CONS(cons->cdr)) {
         cons = AS_CONS(cons->cdr);
       } else {
-        printf(" . ");
-        mesche_value_print(cons->cdr);
+        fputs(" . ", port->fp);
+        mesche_value_print(port, cons->cdr);
         break;
       }
 
-      printf(" ");
+      fputs(" ", port->fp);
     }
 
-    printf(")");
+    fputs(")", port->fp);
     break;
   }
   case ObjectKindArray:
-    printf("<array %p>", AS_OBJECT(value));
+    fprintf(port->fp, "#<array %p>", AS_OBJECT(value));
     break;
   case ObjectKindUpvalue:
-    printf("upvalue");
+    fputs("upvalue", port->fp);
     break;
   case ObjectKindFunction:
-    print_function(AS_FUNCTION(value));
+    print_function(port, AS_FUNCTION(value));
     break;
   case ObjectKindClosure:
-    print_function(AS_CLOSURE(value)->function);
+    print_function(port, AS_CLOSURE(value)->function);
     break;
   case ObjectKindContinuation: {
     ObjectContinuation *continuation = AS_CONTINUATION(value);
-    printf("<continuation frames: %d, values: %d>", continuation->frame_count,
-           continuation->stack_count);
+    fprintf(port->fp, "#<continuation frames: %d, values: %d>", continuation->frame_count,
+            continuation->stack_count);
     break;
   }
   case ObjectKindStackMarker: {
     ObjectStackMarker *marker = AS_STACK_MARKER(value);
-    printf("<stack marker: %s @ %d %p>", marker->kind == STACK_MARKER_RESET ? "reset" : "shift",
-           marker->frame_index, AS_OBJECT(value));
+    fprintf(port->fp, "#<stack marker: %s @ %d %p>",
+            marker->kind == STACK_MARKER_RESET ? "reset" : "shift", marker->frame_index,
+            AS_OBJECT(value));
     break;
   }
   case ObjectKindNativeFunction:
-    printf("<native fn>");
+    fprintf(port->fp, "#<native fn>");
     break;
   case ObjectKindPointer: {
     ObjectPointer *pointer = AS_POINTER(value);
     if (pointer->type != NULL) {
       // TODO: Add custom print function
-      printf("<%s %p>", pointer->type->name, AS_POINTER(value)->ptr);
+      fprintf(port->fp, "#<%s %p>", pointer->type->name, AS_POINTER(value)->ptr);
     } else {
-      printf("<pointer %p>", AS_POINTER(value)->ptr);
+      fprintf(port->fp, "<pointer %p>", AS_POINTER(value)->ptr);
     }
     break;
   }
   case ObjectKindModule: {
     ObjectModule *module = (ObjectModule *)AS_OBJECT(value);
-    printf("<module (%s) %p>", module->name->chars, module);
+    fprintf(port->fp, "#<module (%s) %p>", module->name->chars, module);
     break;
   }
+  case ObjectKindPort:
+    mesche_io_port_print(port, AS_PORT(value), style);
+    break;
   case ObjectKindRecord: {
     ObjectRecord *record = (ObjectRecord *)AS_OBJECT(value);
-    printf("<record type '%s' %p>", record->name->chars, record);
+    fprintf(port->fp, "#<record type '%s' %p>", record->name->chars, record);
     break;
   }
   case ObjectKindRecordFieldAccessor: {
     ObjectRecordFieldAccessor *accessor = (ObjectRecordFieldAccessor *)AS_OBJECT(value);
     ObjectRecordField *field =
         AS_RECORD_FIELD(accessor->record_type->fields.values[accessor->field_index]);
-    printf("<record field getter '%s' %p>", field->name->chars, accessor);
+    fprintf(port->fp, "#<record field getter '%s' %p>", field->name->chars, accessor);
     break;
   }
   case ObjectKindRecordFieldSetter: {
     ObjectRecordFieldSetter *setter = (ObjectRecordFieldSetter *)AS_OBJECT(value);
     ObjectRecordField *field =
         AS_RECORD_FIELD(setter->record_type->fields.values[setter->field_index]);
-    printf("<record field setter '%s' %p>", field->name->chars, setter);
+    fprintf(port->fp, "#<record field setter '%s' %p>", field->name->chars, setter);
     break;
   }
   case ObjectKindRecordInstance: {
     ObjectRecordInstance *record = (ObjectRecordInstance *)AS_OBJECT(value);
-    printf("<record '%s' %p>", record->record_type->name->chars, record);
+    fprintf(port->fp, "#<record '%s' %p>", record->record_type->name->chars, record);
     break;
   }
   default:
-    printf("<unknown>");
+    fprintf(port->fp, "#<unknown>");
     break;
   }
 }
