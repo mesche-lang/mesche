@@ -62,23 +62,27 @@ Value read_all_text_msc(VM *vm, int arg_count, Value *args) {
   EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
   CHECK_PORT(port, MeschePortKindInput);
 
-  int size = 256;
-  char *buffer = malloc(sizeof(char) * (size + 1));
+  if (port->kind != MeschePortKindInput) {
+    mesche_vm_raise_error(vm, "read-all-text: Can only read from textual input port.");
+  }
+
+  int buffer_size = 1024;
+  char *buffer = malloc(sizeof(char) * buffer_size);
 
   int length = 0;
   int read_count = 0;
-  while ((read_count = fread(buffer + length, sizeof(char), size - read_count, port->fp))) {
+  int read_limit = buffer_size - 1;
+  while ((read_count = fread(buffer + length, sizeof(char), read_limit, port->fp))) {
+    int prev_length = length;
     length += read_count;
-    if (feof(port->fp) == 0 && length >= size) {
+    read_limit = (buffer_size - length - 1);
+    if (feof(port->fp) == 0 && read_limit <= 0) {
       // Increase the size of the buffer
-      size = size + 1024;
-      buffer = realloc(buffer, size + 1);
+      buffer_size = buffer_size * 2;
+      buffer = realloc(buffer, buffer_size + 1);
+      read_limit = buffer_size - length - 1;
     }
   }
-
-  // Null-terminate the buffer before using it
-  // TODO: Is this needed now?
-  buffer[length] = 0;
 
   ObjectString *contents_string = mesche_object_make_string(vm, buffer, length);
   free(buffer);
