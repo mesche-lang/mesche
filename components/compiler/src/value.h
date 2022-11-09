@@ -16,9 +16,11 @@ typedef struct Object Object;
 #define EMPTY_VAL ((Value){VALUE_EMPTY, {.number = 0}})
 #define EOF_VAL ((Value){VALUE_EOF, {.number = 0}})
 #define NUMBER_VAL(value) ((Value){VALUE_NUMBER, {.number = value}})
+#define CHAR_VAL(value) ((Value){VALUE_CHAR, {.character = value}})
 #define BOOL_VAL(value) ((Value){value ? VALUE_TRUE : VALUE_FALSE, {.number = 0}})
 
 #define AS_NUMBER(value) ((value).as.number)
+#define AS_CHAR(value) ((value).as.character)
 #define AS_BOOL(value) ((value).kind != VALUE_FALSE)
 
 #define IS_ANY(value) (true)
@@ -28,6 +30,7 @@ typedef struct Object Object;
 #define IS_EMPTY(value) ((value).kind == VALUE_EMPTY)
 #define IS_FALSEY(value) (IS_FALSE(value))
 #define IS_NUMBER(value) ((value).kind == VALUE_NUMBER)
+#define IS_CHAR(value) ((value).kind == VALUE_CHAR)
 #define IS_EOF(value) ((value).kind == VALUE_EOF)
 
 #define PRINT_VALUE(vm, label, value)                                                              \
@@ -41,6 +44,7 @@ typedef enum {
   VALUE_TRUE,
   VALUE_EMPTY,
   VALUE_NUMBER,
+  VALUE_CHAR,
   VALUE_OBJECT,
   VALUE_EOF,
 } ValueKind;
@@ -48,6 +52,7 @@ typedef enum {
 typedef struct {
   ValueKind kind;
   union {
+    char character;
     double number;
     Object *object;
   } as;
