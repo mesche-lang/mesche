@@ -8,30 +8,30 @@
 #include "value.h"
 
 int mesche_disasm_simple_instr(MeschePort *port, const char *name, int offset) {
-  fprintf(port->fp, "%s\n", name);
+  fprintf(port->data.file.fp, "%s\n", name);
   return offset + 1;
 }
 
 int mesche_disasm_const_instr(MeschePort *port, const char *name, Chunk *chunk, int offset) {
   uint8_t constant = chunk->code[offset + 1];
-  fprintf(port->fp, "%-16s %4d  '", name, constant);
+  fprintf(port->data.file.fp, "%-16s %4d  '", name, constant);
   fflush(stdout);
   mesche_value_print(port, chunk->constants.values[constant]);
-  fprintf(port->fp, "'\n");
+  fprintf(port->data.file.fp, "'\n");
 
   return offset + 2;
 }
 
 int mesche_disasm_byte_instr(MeschePort *port, const char *name, Chunk *chunk, int offset) {
   uint8_t slot = chunk->code[offset + 1];
-  fprintf(port->fp, "%-16s %4d\n", name, slot);
+  fprintf(port->data.file.fp, "%-16s %4d\n", name, slot);
   return offset + 2;
 }
 
 int mesche_disasm_bytes_instr(MeschePort *port, const char *name, Chunk *chunk, int offset) {
   uint8_t slot = chunk->code[offset + 1];
   uint8_t slot2 = chunk->code[offset + 2];
-  fprintf(port->fp, "%-16s %4d %4d\n", name, slot, slot2);
+  fprintf(port->data.file.fp, "%-16s %4d %4d\n", name, slot, slot2);
   return offset + 3;
 }
 
@@ -39,16 +39,16 @@ int mesche_disasm_jump_instr(MeschePort *port, const char *name, int sign, Chunk
                              int offset) {
   uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
   jump |= chunk->code[offset + 2];
-  fprintf(port->fp, "%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+  fprintf(port->data.file.fp, "%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
   return offset + 3;
 }
 
 int mesche_disasm_instr(MeschePort *port, Chunk *chunk, int offset) {
-  fprintf(port->fp, "%04d ", offset);
+  fprintf(port->data.file.fp, "%04d ", offset);
   if (offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1]) {
-    fprintf(port->fp, "  |   ");
+    fprintf(port->data.file.fp, "  |   ");
   } else {
-    fprintf(port->fp, "%4d  ", chunk->lines[offset]);
+    fprintf(port->data.file.fp, "%4d  ", chunk->lines[offset]);
   }
 
   uint8_t instr = chunk->code[offset];
@@ -148,16 +148,17 @@ int mesche_disasm_instr(MeschePort *port, Chunk *chunk, int offset) {
   case OP_CLOSURE: {
     offset++;
     uint8_t constant = chunk->code[offset++];
-    fprintf(port->fp, "%-16s  %4d  ", "OP_CLOSURE", constant);
+    fprintf(port->data.file.fp, "%-16s  %4d  ", "OP_CLOSURE", constant);
     mesche_value_print(port, chunk->constants.values[constant]);
-    fprintf(port->fp, "\n");
+    fprintf(port->data.file.fp, "\n");
 
     // Disassemble the local and upvalue references
     ObjectFunction *function = AS_FUNCTION(chunk->constants.values[constant]);
     for (int j = 0; j < function->upvalue_count; j++) {
       int is_local = chunk->code[offset++];
       int index = chunk->code[offset++];
-      fprintf(port->fp, "%04d | %s %d\n", offset - 2, is_local ? "local" : "upvalue", index);
+      fprintf(port->data.file.fp, "%04d | %s %d\n", offset - 2, is_local ? "local" : "upvalue",
+              index);
     }
 
     return offset;
@@ -165,15 +166,15 @@ int mesche_disasm_instr(MeschePort *port, Chunk *chunk, int offset) {
   case OP_CLOSE_UPVALUE:
     return mesche_disasm_simple_instr(port, "OP_CLOSE_UPVALUE", offset);
   default:
-    fprintf(port->fp, "Unknown opcode: %d\n", instr);
+    fprintf(port->data.file.fp, "Unknown opcode: %d\n", instr);
     return offset + 1;
   }
 }
 
 void mesche_disasm_function(MeschePort *port, ObjectFunction *function) {
-  fprintf(port->fp, "== ");
+  fprintf(port->data.file.fp, "== ");
   mesche_object_print(port, OBJECT_VAL(function));
-  fputs(" ==\n", port->fp);
+  fputs(" ==\n", port->data.file.fp);
 
   for (int offset = 0; offset < function->chunk.count; /* Intentionally empty */) {
     offset = mesche_disasm_instr(port, &function->chunk, offset);

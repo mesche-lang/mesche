@@ -14,6 +14,7 @@ TestSuiteCleanup test_suite_cleanup_func = NULL;
 int main(void) {
   printf("\n\e[1;36mMesche Test Runner\e[0m\n");
 
+  test_io_suite();
   test_scanner_suite();
   test_reader_suite();
   test_compiler_suite();

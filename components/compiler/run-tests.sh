@@ -7,6 +7,7 @@ DEBUG_FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address -lm"
 
 test_files=(
     "test-main.c"
+    "test-io.c"
     "test-scanner.c"
     "test-reader.c"
     "test-compiler.c"

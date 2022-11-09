@@ -3,6 +3,7 @@
 
 #include "array.h"
 #include "keyword.h"
+#include "native.h"
 #include "object.h"
 #include "reader.h"
 #include "scanner.h"
@@ -14,6 +15,13 @@
 // "External representations" and adds some extra datums like keywords.
 
 void mesche_reader_init(ReaderContext *context, struct VM *vm) { context->vm = vm; }
+
+void mesche_reader_from_port(ReaderContext *context, Reader *reader, MeschePort *port) {
+  // TODO: Support from string too!
+  reader->context = context;
+  reader->file_name = port->data.file.name;
+  /* mesche_reader_from_string(context, reader, source); */
+}
 
 void mesche_reader_from_file(ReaderContext *context, Reader *reader, const char *source,
                              ObjectString *file_name) {
@@ -216,4 +224,42 @@ ObjectSyntax *mesche_reader_read_next(Reader *reader) {
       is_quoted = true;
     }
   }
+}
+
+static Value reader_read_internal(VM *vm, MeschePort *port) {
+  if (port->kind != MeschePortKindInput) {
+    mesche_vm_raise_error(vm, "read: Can only read from a textual input port.");
+  }
+
+  Reader reader;
+  ReaderContext context;
+  mesche_reader_init(&context, vm);
+  mesche_reader_from_port(&context, &reader, port);
+  ObjectSyntax *syntax = mesche_reader_read_next(&reader);
+
+  return OBJECT_VAL(syntax);
+}
+
+Value reader_read_msc(VM *vm, int arg_count, Value *args) {
+  MeschePort *port = NULL;
+  EXPECT_ARG_COUNT(1);
+  EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+
+  return mesche_syntax_to_datum(vm, reader_read_internal(vm, port));
+}
+
+Value reader_read_syntax_msc(VM *vm, int arg_count, Value *args) {
+  MeschePort *port = NULL;
+  EXPECT_ARG_COUNT(1);
+  EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+
+  return reader_read_internal(vm, port);
+}
+
+void mesche_reader_module_init(VM *vm) {
+  mesche_vm_define_native_funcs(
+      vm, "mesche reader",
+      (MescheNativeFuncDetails[]){{"read", reader_read_msc, true},
+                                  {"read-syntax", reader_read_syntax_msc, true},
+                                  {NULL, NULL, false}});
 }

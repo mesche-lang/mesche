@@ -37,29 +37,29 @@ void mesche_value_print(MeschePort *port, Value value) {
 void mesche_value_print_ex(MeschePort *port, Value value, MeschePrintStyle style) {
   switch (value.kind) {
   case VALUE_UNSPECIFIED:
-    fprintf(port->fp, "#<unspecified>");
+    fprintf(port->data.file.fp, "#<unspecified>");
     break;
   case VALUE_NUMBER:
-    fprintf(port->fp, "%g", AS_NUMBER(value));
+    fprintf(port->data.file.fp, "%g", AS_NUMBER(value));
     break;
   case VALUE_FALSE:
-    fprintf(port->fp, "#f");
+    fprintf(port->data.file.fp, "#f");
     break;
   case VALUE_TRUE:
-    fprintf(port->fp, "#t");
+    fprintf(port->data.file.fp, "#t");
     break;
   case VALUE_EMPTY:
     if (style == PrintStyleOutput) {
-      fprintf(port->fp, "()");
+      fprintf(port->data.file.fp, "()");
     } else {
-      fprintf(port->fp, "'()");
+      fprintf(port->data.file.fp, "'()");
     }
     break;
   case VALUE_OBJECT:
     mesche_object_print_ex(port, value, style);
     break;
   case VALUE_EOF:
-    fprintf(port->fp, "#<eof>");
+    fprintf(port->data.file.fp, "#<eof>");
     break;
   }
 }

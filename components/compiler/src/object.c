@@ -153,20 +153,20 @@ void mesche_object_print(MeschePort *port, Value value) {
 void mesche_object_print_ex(MeschePort *port, Value value, MeschePrintStyle style) {
   switch (OBJECT_KIND(value)) {
   case ObjectKindString:
-    fprintf(port->fp, "%s", AS_CSTRING(value));
+    fprintf(port->data.file.fp, "%s", AS_CSTRING(value));
     break;
   case ObjectKindSymbol:
-    fprintf(port->fp, "%s", AS_SYMBOL(value)->name->chars);
+    fprintf(port->data.file.fp, "%s", AS_SYMBOL(value)->name->chars);
     break;
   case ObjectKindKeyword:
-    fprintf(port->fp, ":%s", AS_CSTRING(value));
+    fprintf(port->data.file.fp, ":%s", AS_CSTRING(value));
     break;
   case ObjectKindSyntax:
     mesche_syntax_print_ex(port, AS_SYNTAX(value), style);
     break;
   case ObjectKindCons: {
     ObjectCons *cons = AS_CONS(value);
-    fputs("(", port->fp);
+    fputs("(", port->data.file.fp);
 
     for (;;) {
       mesche_value_print_ex(port, cons->car, style);
@@ -175,22 +175,22 @@ void mesche_object_print_ex(MeschePort *port, Value value, MeschePrintStyle styl
       } else if (IS_CONS(cons->cdr)) {
         cons = AS_CONS(cons->cdr);
       } else {
-        fputs(" . ", port->fp);
+        fputs(" . ", port->data.file.fp);
         mesche_value_print(port, cons->cdr);
         break;
       }
 
-      fputs(" ", port->fp);
+      fputs(" ", port->data.file.fp);
     }
 
-    fputs(")", port->fp);
+    fputs(")", port->data.file.fp);
     break;
   }
   case ObjectKindArray:
-    fprintf(port->fp, "#<array %p>", AS_OBJECT(value));
+    fprintf(port->data.file.fp, "#<array %p>", AS_OBJECT(value));
     break;
   case ObjectKindUpvalue:
-    fputs("upvalue", port->fp);
+    fputs("upvalue", port->data.file.fp);
     break;
   case ObjectKindFunction:
     print_function(port, AS_FUNCTION(value));
@@ -200,33 +200,33 @@ void mesche_object_print_ex(MeschePort *port, Value value, MeschePrintStyle styl
     break;
   case ObjectKindContinuation: {
     ObjectContinuation *continuation = AS_CONTINUATION(value);
-    fprintf(port->fp, "#<continuation frames: %d, values: %d>", continuation->frame_count,
+    fprintf(port->data.file.fp, "#<continuation frames: %d, values: %d>", continuation->frame_count,
             continuation->stack_count);
     break;
   }
   case ObjectKindStackMarker: {
     ObjectStackMarker *marker = AS_STACK_MARKER(value);
-    fprintf(port->fp, "#<stack marker: %s @ %d %p>",
+    fprintf(port->data.file.fp, "#<stack marker: %s @ %d %p>",
             marker->kind == STACK_MARKER_RESET ? "reset" : "shift", marker->frame_index,
             AS_OBJECT(value));
     break;
   }
   case ObjectKindNativeFunction:
-    fprintf(port->fp, "#<native fn>");
+    fprintf(port->data.file.fp, "#<native fn>");
     break;
   case ObjectKindPointer: {
     ObjectPointer *pointer = AS_POINTER(value);
     if (pointer->type != NULL) {
       // TODO: Add custom print function
-      fprintf(port->fp, "#<%s %p>", pointer->type->name, AS_POINTER(value)->ptr);
+      fprintf(port->data.file.fp, "#<%s %p>", pointer->type->name, AS_POINTER(value)->ptr);
     } else {
-      fprintf(port->fp, "<pointer %p>", AS_POINTER(value)->ptr);
+      fprintf(port->data.file.fp, "<pointer %p>", AS_POINTER(value)->ptr);
     }
     break;
   }
   case ObjectKindModule: {
     ObjectModule *module = (ObjectModule *)AS_OBJECT(value);
-    fprintf(port->fp, "#<module (%s) %p>", module->name->chars, module);
+    fprintf(port->data.file.fp, "#<module (%s) %p>", module->name->chars, module);
     break;
   }
   case ObjectKindPort:
@@ -234,30 +234,30 @@ void mesche_object_print_ex(MeschePort *port, Value value, MeschePrintStyle styl
     break;
   case ObjectKindRecord: {
     ObjectRecord *record = (ObjectRecord *)AS_OBJECT(value);
-    fprintf(port->fp, "#<record type '%s' %p>", record->name->chars, record);
+    fprintf(port->data.file.fp, "#<record type '%s' %p>", record->name->chars, record);
     break;
   }
   case ObjectKindRecordFieldAccessor: {
     ObjectRecordFieldAccessor *accessor = (ObjectRecordFieldAccessor *)AS_OBJECT(value);
     ObjectRecordField *field =
         AS_RECORD_FIELD(accessor->record_type->fields.values[accessor->field_index]);
-    fprintf(port->fp, "#<record field getter '%s' %p>", field->name->chars, accessor);
+    fprintf(port->data.file.fp, "#<record field getter '%s' %p>", field->name->chars, accessor);
     break;
   }
   case ObjectKindRecordFieldSetter: {
     ObjectRecordFieldSetter *setter = (ObjectRecordFieldSetter *)AS_OBJECT(value);
     ObjectRecordField *field =
         AS_RECORD_FIELD(setter->record_type->fields.values[setter->field_index]);
-    fprintf(port->fp, "#<record field setter '%s' %p>", field->name->chars, setter);
+    fprintf(port->data.file.fp, "#<record field setter '%s' %p>", field->name->chars, setter);
     break;
   }
   case ObjectKindRecordInstance: {
     ObjectRecordInstance *record = (ObjectRecordInstance *)AS_OBJECT(value);
-    fprintf(port->fp, "#<record '%s' %p>", record->record_type->name->chars, record);
+    fprintf(port->data.file.fp, "#<record '%s' %p>", record->record_type->name->chars, record);
     break;
   }
   default:
-    fprintf(port->fp, "#<unknown>");
+    fprintf(port->data.file.fp, "#<unknown>");
     break;
   }
 }

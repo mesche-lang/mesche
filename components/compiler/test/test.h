@@ -48,6 +48,7 @@ extern char fail_message[2048];
 #define str(s) #s
 #define __stringify(s) str(s)
 
+void test_io_suite(void);
 void test_scanner_suite(void);
 void test_reader_suite(void);
 void test_compiler_suite(void);

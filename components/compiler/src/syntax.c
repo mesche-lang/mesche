@@ -30,16 +30,16 @@ static void mesche_syntax_print_value(MeschePort *port, Value value, MeschePrint
 
   if (IS_CONS(value)) {
     ObjectCons *cons = AS_CONS(value);
-    fputs("(", port->fp);
+    fputs("(", port->data.file.fp);
     mesche_syntax_print_value(port, cons->car, style);
     if (IS_CONS(cons->cdr) || (IS_SYNTAX(cons->cdr) && IS_CONS(AS_SYNTAX(cons->cdr)->value))) {
-      fputs(" ", port->fp);
+      fputs(" ", port->data.file.fp);
       mesche_syntax_print_value(port, cons->cdr, style);
     } else if (!IS_EMPTY(cons->cdr)) {
-      fputs(" . ", port->fp);
+      fputs(" . ", port->data.file.fp);
       mesche_syntax_print_value(port, cons->cdr, style);
     }
-    fputs(")", port->fp);
+    fputs(")", port->data.file.fp);
   } else {
     mesche_value_print_ex(port, value, style);
   }
@@ -50,9 +50,9 @@ void mesche_syntax_print(MeschePort *port, ObjectSyntax *syntax) {
 }
 
 void mesche_syntax_print_ex(MeschePort *port, ObjectSyntax *syntax, MeschePrintStyle style) {
-  fprintf(port->fp, "#<syntax:%d:%d ", syntax->line, syntax->column);
+  fprintf(port->data.file.fp, "#<syntax:%d:%d ", syntax->line, syntax->column);
   mesche_syntax_print_value(port, syntax->value, style);
-  fputs(">", port->fp);
+  fputs(">", port->data.file.fp);
 }
 
 Value mesche_syntax_to_datum(VM *vm, Value syntax) {

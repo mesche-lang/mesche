@@ -51,4 +51,16 @@ void mesche_free_pointer_type(VM *vm, ObjectPointer *pointer);
 #define IS_NATIVE_FUNC(value) mesche_object_is_kind(value, ObjectKindNativeFunction)
 #define AS_NATIVE_FUNC(value) (((ObjectNativeFunction *)AS_OBJECT(value))->function)
 
+#define EXPECT_ARG_COUNT(expected_count)                                                           \
+  if (arg_count != expected_count) {                                                               \
+    mesche_vm_raise_error(vm, "Expected %d arguments, received %d.", expected_count, arg_count);   \
+  }
+
+#define EXPECT_OBJECT_KIND(obj_kind, index, as_macro, out_var)                                     \
+  if (IS_OBJECT(args[index]) && OBJECT_KIND(args[index]) == obj_kind) {                            \
+    out_var = as_macro(args[index]);                                                               \
+  } else {                                                                                         \
+    mesche_vm_raise_error(vm, "Expected object kind %s for argument %d.", #obj_kind, index);       \
+  }
+
 #endif

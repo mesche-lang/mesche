@@ -41,6 +41,8 @@ char *mesche_fs_resolve_path(const char *fs_path) {
     if (fs_path[i] == '/') {
       char resolve_buf[PATH_MAX];
       if (realpath(path_buf, &resolve_buf) != NULL) {
+        // TODO: Use strcpy_s!
+        // https://www.cisa.gov/uscert/bsi/articles/knowledge/coding-practices/strcpy_s-and-strcat_s
         strcpy(path_buf, resolve_buf);
         path_start = strlen(path_buf) + 1;
         path_buf[path_start - 1] = '/';

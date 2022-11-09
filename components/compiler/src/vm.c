@@ -139,6 +139,7 @@ void mesche_vm_register_core_modules(VM *vm, char *module_path) {
   mesche_time_module_init(vm);
   mesche_array_module_init(vm);
   mesche_string_module_init(vm);
+  mesche_reader_module_init(vm);
   mesche_process_module_init(vm);
 }
 
@@ -162,11 +163,12 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->stack_top = vm->stack;
 
   // Set up ports for standard file descriptors
-  vm->input_port = mesche_io_make_port(vm, MeschePortKindInput, stdin);
+  vm->input_port = AS_PORT(mesche_io_make_file_port(vm, MeschePortKindInput, stdin, "stdin", 0));
   vm->input_port->can_close = false;
-  vm->output_port = mesche_io_make_port(vm, MeschePortKindOutput, stdout);
+  vm->output_port =
+      AS_PORT(mesche_io_make_file_port(vm, MeschePortKindOutput, stdout, "stdout", 0));
   vm->output_port->can_close = false;
-  vm->error_port = mesche_io_make_port(vm, MeschePortKindOutput, stderr);
+  vm->error_port = AS_PORT(mesche_io_make_file_port(vm, MeschePortKindOutput, stderr, "stderr", 0));
   vm->error_port->can_close = false;
 
   // Initialize the interned string, symbol, and keyword tables
@@ -470,6 +472,7 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
     case ObjectKindNativeFunction: {
       FunctionPtr func_ptr = AS_NATIVE_FUNC(callee);
       int total_args = arg_count + keyword_count * 2;
+      // TODO: Need to push the native function on the stack somehow
       Value result = func_ptr(vm, total_args, vm->stack_top - total_args);
 
       // Pop off all of the arguments and the function itself
