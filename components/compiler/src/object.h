@@ -44,7 +44,8 @@ typedef enum {
   ObjectKindRecordInstance,
   ObjectKindRecordField,
   ObjectKindRecordFieldAccessor,
-  ObjectKindRecordFieldSetter
+  ObjectKindRecordFieldSetter,
+  ObjectKindError
 } ObjectKind;
 
 struct Object {

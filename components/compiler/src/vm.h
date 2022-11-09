@@ -15,6 +15,7 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array);
 void mesche_vm_free(VM *vm);
 void mesche_vm_stack_push(VM *vm, Value value);
 Value mesche_vm_stack_pop(VM *vm);
+void mesche_vm_raise_error(VM *vm, const char *format, ...);
 InterpretResult mesche_vm_run(VM *vm);
 InterpretResult mesche_vm_eval_string(VM *vm, const char *script_string);
 InterpretResult mesche_vm_load_file(VM *vm, const char *file_path);

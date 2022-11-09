@@ -16,6 +16,7 @@ source_files=(
     "continuation.c"
     "core.c"
     "disasm.c"
+    "error.c"
     "fs.c"
     "function.c"
     "gc.c"

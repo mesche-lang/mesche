@@ -3,6 +3,7 @@
 #include "array.h"
 #include "closure.h"
 #include "continuation.h"
+#include "error.h"
 #include "function.h"
 #include "io.h"
 #include "keyword.h"
@@ -123,6 +124,9 @@ void mesche_object_free(VM *vm, Object *object) {
     break;
   case ObjectKindRecordFieldSetter:
     FREE(vm, ObjectRecordFieldSetter, object);
+    break;
+  case ObjectKindError:
+    mesche_free_error(vm, (MescheError *)object);
     break;
   default:
     PANIC("Don't know how to free object kind %d!", object->kind);

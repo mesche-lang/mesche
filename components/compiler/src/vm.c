@@ -68,7 +68,9 @@ static void vm_reset_stack(VM *vm) {
       mesche_object_make_stack_marker(vm, STACK_MARKER_RESET, vm->frame_count);
 }
 
-static void vm_runtime_error(VM *vm, const char *format, ...) {
+// TODO: This should set a field on VM object which gets read after each function call (?)
+
+void mesche_vm_raise_error(VM *vm, const char *format, ...) {
   CallFrame *frame = &vm->frames[vm->frame_count - 1];
 
   va_list args;
