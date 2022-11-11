@@ -2,7 +2,7 @@
 
 CC=${CC:-gcc}
 TEST_DIR=test
-OUTPUT_DIR=bin
+OUTPUT_DIR=bin/boot
 DEBUG_FLAGS="-O0 -g -ggdb -DDEBUG -fsanitize=address -lm"
 
 test_files=(
@@ -39,8 +39,8 @@ do
 done
 
 # Build the static library
-echo -e "\nCreating test harness bin/run-tests..."
-$CC -o bin/run-tests "${object_files[@]}" bin/boot/libmesche.a $DEBUG_FLAGS
+echo -e "\nCreating test harness bin/boot/run-tests..."
+$CC -o bin/boot/run-tests "${object_files[@]}" bin/boot/libmesche.a $DEBUG_FLAGS
 [ $? -eq 1 ] && exit 1
-chmod +x bin/run-tests
-./bin/run-tests
+chmod +x bin/boot/run-tests
+./bin/boot/run-tests
