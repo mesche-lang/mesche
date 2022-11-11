@@ -12,7 +12,9 @@ extern TestSuiteCleanup test_suite_cleanup_func;
 
 extern char fail_message[2048];
 
-#define SUITE() printf("\n\n\e[1;33m • SUITE\e[0m %s\n", __func__);
+#define SUITE()                                                                                    \
+  test_suite_cleanup_func = NULL;                                                                  \
+  printf("\n\n\e[1;33m • SUITE\e[0m %s\n", __func__);
 
 #define END_SUITE() test_suite_cleanup_func = NULL;
 
