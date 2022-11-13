@@ -611,6 +611,26 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
       mesche_vm_stack_push(vm, value);
       return true;
     }
+    case ObjectKindRecordPredicate: {
+      ObjectRecordPredicate *predicate = AS_RECORD_PREDICATE(callee);
+
+      if (arg_count != 1) {
+        mesche_vm_raise_error(vm,
+                              "Record type predicate '%s?' requires a record instance argument.",
+                              predicate->record_type->name->chars);
+        return false;
+      }
+
+      Value arg = vm_stack_peek(vm, 0);
+
+      // Check if the parameter is a record instance and if its type matches the
+      // type of the predicate
+      mesche_vm_stack_push(vm, IS_RECORD_INSTANCE(arg) && (AS_RECORD_INSTANCE(arg)->record_type ==
+                                                           predicate->record_type)
+                                   ? TRUE_VAL
+                                   : FALSE_VAL);
+      return true;
+    }
     default:
       break; // Value not callable
     }
@@ -1091,8 +1111,22 @@ InterpretResult mesche_vm_run(VM *vm) {
       mesche_vm_stack_push(vm, OBJECT_VAL(maker_name_string));
       free(maker_name);
 
+      // Create a binding for the predicate function
+      char *predicate_name =
+          mesche_cstring_join(record_name->chars, record_name->length, "?", 1, "");
+      ObjectString *predicate_name_string =
+          mesche_object_make_string(vm, predicate_name, record_name->length + 1);
+      mesche_vm_stack_push(vm, OBJECT_VAL(predicate_name_string));
+      ObjectRecordPredicate *predicate = mesche_object_make_record_predicate(vm, record);
+      mesche_vm_stack_push(vm, OBJECT_VAL(predicate));
+      free(predicate_name);
+
       // Create the binding for the maker and then pop off the record type and name string
       vm_create_module_binding(vm, CURRENT_MODULE(), maker_name_string, OBJECT_VAL(record), true);
+      vm_create_module_binding(vm, CURRENT_MODULE(), predicate_name_string, OBJECT_VAL(predicate),
+                               true);
+      mesche_vm_stack_pop(vm);
+      mesche_vm_stack_pop(vm);
       mesche_vm_stack_pop(vm);
       mesche_vm_stack_pop(vm);
       mesche_vm_stack_pop(vm);

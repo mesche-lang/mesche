@@ -20,6 +20,9 @@
 #define IS_RECORD_INSTANCE(value) mesche_object_is_kind(value, ObjectKindRecordInstance)
 #define AS_RECORD_INSTANCE(value) ((ObjectRecordInstance *)AS_OBJECT(value))
 
+#define IS_RECORD_PREDICATE(value) mesche_object_is_kind(value, ObjectKindRecordPredicate)
+#define AS_RECORD_PREDICATE(value) ((ObjectRecordPredicate *)AS_OBJECT(value))
+
 typedef struct ObjectRecord {
   Object object;
   ValueArray fields;
@@ -51,6 +54,11 @@ typedef struct ObjectRecordInstance {
   ObjectRecord *record_type;
 } ObjectRecordInstance;
 
+typedef struct ObjectRecordPredicate {
+  Object object;
+  ObjectRecord *record_type;
+} ObjectRecordPredicate;
+
 ObjectRecord *mesche_object_make_record(VM *vm, ObjectString *name);
 void mesche_free_record(VM *vm, ObjectRecord *record);
 
@@ -60,5 +68,6 @@ ObjectRecordFieldAccessor *mesche_object_make_record_accessor(VM *vm, ObjectReco
 ObjectRecordFieldSetter *mesche_object_make_record_setter(VM *vm, ObjectRecord *record_type,
                                                           int field_index);
 ObjectRecordInstance *mesche_object_make_record_instance(VM *vm, ObjectRecord *record_type);
+ObjectRecordPredicate *mesche_object_make_record_predicate(VM *vm, ObjectRecord *record_type);
 
 #endif

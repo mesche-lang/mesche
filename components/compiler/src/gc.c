@@ -219,6 +219,11 @@ static void gc_darken_object(VM *vm, Object *object) {
     mesche_gc_mark_object(vm, (Object *)instance->record_type);
     break;
   }
+  case ObjectKindRecordPredicate: {
+    ObjectRecordPredicate *predicate = (ObjectRecordPredicate *)object;
+    mesche_gc_mark_object(vm, (Object *)predicate->record_type);
+    break;
+  }
   default:
     break;
   }

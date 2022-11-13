@@ -42,6 +42,7 @@ typedef enum {
   ObjectKindPort,
   ObjectKindRecord,
   ObjectKindRecordInstance,
+  ObjectKindRecordPredicate,
   ObjectKindRecordField,
   ObjectKindRecordFieldAccessor,
   ObjectKindRecordFieldSetter,

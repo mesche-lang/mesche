@@ -50,3 +50,10 @@ ObjectRecordInstance *mesche_object_make_record_instance(VM *vm, ObjectRecord *r
 
   return instance;
 }
+
+ObjectRecordPredicate *mesche_object_make_record_predicate(VM *vm, ObjectRecord *record_type) {
+  ObjectRecordPredicate *predicate =
+      ALLOC_OBJECT(vm, ObjectRecordPredicate, ObjectKindRecordPredicate);
+  predicate->record_type = record_type;
+  return predicate;
+}

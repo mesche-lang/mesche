@@ -116,6 +116,10 @@ void mesche_object_free(VM *vm, Object *object) {
     FREE(vm, ObjectRecordInstance, object);
     break;
   }
+  case ObjectKindRecordPredicate: {
+    FREE(vm, ObjectRecordPredicate, object);
+    break;
+  }
   case ObjectKindRecordField:
     FREE(vm, ObjectRecordField, object);
     break;
@@ -254,6 +258,11 @@ void mesche_object_print_ex(MeschePort *port, Value value, MeschePrintStyle styl
   case ObjectKindRecordInstance: {
     ObjectRecordInstance *record = (ObjectRecordInstance *)AS_OBJECT(value);
     fprintf(port->data.file.fp, "#<record '%s' %p>", record->record_type->name->chars, record);
+    break;
+  }
+  case ObjectKindRecordPredicate: {
+    ObjectRecordPredicate *predicate = AS_RECORD_PREDICATE(value);
+    fprintf(port->data.file.fp, "#<predicate '%s?'>", predicate->record_type->name->chars);
     break;
   }
   default:
