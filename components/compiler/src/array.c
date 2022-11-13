@@ -65,6 +65,11 @@ Value array_nth_msc(VM *vm, int arg_count, Value *args) {
   ObjectArray *array = AS_ARRAY(args[0]);
   Value value = args[1];
 
+  if (AS_NUMBER(args[1]) >= array->objects.count) {
+    PANIC("Array index %d requested when only has %d items.", (int)AS_NUMBER(args[1]),
+          array->objects.count);
+  }
+
   return array->objects.values[(int)AS_NUMBER(value)];
 }
 
@@ -82,7 +87,7 @@ Value array_nth_set_msc(VM *vm, int arg_count, Value *args) {
 
 void mesche_array_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
-      vm, "mesche array",
+      vm, "mesche core",
       (MescheNativeFuncDetails[]){{"make-array", array_make_msc, true},
                                   {"array-push", array_push_msc, true},
                                   {"array-length", array_length_msc, true},

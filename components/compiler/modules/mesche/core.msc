@@ -133,5 +133,13 @@
 (define (sort items compare-fn)
   items)
 
+(define (array->list array)
+  (let loop ((i (- (array-length array) 1))
+             (result '()))
+    (if (< i 0)
+        result
+        (loop (- i 1)
+              (cons (array-nth array i) result)))))
+
 ;; Import the expander module to continue defining core syntaxes
 ;; (module-import (mesche expander))
