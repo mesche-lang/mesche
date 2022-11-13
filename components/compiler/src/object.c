@@ -276,7 +276,12 @@ inline bool mesche_object_is_kind(Value value, ObjectKind kind) {
 }
 
 bool mesche_object_string_equalsp(Object *left, Object *right) {
-  if (!(left->kind == ObjectKindString || left->kind == ObjectKindKeyword) &&
+  if (left == NULL || right == NULL) {
+    // TODO: Report an error?
+    return false;
+  }
+
+  if (!(left->kind == ObjectKindString || left->kind == ObjectKindKeyword) ||
       !(right->kind == ObjectKindString || right->kind == ObjectKindKeyword)) {
     return false;
   }
