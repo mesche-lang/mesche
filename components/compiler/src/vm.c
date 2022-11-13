@@ -698,7 +698,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       printf("\nValue Stack:\n");
       for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
         printf("  %3d: ", abs(slot - vm->stack_top));
-        mesche_value_print(*slot);
+        mesche_value_print(vm->output_port, *slot);
         printf("\n");
       }
       printf("\n");
@@ -706,7 +706,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       printf("Call Stack:\n");
       for (int i = 0; i < vm->frame_count; i++) {
         printf("  %3d: ", i);
-        mesche_value_print(OBJECT_VAL(vm->frames[i].closure));
+        mesche_value_print(vm->output_port, OBJECT_VAL(vm->frames[i].closure));
         if (i == vm->current_reset_marker->frame_index) {
           printf(" [reset]");
         }
@@ -716,7 +716,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       printf("\n");
 
       printf("Executing:\n");
-      mesche_disasm_instr(&frame->closure->function->chunk,
+      mesche_disasm_instr(vm->output_port, &frame->closure->function->chunk,
                           (int)(frame->ip - frame->closure->function->chunk.code));
       printf("\n");
     }
@@ -1057,7 +1057,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       printf("\n");
 
       printf("Current Function:\n");
-      mesche_disasm_function(frame->closure->function);
+      mesche_disasm_function(vm->output_port, frame->closure->function);
       printf("\n");
 
       mesche_vm_raise_error(vm, "Exiting due to `break`.");
@@ -1384,7 +1384,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       printf("Value Stack After:\n");
       for (Value *slot = vm->stack; slot < vm->stack_top; slot++) {
         printf("  %3d: ", abs(slot - vm->stack_top));
-        mesche_value_print(*slot);
+        mesche_value_print(vm->output_port, *slot);
         printf("\n");
       }
       printf("\n");
@@ -1392,7 +1392,7 @@ InterpretResult mesche_vm_run(VM *vm) {
       printf("Call Stack After:\n");
       for (int i = 0; i < vm->frame_count; i++) {
         printf("  %3d: ", i);
-        mesche_value_print(OBJECT_VAL(vm->frames[i].closure));
+        mesche_value_print(vm->output_port, OBJECT_VAL(vm->frames[i].closure));
         if (i == vm->current_reset_marker->frame_index) {
           printf(" [reset]");
         }
