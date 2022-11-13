@@ -271,7 +271,7 @@ Value mesche_port_read_string(VM *vm, MeschePort *port) {
 /* } */
 
 Value mesche_port_write_string(VM *vm, MeschePort *port, ObjectString *string, int start, int end) {
-  return mesche_port_write_cstring(vm, port, string->chars + start, start - end);
+  return mesche_port_write_cstring(vm, port, string->chars + start, end - start);
 }
 
 void mesche_io_port_print(MeschePort *output_port, MeschePort *port, MeschePrintStyle style) {
@@ -460,6 +460,35 @@ Value read_char_msc(VM *vm, int arg_count, Value *args) {
   return mesche_port_read_char(vm, port);
 }
 
+Value read_line_msc(VM *vm, int arg_count, Value *args) {
+  MeschePort *port = NULL;
+  EXPECT_ARG_COUNT(1);
+  EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+
+  return mesche_port_read_string(vm, port);
+}
+
+Value write_char_msc(VM *vm, int arg_count, Value *args) {
+  MeschePort *port = NULL;
+  ObjectString *char_string = NULL;
+  EXPECT_ARG_COUNT(2);
+  EXPECT_OBJECT_KIND(ObjectKindString, 0, AS_STRING, char_string);
+  // TODO: Port is not required, use the current port
+  EXPECT_OBJECT_KIND(ObjectKindPort, 1, AS_PORT, port);
+
+  return mesche_port_write_char(vm, port, char_string->chars[0]);
+}
+
+Value write_string_msc(VM *vm, int arg_count, Value *args) {
+  MeschePort *port = NULL;
+  ObjectString *char_string = NULL;
+  EXPECT_ARG_COUNT(2);
+  EXPECT_OBJECT_KIND(ObjectKindString, 0, AS_STRING, char_string);
+  EXPECT_OBJECT_KIND(ObjectKindPort, 1, AS_PORT, port);
+
+  return mesche_port_write_string(vm, port, char_string, 0, char_string->length);
+}
+
 void mesche_io_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche io",
@@ -472,6 +501,9 @@ void mesche_io_module_init(VM *vm) {
                                   {"close-input-port", close_input_port_msc, true},
                                   {"close-output-port", close_output_port_msc, true},
                                   {"read-char", read_char_msc, true},
+                                  {"write-char", write_char_msc, true},
+                                  {"read-line", read_line_msc, true},
+                                  {"write-string", write_string_msc, true},
                                   /* {"peek-char", peek_char_msc, true}, */
                                   /* {"read-u8", read_u8_msc, true}, */
                                   /* {"peek-u8", peek_u8_msc, true}, */
