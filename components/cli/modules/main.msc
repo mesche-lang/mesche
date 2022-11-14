@@ -1,5 +1,6 @@
 (define-module (mesche cli main)
-  (import (mesche list)
+  (import (mesche fs)
+          (mesche list)
           (mesche test)
           (mesche build)
           (mesche string)
@@ -58,33 +59,38 @@
                 (next-command (cdr commands))))))))
 
 (define (handle-command-arguments commands)
-  (let ((command (find-command (list-nth (process-arguments) 1) commands)))
-    (if command
-        ((cli-command-run-function command))
-        (display-help commands))))
+  (let ((first-arg (list-nth (process-arguments) 1)))
+    (let ((command (find-command first-arg commands)))
+      (if command
+          ((cli-command-run-function command))
+          ;; If the first argument is a path, try to execute it as a script
+          (if (path-exists? first-arg)
+              (load-file first-arg)
+              (display-help commands))))))
 
 (handle-command-arguments
  (list (make-cli-command :name "build"
-                         :summary "Builds a Mesche project target."
+                         :summary "Builds a Mesche project task."
                          :run-function build-command)
        (make-cli-command :name "run"
-                         :summary "Builds a Mesche project target and runs its output immediately."
+                         :summary "Builds a Mesche project task and runs its output immediately."
                          :run-function run-command)
        (make-cli-command :name "test"
                          :summary "Runs tests against a Mesche project."
                          :run-function test-command)
-       (make-cli-command :name "install"
-                         :summary "Installs the output files of a Mesche project to your system."
-                         :run-function install-command)
-       (make-cli-command :name "sync"
-                         :summary "Syncs the dependencies of a Mesche project."
-                         :run-function sync-command)
-       (make-cli-command :name "new"
-                         :summary "Creates a new Mesche project using pre-defined templates."
-                         :run-function new-command)
-       (make-cli-command :name "version"
-                         :summary "Returns the versions of the Mesche CLI and compiler."
-                         :run-function version-command)
+       ;; TODO: These commands do nothing right now
+       ;; (make-cli-command :name "install"
+       ;;                   :summary "Installs the output files of a Mesche project to your system."
+       ;;                   :run-function install-command)
+       ;; (make-cli-command :name "sync"
+       ;;                   :summary "Syncs the dependencies of a Mesche project."
+       ;;                   :run-function sync-command)
+       ;; (make-cli-command :name "new"
+       ;;                   :summary "Creates a new Mesche project using pre-defined templates."
+       ;;                   :run-function new-command)
+       ;; (make-cli-command :name "version"
+       ;;                   :summary "Returns the versions of the Mesche CLI, compiler, and bundled dependencies."
+       ;;                   :run-function version-command)
        (make-cli-command :name "repl"
                          :summary "Launches a Mesche REPL in the context of the current project."
                          :run-function repl-command)))
