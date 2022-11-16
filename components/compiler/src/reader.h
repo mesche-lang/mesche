@@ -21,7 +21,7 @@ void mesche_reader_init(ReaderContext *context, struct VM *vm);
 void mesche_reader_from_string(ReaderContext *context, Reader *reader, const char *source);
 void mesche_reader_from_file(ReaderContext *context, Reader *reader, const char *source,
                              ObjectString *file_name);
-ObjectSyntax *mesche_reader_read_next(Reader *reader);
+Value mesche_reader_read_next(Reader *reader);
 void mesche_reader_module_init(VM *vm);
 
 #endif

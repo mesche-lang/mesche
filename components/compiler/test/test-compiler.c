@@ -1,4 +1,5 @@
 #include "../src/compiler.h"
+#include "../src/error.h"
 #include "../src/object.h"
 #include "../src/op.h"
 #include "../src/reader.h"
@@ -8,6 +9,7 @@
 
 static VM vm;
 static Value read_value;
+static Value compile_result;
 static Reader reader;
 static ObjectFunction *out_func;
 static int byte_idx = 0;
@@ -22,9 +24,24 @@ static uint16_t jump_val;
 #define COMPILE(source)                                                                            \
   byte_idx = 0;                                                                                    \
   mesche_reader_from_string(&vm.reader_context, &reader, source);                                  \
-  out_func = mesche_compile_source(&vm, &reader);                                                  \
-  if (out_func == NULL) {                                                                          \
-    FAIL("Compilation failed!");                                                                   \
+  compile_result = mesche_compile_source(&vm, &reader);                                            \
+  if (IS_ERROR(compile_result)) {                                                                  \
+    out_func = NULL;                                                                               \
+  } else {                                                                                         \
+    out_func = AS_FUNCTION(compile_result);                                                        \
+  }
+
+#define ASSERT_NO_ERROR(expected_message)                                                          \
+  if (IS_ERROR(compile_result)) {                                                                  \
+    FAIL("Received an unexpected error: %s", AS_ERROR(compile_result)->message->chars);            \
+  }
+
+#define ASSERT_ERROR(expected_message)                                                             \
+  if (!IS_ERROR(compile_result)) {                                                                 \
+    FAIL("Expected error but received result!");                                                   \
+  } else if (strncmp(AS_ERROR(compile_result)->message->chars, expected_message,                   \
+                     strlen(expected_message)) != 0) {                                             \
+    FAIL("Received an unexpected error: %s", AS_ERROR(compile_result)->message->chars);            \
   }
 
 #define CHECK_SET_FUNC(func)                                                                       \
@@ -119,6 +136,7 @@ static void compiles_lambda() {
           "  (+ x y))"
           " 3 4)");
 
+  ASSERT_NO_ERROR();
   CHECK_BYTES(OP_CLOSURE, 0);
   CHECK_BYTES(OP_CONSTANT, 1);
   CHECK_BYTES(OP_CONSTANT, 2);
@@ -141,7 +159,8 @@ static void compiles_lambda() {
 static void compiles_let() {
   COMPILER_INIT();
 
-  COMPILE("(let ((x 3) (y 4))"
+  COMPILE("(let ((x 3)\n"
+          "      (y 4))\n"
           "  (+ x y))");
 
   // A let is turned into an anonymous lambda, so check both the usage site and
@@ -201,7 +220,9 @@ static void compiles_named_let() {
 static void compiles_if_expr() {
   COMPILER_INIT();
 
-  COMPILE("(if #t (+ 3 1) 2)");
+  COMPILE("(if #t \n"
+          "    (+ 3 1)\n"
+          "    2)");
 
   CHECK_BYTE(OP_TRUE);
   CHECK_JUMP(OP_JUMP_IF_FALSE, 1, 17);
@@ -636,6 +657,206 @@ static void compiles_tail_call_nested() {
   PASS();
 }
 
+static void compiler_error_bad_set() {
+  COMPILER_INIT();
+
+  COMPILE("(set!)");
+  ASSERT_ERROR("set!: Expected binding name");
+
+  COMPILE("(set! foo)");
+  ASSERT_ERROR("set!: Expected expression for new value.");
+
+  COMPILE("(set! foo 1 2)");
+  ASSERT_ERROR("set!: Expected end of expression.");
+
+  PASS();
+}
+
+static void compiler_error_bad_apply() {
+  COMPILER_INIT();
+
+  COMPILE("(apply)");
+  ASSERT_ERROR("apply: Expected callee expression.");
+
+  COMPILE("(apply foo)");
+  ASSERT_ERROR("apply: Expected argument expression.");
+
+  COMPILE("(apply foo bah 2)");
+  ASSERT_ERROR("apply: Expected end of expression");
+
+  PASS();
+}
+
+static void compiler_error_bad_lambda() {
+  COMPILER_INIT();
+
+  COMPILE("(lambda)");
+  ASSERT_ERROR("lambda: Expected symbol or parameter list");
+
+  COMPILE("(lambda 3)");
+  ASSERT_ERROR("lambda: Expected symbol in parameter list at line 1 in (unknown)");
+
+  COMPILE("(lambda (\"foo\"))");
+  ASSERT_ERROR("lambda: Expected symbol in parameter list at line 1 in (unknown)");
+
+  COMPILE("(lambda (foo \"foo\"))");
+  ASSERT_ERROR("lambda: Expected symbol in parameter list");
+
+  COMPILE("(lambda (foo . \"foo\"))");
+  ASSERT_ERROR("lambda: Expected symbol in parameter list at line 1 in (unknown)");
+
+  COMPILE("(lambda (foo))");
+  ASSERT_ERROR("lambda: Expected at least one body expression.");
+
+  PASS();
+}
+
+static void compiler_error_bad_define() {
+  COMPILER_INIT();
+
+  COMPILE("(define)");
+  ASSERT_ERROR("define: Expected symbol or function parameter list");
+
+  COMPILE("(define 3)");
+  ASSERT_ERROR("define: Expected symbol or function parameter list at line 1 in (unknown)");
+
+  COMPILE("(define foo)");
+  ASSERT_ERROR("define: Expected expression for binding.");
+
+  COMPILE("(define ())");
+  ASSERT_ERROR("define: Expected symbol or function parameter list");
+
+  COMPILE("(define (\"foo\"))");
+  ASSERT_ERROR("define: Expected function name symbol at line 1 in (unknown)");
+
+  COMPILE("(define (foo \"foo\"))");
+  ASSERT_ERROR("define: Expected symbol in parameter list at line 1 in (unknown)");
+
+  COMPILE("(define (foo))");
+  ASSERT_ERROR("define: Expected at least one body expression.");
+
+  PASS();
+}
+
+static void compiler_error_bad_let() {
+  COMPILER_INIT();
+
+  COMPILE("(let)");
+  ASSERT_ERROR("let: Expected symbol or binding list");
+
+  COMPILE("(let 2)");
+  ASSERT_ERROR("let: Expected binding list at line 1 in (unknown).");
+
+  COMPILE("(let loop)");
+  ASSERT_ERROR("let: Expected binding list.");
+
+  COMPILE("(let (x))");
+  ASSERT_ERROR("let: Expected binding pair at line 1 in (unknown).");
+
+  COMPILE("(let ((x)))");
+  ASSERT_ERROR("let: Expected expression for binding value.");
+
+  COMPILE("(let ((x 1)\n"
+          "      (2)))");
+  ASSERT_ERROR("let: Expected symbol for binding pair at line 2 in (unknown).");
+
+  PASS();
+}
+
+static void compiler_error_bad_define_record() {
+  COMPILER_INIT();
+
+  COMPILE("(define-record-type)");
+  ASSERT_ERROR("define-record-type: Expected record name.");
+
+  COMPILE("(define-record-type 2)");
+  ASSERT_ERROR("define-record-type: Expected record name at line 1 in (unknown).");
+
+  COMPILE("(define-record-type foo)");
+  ASSERT_ERROR("define-record-type: Expected 'fields' list.");
+
+  COMPILE("(define-record-type foo 2)");
+  ASSERT_ERROR("define-record-type: Expected 'fields' list.");
+
+  COMPILE("(define-record-type foo ())");
+  ASSERT_ERROR("define-record-type: Expected 'fields' list.");
+
+  COMPILE("(define-record-type foo (foo))");
+  ASSERT_ERROR("define-record-type: Expected 'fields' list at line 1 in (unknown).");
+
+  COMPILE("(define-record-type foo (fields))");
+  ASSERT_ERROR("define-record-type: Expected at least one field at line 1 in (unknown).");
+
+  COMPILE("(define-record-type foo (fields 2))");
+  ASSERT_ERROR("define-record-type: Expected symbol for field name at line 1 in (unknown).");
+
+  COMPILE("(define-record-type foo (fields name 2))");
+  ASSERT_ERROR("define-record-type: Expected symbol for field name at line 1 in (unknown).");
+
+  COMPILE("(define-record-type foo (fields name) whoops)");
+  ASSERT_ERROR("define-record-type: Expected end of expression.");
+
+  PASS();
+}
+
+static void compiler_error_bad_define_module() {
+  COMPILER_INIT();
+
+  COMPILE("(define-module)");
+  ASSERT_ERROR("define-module: Expected module specifier (list of symbols).");
+
+  COMPILE("(define-module 2)");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 1 in (unknown).");
+
+  COMPILE("(define-module foo)");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 1 in (unknown).");
+
+  COMPILE("(define-module ())");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 1 in (unknown).");
+
+  COMPILE("(define-module (2))");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 1 in (unknown).");
+
+  COMPILE("(define-module (foo 2))");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 1 in (unknown).");
+
+  COMPILE("(define-module (foo)\n"
+          "  ())");
+  ASSERT_ERROR("define-module: Expected 'import' expression.");
+
+  COMPILE("(define-module (foo)\n"
+          "  (import))");
+  ASSERT_ERROR("define-module: Expected module specifier (list of symbols) after 'import'.");
+
+  COMPILE("(define-module (foo)\n"
+          "  (import 2))");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 2 in (unknown).");
+
+  COMPILE("(define-module (foo)\n"
+          "  (import ()))");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 2 in (unknown).");
+
+  COMPILE("(define-module (foo)\n"
+          "  (import (2)))");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 2 in (unknown).");
+
+  COMPILE("(define-module (foo)\n"
+          "  (import (foo)\n"
+          "          2))");
+  ASSERT_ERROR(
+      "define-module: Expected module specifier (list of symbols) at line 3 in (unknown).");
+
+  PASS();
+}
+
 static void compiler_suite_cleanup() { mesche_vm_free(&vm); }
 
 void test_compiler_suite() {
@@ -663,6 +884,14 @@ void test_compiler_suite() {
   compiles_tail_call_let();
   compiles_tail_call_if_expr();
   compiles_tail_call_nested();
+
+  compiler_error_bad_set();
+  compiler_error_bad_apply();
+  compiler_error_bad_lambda();
+  compiler_error_bad_define();
+  compiler_error_bad_let();
+  compiler_error_bad_define_record();
+  compiler_error_bad_define_module();
 
   END_SUITE();
 }

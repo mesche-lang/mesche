@@ -14,7 +14,7 @@ static Reader reader;
   mesche_reader_from_string(&vm.reader_context, &reader, source);
 
 #define READ_NEXT()                                                                                \
-  current_syntax = mesche_reader_read_next(&reader);                                               \
+  current_syntax = AS_SYNTAX(mesche_reader_read_next(&reader));                                    \
   if (IS_UNSPECIFIED(current_syntax->value)) {                                                     \
     FAIL("Reader could not parse input!");                                                         \
   }

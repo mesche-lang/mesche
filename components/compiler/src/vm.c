@@ -9,6 +9,7 @@
 #include "continuation.h"
 #include "core.h"
 #include "disasm.h"
+#include "error.h"
 #include "fs.h"
 #include "gc.h"
 #include "io.h"
@@ -1499,20 +1500,23 @@ static InterpretResult vm_eval_internal(VM *vm, const char *script_string, const
     mesche_vm_stack_push(vm, OBJECT_VAL(file_name_str));
   }
 
-  // Create a new reader for this input
+  // Create a new reader for this input and compile it
   Reader reader;
   mesche_reader_from_file(&vm->reader_context, &reader, script_string, file_name_str);
-
-  ObjectFunction *function = mesche_compile_source(vm, &reader);
+  Value compile_result = mesche_compile_source(vm, &reader);
 
   // The file name should have been used for syntaxes now so pop it from the stack
   if (file_name) {
     mesche_vm_stack_pop(vm);
   }
 
-  // Report error, if any
-  if (function == NULL) {
+  // Check the compilation result
+  ObjectFunction *function = NULL;
+  if (IS_ERROR(compile_result)) {
+    printf("Compiler error: %s\n", AS_ERROR(compile_result)->message->chars);
     return INTERPRET_COMPILE_ERROR;
+  } else {
+    function = AS_FUNCTION(compile_result);
   }
 
   // Push the top-level function as a closure
@@ -1549,14 +1553,19 @@ InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *
   mesche_reader_from_file(&vm->reader_context, &reader, source, module_path_str);
 
   // Compile the module source
-  module = mesche_compile_module(vm, module, &reader);
-  mesche_vm_stack_pop(vm);
-  if (module == NULL) {
-    return INTERPRET_COMPILE_ERROR;
-  }
+  Value compile_result = mesche_compile_module(vm, module, &reader);
 
   // Free the module source
+  mesche_vm_stack_pop(vm);
   free(source);
+
+  module = NULL;
+  if (IS_ERROR(compile_result)) {
+    printf("Compiler error: %s\n", AS_ERROR(compile_result)->message->chars);
+    return INTERPRET_COMPILE_ERROR;
+  } else {
+    module = AS_MODULE(compile_result);
+  }
 
   ObjectClosure *closure = mesche_object_make_closure(vm, module->init_function, NULL);
   closure->module = module;

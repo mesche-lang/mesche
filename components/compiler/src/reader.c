@@ -35,7 +35,7 @@ void mesche_reader_from_string(ReaderContext *context, Reader *reader, const cha
   mesche_scanner_init(&reader->scanner, source);
 }
 
-ObjectSyntax *mesche_reader_read_next(Reader *reader) {
+Value mesche_reader_read_next(Reader *reader) {
   ObjectCons *current_head = NULL;
   ObjectCons *current_cons = NULL;
 
@@ -111,7 +111,7 @@ ObjectSyntax *mesche_reader_read_next(Reader *reader) {
     /* Simply return the value wrapped in a syntax object. */                                      \
     ObjectSyntax *value_syntax;                                                                    \
     SYNTAX(value_syntax, value, token)                                                             \
-    return value_syntax;                                                                           \
+    return OBJECT_VAL(value_syntax);                                                               \
   }
 
   // Read a single form
@@ -134,7 +134,7 @@ ObjectSyntax *mesche_reader_read_next(Reader *reader) {
         // Reached the end of input
         ObjectSyntax *value_syntax;
         SYNTAX(value_syntax, EOF_VAL, current)
-        return value_syntax;
+        return OBJECT_VAL(value_syntax);
       }
     }
 
@@ -236,9 +236,7 @@ static Value reader_read_internal(VM *vm, MeschePort *port) {
   ReaderContext context;
   mesche_reader_init(&context, vm);
   mesche_reader_from_port(&context, &reader, port);
-  ObjectSyntax *syntax = mesche_reader_read_next(&reader);
-
-  return OBJECT_VAL(syntax);
+  return mesche_reader_read_next(&reader);
 }
 
 Value reader_read_msc(VM *vm, int arg_count, Value *args) {

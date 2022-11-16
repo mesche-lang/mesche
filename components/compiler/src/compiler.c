@@ -5,6 +5,7 @@
 #include "chunk.h"
 #include "compiler.h"
 #include "disasm.h"
+#include "error.h"
 #include "gc.h"
 #include "keyword.h"
 #include "mem.h"
@@ -20,55 +21,90 @@
 #define UINT8_COUNT (UINT8_MAX + 1)
 #define MAX_AND_OR_EXPRS 100
 
+#define ERROR_BUFFER_SIZE 128
+char ERROR_BUFFER[ERROR_BUFFER_SIZE];
+
 // NOTE: Enable this for diagnostic purposes
 /* #define DEBUG_PRINT_CODE */
 
-#define CHECK_VALUE(val, knd) (IS_SYNTAX(val) && val.kind == knd) || val.kind == knd
+#define HEAD(_syntax)                                                                              \
+  (IS_SYNTAX(_syntax) && IS_CONS(AS_SYNTAX(_syntax)->value)                                        \
+       ? AS_CONS(AS_SYNTAX(_syntax)->value)->car                                                   \
+       : UNSPECIFIED_VAL)
 
-#define CHECK_OBJECT(val, knd)                                                                     \
-  (IS_SYNTAX(val) && IS_OBJECT(AS_SYNTAX(val)->value) &&                                           \
-   OBJECT_KIND(AS_SYNTAX(val)->value) == knd) ||                                                   \
-      (IS_OBJECT(val) && OBJECT_KIND(val) == knd)
+#define MAYBE_EMPTY(_syntax) (IS_SYNTAX(_syntax) && IS_EMPTY(AS_SYNTAX(_syntax)->value))
 
-#define CHECK_EMPTY(val) CHECK_VALUE(val, VALUE_EMPTY)
-#define CHECK_CONS(val) CHECK_OBJECT(val, ObjectKindCons)
-#define CHECK_SYMBOL(val) CHECK_OBJECT(val, ObjectKindSymbol)
-
-#define EXPECT_OBJECT(is_macro, as_macro, src_var, result_var, description)                        \
-  if (IS_SYNTAX(src_var) && is_macro(AS_SYNTAX(src_var)->value)) {                                 \
-    result_var = as_macro(AS_SYNTAX(src_var)->value);                                              \
-  } else {                                                                                         \
-    ObjectSyntax *_syntax = AS_SYNTAX(src_var);                                                    \
-    PANIC("Expected %s at line %d, column %d in %s.", description, _syntax->line, _syntax->column, \
-          _syntax->file_name ? _syntax->file_name->chars : "(unknown)");                           \
-  }
-
-#define EXPECT_CONS(src_var, result_var)                                                           \
-  EXPECT_OBJECT(IS_CONS, AS_CONS, src_var, result_var, "list")
-
-#define EXPECT_SYMBOL(src_var, result_var)                                                         \
-  EXPECT_OBJECT(IS_SYMBOL, AS_SYMBOL, src_var, result_var, "symbol")
-
-#define MAYBE_OBJECT(is_macro, as_macro, src_var, result_var)                                      \
-  if (IS_SYNTAX(src_var) && is_macro(AS_SYNTAX(src_var)->value)) {                                 \
-    result_var = as_macro(AS_SYNTAX(src_var)->value);                                              \
-  } else {                                                                                         \
+#define MAYBE_SYMBOL(_syntax, result_var)                                                          \
+  {                                                                                                \
+    Value syn = _syntax;                                                                           \
     result_var = NULL;                                                                             \
+    if (IS_SYNTAX(syn) && IS_SYMBOL(AS_SYNTAX(syn)->value)) {                                      \
+      result_var = AS_SYMBOL(AS_SYNTAX(syn)->value);                                               \
+    }                                                                                              \
   }
 
-#define MAYBE_CONS(src_var, result_var) MAYBE_OBJECT(IS_CONS, AS_CONS, src_var, result_var)
-#define MAYBE_STRING(src_var, result_var) MAYBE_OBJECT(IS_STRING, AS_STRING, src_var, result_var)
-#define MAYBE_SYMBOL(src_var, result_var) MAYBE_OBJECT(IS_SYMBOL, AS_SYMBOL, src_var, result_var)
-#define MAYBE_KEYWORD(src_var, result_var) MAYBE_OBJECT(IS_KEYWORD, AS_KEYWORD, src_var, result_var)
+#define EXPECT_SYMBOL(_ctx, _syntax, result_var, message)                                          \
+  {                                                                                                \
+    Value syn = _syntax;                                                                           \
+    MAYBE_SYMBOL(_syntax, result_var);                                                             \
+    if (result_var == NULL) {                                                                      \
+      return compiler_error(_ctx, syn, message);                                                   \
+    }                                                                                              \
+  }
 
-// Contains context for parsing tokens irrespective of the current compilation
-// scope
-typedef struct {
-  Token current;
-  Token previous;
-  bool had_error;
-  bool panic_mode;
-} Parser;
+#define MAYBE_KEYWORD(_syntax, result_var)                                                         \
+  {                                                                                                \
+    Value syn = _syntax;                                                                           \
+    result_var = NULL;                                                                             \
+    if (IS_SYNTAX(syn) && IS_KEYWORD(AS_SYNTAX(syn)->value)) {                                     \
+      result_var = AS_KEYWORD(AS_SYNTAX(syn)->value);                                              \
+    }                                                                                              \
+  }
+
+#define MAYBE_STRING(_syntax, result_var)                                                          \
+  {                                                                                                \
+    Value syn = _syntax;                                                                           \
+    result_var = NULL;                                                                             \
+    if (IS_SYNTAX(syn) && IS_STRING(AS_SYNTAX(syn)->value)) {                                      \
+      result_var = AS_STRING(AS_SYNTAX(syn)->value);                                               \
+    }                                                                                              \
+  }
+
+#define EXPECT_EXPR(_ctx, _syntax, message)                                                        \
+  {                                                                                                \
+    Value syn = _syntax;                                                                           \
+    if (!IS_SYNTAX(syn)) {                                                                         \
+      return compiler_error(_ctx, syn, message);                                                   \
+    }                                                                                              \
+  }
+
+#define EXPECT_CONS(_ctx, _syntax, message)                                                        \
+  {                                                                                                \
+    Value syn = _syntax;                                                                           \
+    if (!IS_SYNTAX(syn) || !IS_CONS(AS_SYNTAX(syn)->value)) {                                      \
+      return compiler_error(_ctx, syn, message);                                                   \
+    }                                                                                              \
+  }
+
+#define EXPECT_EMPTY(_ctx, _syntax, message)                                                       \
+  if (!IS_EMPTY(_syntax)) {                                                                        \
+    return compiler_error(_ctx, FALSE_VAL, message);                                               \
+  }
+
+#define OK(_statement)                                                                             \
+  {                                                                                                \
+    Value result = _statement;                                                                     \
+    if (IS_ERROR(result)) {                                                                        \
+      return result;                                                                               \
+    }                                                                                              \
+  }
+
+#define MOVE_NEXT(_ctx, _syntax)                                                                   \
+  /* Move the list head to the next item but don't do any type checking */                         \
+  if (IS_SYNTAX(_syntax) && IS_CONS(AS_SYNTAX(_syntax)->value)) {                                  \
+    _syntax = AS_CONS(AS_SYNTAX(_syntax)->value)->cdr;                                             \
+    /* PRINT_VALUE(_ctx->vm, "MOVE TO: ", _syntax); */                                             \
+  }
 
 // Stores details relating to a local variable binding in a scope
 typedef struct {
@@ -89,9 +125,6 @@ typedef struct CompilerContext {
 
   VM *vm;
   MescheMemory *mem;
-  Parser *parser;
-  ObjectSyntax *current_syntax;
-  ObjectString *current_file;
 
   // `module` should only be set when parsing a module body!  Sub-functions
   // should not have the same module set.
@@ -107,6 +140,11 @@ typedef struct CompilerContext {
   int tail_site_count;
   uint8_t tail_sites[UINT8_COUNT];
 } CompilerContext;
+
+typedef struct {
+  void *result;
+  MescheError *error;
+} CompilerResult;
 
 typedef struct {
   bool is_export;
@@ -134,8 +172,6 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
   if (parent != NULL) {
     ctx->parent = parent;
     ctx->vm = parent->vm;
-    ctx->parser = parent->parser;
-    ctx->current_syntax = parent->current_syntax;
   }
 
   // Set up the compiler state for this scope
@@ -157,21 +193,28 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
   local->name = FALSE_VAL;
 }
 
-static void compiler_emit_byte(CompilerContext *ctx, uint8_t byte) {
-  // TODO: How do I get the line/col here?
-  ctx->function->chunk.file_name = ctx->current_file;
-  mesche_chunk_write(ctx->mem, &ctx->function->chunk, byte, ctx->current_syntax->line);
+static void compiler_emit_byte(CompilerContext *ctx, Value syntax, uint8_t byte) {
+  int line = 0;
+  ObjectString *file_name = NULL;
+  if (IS_SYNTAX(syntax)) {
+    line = AS_SYNTAX(syntax)->line;
+    file_name = AS_SYNTAX(syntax)->file_name;
+  }
+
+  ctx->function->chunk.file_name = file_name;
+  mesche_chunk_write(ctx->mem, &ctx->function->chunk, byte, line);
 }
 
-static void compiler_emit_bytes(CompilerContext *ctx, uint8_t byte1, uint8_t byte2) {
-  compiler_emit_byte(ctx, byte1);
-  compiler_emit_byte(ctx, byte2);
+static void compiler_emit_bytes(CompilerContext *ctx, Value syntax, uint8_t byte1, uint8_t byte2) {
+  compiler_emit_byte(ctx, syntax, byte1);
+  compiler_emit_byte(ctx, syntax, byte2);
 }
 
-static void compiler_emit_call(CompilerContext *ctx, uint8_t arg_count, uint8_t keyword_count) {
-  compiler_emit_byte(ctx, OP_CALL);
-  compiler_emit_byte(ctx, arg_count);
-  compiler_emit_byte(ctx, keyword_count);
+static void compiler_emit_call(CompilerContext *ctx, Value syntax, uint8_t arg_count,
+                               uint8_t keyword_count) {
+  compiler_emit_byte(ctx, syntax, OP_CALL);
+  compiler_emit_byte(ctx, syntax, arg_count);
+  compiler_emit_byte(ctx, syntax, keyword_count);
 }
 
 static void compiler_log_tail_site(CompilerContext *ctx) {
@@ -209,9 +252,11 @@ static void compiler_patch_tail_calls(CompilerContext *ctx) {
   }
 }
 
-static void compiler_emit_return(CompilerContext *ctx) { compiler_emit_byte(ctx, OP_RETURN); }
+static void compiler_emit_return(CompilerContext *ctx) {
+  compiler_emit_byte(ctx, UNSPECIFIED_VAL, OP_RETURN);
+}
 
-static ObjectFunction *compiler_end(CompilerContext *ctx) {
+static Value compiler_end(CompilerContext *ctx) {
   ObjectFunction *function = ctx->function;
 
   if (function->type == TYPE_FUNCTION) {
@@ -222,12 +267,10 @@ static ObjectFunction *compiler_end(CompilerContext *ctx) {
   compiler_emit_return(ctx);
 
 #ifdef DEBUG_PRINT_CODE
-  /* if (!ctx->parser->had_error) { */
-  mesche_disasm_function(function);
-  /* } */
+  mesche_disasm_function(ctx->vm->output_port, function);
 #endif
 
-  return function;
+  return OBJECT_VAL(function);
 }
 
 static uint8_t compiler_make_constant(CompilerContext *ctx, Value value) {
@@ -241,101 +284,84 @@ static uint8_t compiler_make_constant(CompilerContext *ctx, Value value) {
   return (uint8_t)constant;
 }
 
-static void compiler_emit_constant(CompilerContext *ctx, Value syntax) {
-  compiler_emit_bytes(ctx, OP_CONSTANT,
-                      compiler_make_constant(ctx, mesche_syntax_to_datum(ctx->vm, syntax)));
+static void compiler_emit_constant(CompilerContext *ctx, Value syntax, Value value) {
+  compiler_emit_bytes(ctx, syntax, OP_CONSTANT, compiler_make_constant(ctx, value));
 }
 
-static void compiler_error_at_token(CompilerContext *ctx, Token *token, const char *message) {
-  // If we're already in panic mode, ignore errors to avoid spam
-  if (ctx->parser->panic_mode)
-    return;
+static const char *prefix_message(const char *prefix, const char *message) {
+  snprintf(ERROR_BUFFER, ERROR_BUFFER_SIZE, "%s: %s", prefix, message);
+  return ERROR_BUFFER;
+}
 
-  // Turn on panic mode until we resynchronize
-  ctx->parser->panic_mode = true;
-
-  printf("[line %d] Error", token->line);
-  if (token->kind == TokenKindEOF) {
-    printf(" at end");
-  } else if (token->kind == TokenKindError) {
-    // Already an error
+static Value compiler_error(CompilerContext *ctx, Value syntax, const char *message) {
+  ObjectSyntax *real_syntax = IS_SYNTAX(syntax) ? AS_SYNTAX(syntax) : NULL;
+  if (real_syntax) {
+    return mesche_error(ctx->vm, "%s at line %d in %s.", message, real_syntax->line,
+                        real_syntax->file_name ? real_syntax->file_name->chars : "(unknown)");
   } else {
-    printf(" at '%.*s'", token->length, token->start);
+    return mesche_error(ctx->vm, "%s.", message);
   }
-
-  printf(":  %s\n", message);
-
-  ctx->parser->had_error = true;
-}
-
-static void compiler_error(CompilerContext *ctx, const char *message) {
-  compiler_error_at_token(ctx, &ctx->parser->previous, message);
-}
-
-static void compiler_error_at_current(CompilerContext *ctx, const char *message) {
-  compiler_error_at_token(ctx, &ctx->parser->current, message);
 }
 
 // Predefine the main parser function
-static void compiler_parse_expr(CompilerContext *ctx, Value value);
+static Value compiler_parse_expr(CompilerContext *ctx, Value syntax);
 
-static void compiler_parse_literal(CompilerContext *ctx, Value syntax) {
+static void compiler_emit_literal(CompilerContext *ctx, Value syntax) {
   Value value = AS_SYNTAX(syntax)->value;
   if (IS_TRUE(value)) {
-    compiler_emit_byte(ctx, OP_TRUE);
+    compiler_emit_byte(ctx, syntax, OP_TRUE);
   } else if (IS_FALSE(value)) {
-    compiler_emit_byte(ctx, OP_FALSE);
+    compiler_emit_byte(ctx, syntax, OP_FALSE);
   } else if (IS_EMPTY(value)) {
-    compiler_emit_byte(ctx, OP_EMPTY);
-  } else {
-    // TODO: Is an error really needed here?
+    compiler_emit_byte(ctx, syntax, OP_EMPTY);
   }
 }
 
-static void compiler_parse_block(CompilerContext *ctx, Value syntax) {
+static Value compiler_parse_block(CompilerContext *ctx, Value syntax, const char *form_name) {
   int previous_tail_count = ctx->tail_site_count;
 
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
-
+  EXPECT_CONS(ctx, syntax, prefix_message(form_name, "Expected at least one body expression"));
   for (;;) {
     // Reset the tail sites to log again for the sub-expression
     ctx->tail_site_count = previous_tail_count;
 
     // Parse the sub-expression
-    compiler_parse_expr(ctx, list->car);
+    OK(compiler_parse_expr(ctx, HEAD(syntax)));
 
     // Are we finished parsing expressions?
-    if (IS_EMPTY(list->cdr)) {
+    MOVE_NEXT(ctx, syntax);
+    if (IS_EMPTY(syntax)) {
       // Log the possible tail call if there should be one
       compiler_log_tail_site(ctx);
       break;
     } else {
       // If we continue the loop, pop the last expression result
-      compiler_emit_byte(ctx, OP_POP);
-      EXPECT_CONS(list->cdr, list);
+      compiler_emit_byte(ctx, syntax, OP_POP);
     }
   }
 }
 
-static void compiler_add_local(CompilerContext *ctx, ObjectSymbol *symbol) {
+static Value compiler_add_local(CompilerContext *ctx, Value syntax, ObjectSymbol *symbol) {
   if (ctx->local_count == UINT8_COUNT) {
-    compiler_error(ctx, "Too many local variables defined in function.");
+    return compiler_error(ctx, syntax, "Too many local variables defined in function.");
   }
 
   Local *local = &ctx->locals[ctx->local_count++];
   local->name = OBJECT_VAL(symbol->name);
   local->depth = -1; // The variable is uninitialized until assigned
   local->is_captured = false;
+
+  return TRUE_VAL;
 }
 
-static int compiler_resolve_local(CompilerContext *ctx, ObjectSymbol *symbol) {
+static int compiler_resolve_local(CompilerContext *ctx, Value syntax, ObjectSymbol *symbol) {
   // Find the identifier by name in scope chain
   for (int i = ctx->local_count - 1; i >= 0; i--) {
     Local *local = &ctx->locals[i];
     if (mesche_value_eqv_p(OBJECT_VAL(symbol->name), local->name)) {
       if (local->depth == -1) {
-        compiler_error(ctx, "Referenced variable before it was bound");
+        // TODO: Return the error!
+        compiler_error(ctx, syntax, "Referenced variable before it was bound");
       }
       return i;
     }
@@ -351,7 +377,7 @@ static int compiler_resolve_local(CompilerContext *ctx, ObjectSymbol *symbol) {
   return -1;
 }
 
-static int compiler_add_upvalue(CompilerContext *ctx, uint8_t index, bool is_local) {
+static int compiler_add_upvalue(CompilerContext *ctx, Value syntax, uint8_t index, bool is_local) {
   // Can we reuse an existing upvalue?
   int upvalue_count = ctx->function->upvalue_count;
   for (int i = 0; i < upvalue_count; i++) {
@@ -362,7 +388,8 @@ static int compiler_add_upvalue(CompilerContext *ctx, uint8_t index, bool is_loc
   }
 
   if (upvalue_count == UINT8_COUNT) {
-    compiler_error(ctx, "Reached the limit of closures captured in one function.");
+    // TODO: Return the error!
+    compiler_error(ctx, syntax, "Reached the limit of closures captured in one function.");
   }
 
   // Initialize the next upvalue slot
@@ -371,22 +398,22 @@ static int compiler_add_upvalue(CompilerContext *ctx, uint8_t index, bool is_loc
   return ctx->function->upvalue_count++;
 }
 
-static int compiler_resolve_upvalue(CompilerContext *ctx, ObjectSymbol *symbol) {
+static int compiler_resolve_upvalue(CompilerContext *ctx, Value syntax, ObjectSymbol *symbol) {
   // If there's no parent context then there's nothing to close over
   if (ctx->parent == NULL)
     return -1;
 
   // First try to resolve the variable as a local in the parent
-  int local = compiler_resolve_local(ctx->parent, symbol);
+  int local = compiler_resolve_local(ctx->parent, syntax, symbol);
   if (local != -1) {
     ctx->parent->locals[local].is_captured = true;
-    return compiler_add_upvalue(ctx, (uint8_t)local, true);
+    return compiler_add_upvalue(ctx, syntax, (uint8_t)local, true);
   }
 
   // If we didn't find a local, look for a binding from a parent scope
-  int upvalue = compiler_resolve_upvalue(ctx->parent, symbol);
+  int upvalue = compiler_resolve_upvalue(ctx->parent, syntax, symbol);
   if (upvalue != -1) {
-    return compiler_add_upvalue(ctx, (uint8_t)upvalue, false);
+    return compiler_add_upvalue(ctx, syntax, (uint8_t)upvalue, false);
   }
 
   // No local or upvalue to bind to, assume global
@@ -402,10 +429,10 @@ static void compiler_local_mark_initialized(CompilerContext *ctx) {
   ctx->locals[ctx->local_count - 1].depth = ctx->scope_depth;
 }
 
-static void compiler_declare_variable(CompilerContext *ctx, ObjectSymbol *symbol) {
+static Value compiler_declare_variable(CompilerContext *ctx, Value syntax, ObjectSymbol *symbol) {
   // No need to declare a global, it will be dynamically resolved
   if (ctx->scope_depth == 0)
-    return;
+    return TRUE_VAL;
 
   // Start from the most recent local and work backwards to
   // find an existing variable with the same binding in this scope
@@ -417,19 +444,19 @@ static void compiler_declare_variable(CompilerContext *ctx, ObjectSymbol *symbol
 
     // In the same scope, is the identifier the same?
     if (mesche_value_eqv_p(OBJECT_VAL(symbol->name), local->name)) {
-      compiler_error(ctx, "Duplicate variable binding in 'let'");
-      return;
+      return compiler_error(ctx, syntax, "Duplicate variable binding in 'let'");
     }
   }
 
   // Add a local binding for the name
-  compiler_add_local(ctx, symbol);
+  return compiler_add_local(ctx, syntax, symbol);
 }
 
-static uint8_t compiler_parse_symbol(CompilerContext *ctx, ObjectSymbol *symbol, bool is_global) {
+static uint8_t compiler_resolve_symbol(CompilerContext *ctx, Value syntax, ObjectSymbol *symbol,
+                                       bool is_global) {
   // Declare the variable and exit if we're in a local scope
   if (!is_global && ctx->scope_depth > 0) {
-    compiler_declare_variable(ctx, symbol);
+    compiler_declare_variable(ctx, syntax, symbol);
     return 0;
   }
 
@@ -449,33 +476,34 @@ static uint8_t compiler_parse_symbol(CompilerContext *ctx, ObjectSymbol *symbol,
   return value_found ? constant : compiler_make_constant(ctx, symbol_name);
 }
 
-static void compiler_parse_identifier(CompilerContext *ctx, Value syntax) {
+static Value compiler_emit_identifier(CompilerContext *ctx, Value syntax) {
   ObjectSymbol *symbol;
-  EXPECT_SYMBOL(syntax, symbol);
+  EXPECT_SYMBOL(ctx, syntax, symbol, "Expected identifier symbol");
 
   // Are we looking at a local variable?
   // TODO: Leverage lexical information in the syntax object
-  int local_index = compiler_resolve_local(ctx, symbol);
+  int local_index = compiler_resolve_local(ctx, syntax, symbol);
   if (local_index != -1) {
-    compiler_emit_bytes(ctx, OP_READ_LOCAL, (uint8_t)local_index);
-  } else if ((local_index = compiler_resolve_upvalue(ctx, symbol)) != -1) {
+    compiler_emit_bytes(ctx, syntax, OP_READ_LOCAL, (uint8_t)local_index);
+  } else if ((local_index = compiler_resolve_upvalue(ctx, syntax, symbol)) != -1) {
     // Found an upvalue
-    compiler_emit_bytes(ctx, OP_READ_UPVALUE, (uint8_t)local_index);
+    compiler_emit_bytes(ctx, syntax, OP_READ_UPVALUE, (uint8_t)local_index);
   } else {
-    uint8_t variable_constant = compiler_parse_symbol(ctx, symbol, true);
-    compiler_emit_bytes(ctx, OP_READ_GLOBAL, variable_constant);
+    uint8_t variable_constant = compiler_resolve_symbol(ctx, syntax, symbol, true);
+    compiler_emit_bytes(ctx, syntax, OP_READ_GLOBAL, variable_constant);
   }
 }
 
-static uint8_t compiler_define_variable_ex(CompilerContext *ctx, uint8_t variable_constant,
-                                           DefineAttributes *define_attributes) {
+static Value compiler_define_variable_ex(CompilerContext *ctx, Value syntax,
+                                         uint8_t variable_constant,
+                                         DefineAttributes *define_attributes) {
   // We don't define global variables in local scopes
   if (ctx->scope_depth > 0) {
     compiler_local_mark_initialized(ctx);
-    return ctx->local_count - 1;
+    return NUMBER_VAL(ctx->local_count - 1);
   }
 
-  compiler_emit_bytes(ctx, OP_DEFINE_GLOBAL, variable_constant);
+  compiler_emit_bytes(ctx, syntax, OP_DEFINE_GLOBAL, variable_constant);
 
   if (define_attributes) {
     if (define_attributes->is_export) {
@@ -486,45 +514,49 @@ static uint8_t compiler_define_variable_ex(CompilerContext *ctx, uint8_t variabl
       }
 
       // TODO: Convert to OP_CREATE_BINDING?
-      /* compiler_emit_bytes(ctx, OP_EXPORT_SYMBOL, variable_constant); */
+      /* compiler_emit_bytes(ctx, syntax, OP_EXPORT_SYMBOL, variable_constant); */
     }
   }
 
   // TODO: What does this really mean?
-  return 0;
+  return NUMBER_VAL(0);
 }
 
-static uint8_t compiler_define_variable(CompilerContext *ctx, uint8_t variable_constant) {
-  return compiler_define_variable_ex(ctx, variable_constant, NULL);
+static Value compiler_define_variable(CompilerContext *ctx, Value syntax,
+                                      uint8_t variable_constant) {
+  return compiler_define_variable_ex(ctx, syntax, variable_constant, NULL);
 }
 
-static void compiler_parse_set(CompilerContext *ctx, Value syntax) {
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
-
-  // The first list item must be a symbol
+static Value compiler_parse_set(CompilerContext *ctx, Value syntax) {
   ObjectSymbol *symbol;
-  EXPECT_SYMBOL(list->car, symbol);
+  EXPECT_SYMBOL(ctx, HEAD(syntax), symbol, "set!: Expected binding name");
 
   uint8_t instr = OP_SET_LOCAL;
-  int arg = compiler_resolve_local(ctx, symbol);
+  int arg = compiler_resolve_local(ctx, syntax, symbol);
 
   // If there isn't a local, use a global variable instead
   if (arg != -1) {
     // Do nothing, all values are already set.
-  } else if ((arg = compiler_resolve_upvalue(ctx, symbol)) != -1) {
+  } else if ((arg = compiler_resolve_upvalue(ctx, syntax, symbol)) != -1) {
     instr = OP_SET_UPVALUE;
   } else {
-    arg = compiler_parse_symbol(ctx, symbol, true);
+    arg = compiler_resolve_symbol(ctx, syntax, symbol, true);
     instr = OP_SET_GLOBAL;
   }
 
   // Parse the value to set
-  EXPECT_CONS(list->cdr, list);
-  compiler_parse_expr(ctx, list->car);
-  compiler_emit_bytes(ctx, instr, arg);
+  MOVE_NEXT(ctx, syntax);
+  EXPECT_EXPR(ctx, HEAD(syntax), "set!: Expected expression for new value");
+  OK(compiler_parse_expr(ctx, HEAD(syntax)));
 
-  /* compiler_consume(ctx, TokenKindRightParen, "Expected closing paren."); */
+  // Emit the setter
+  compiler_emit_bytes(ctx, syntax, instr, arg);
+
+  // Nothing else is expected after the value
+  MOVE_NEXT(ctx, syntax);
+  EXPECT_EMPTY(ctx, syntax, "set!: Expected end of expression");
+
+  return TRUE_VAL;
 }
 
 // TODO: This was used for the previous implementation, might be deletable!
@@ -539,19 +571,17 @@ static void compiler_end_scope(CompilerContext *ctx) {
   while (ctx->local_count > 0 && ctx->locals[ctx->local_count - 1].depth > ctx->scope_depth) {
     local_count++;
     if (ctx->locals[ctx->local_count - 1].is_captured) {
-      compiler_emit_byte(ctx, OP_CLOSE_UPVALUE);
+      compiler_emit_byte(ctx, UNSPECIFIED_VAL, OP_CLOSE_UPVALUE);
     } else {
-      compiler_emit_bytes(ctx, OP_POP_SCOPE, 1);
+      compiler_emit_bytes(ctx, UNSPECIFIED_VAL, OP_POP_SCOPE, 1);
     }
     ctx->local_count--;
   }
 }
 
-static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
+static Value compiler_parse_let(CompilerContext *ctx, Value syntax) {
   int previous_tail_count = ctx->tail_site_count;
-
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
+  Value let_expr = syntax;
 
   // Create a new compiler context for parsing the let body as an inline
   // function
@@ -561,11 +591,13 @@ static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
 
   // Parse the name of the let, if any
   ObjectSymbol *let_name;
-  MAYBE_SYMBOL(list->car, let_name);
+  MAYBE_SYMBOL(HEAD(syntax), let_name);
   if (let_name) {
     // Use the symbol name as the let function's name
     let_ctx.function->name = let_name->name;
-    EXPECT_CONS(list->cdr, list);
+    MOVE_NEXT(ctx, syntax);
+  } else {
+    EXPECT_CONS(ctx, syntax, "let: Expected symbol or binding list");
   }
 
   // Before parsing arguments, skip ahead to leave enough space to write out the
@@ -574,63 +606,74 @@ static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
   int func_offset = ctx->function->chunk.count;
   ctx->function->chunk.count += 2;
 
-  // Process the binding list
-  Value bindings = list->car;
-  if (!IS_SYNTAX(bindings) || !IS_EMPTY(AS_SYNTAX(bindings)->value)) {
-    while (!IS_EMPTY(bindings)) {
-      ObjectCons *binding_list;
-      EXPECT_CONS(bindings, binding_list);
+  // Allow empty binding list
+  if (!MAYBE_EMPTY(HEAD(syntax))) {
+    EXPECT_CONS(ctx, HEAD(syntax), "let: Expected binding list");
 
-      // Increase the binding (function argument) count
-      let_ctx.function->arity++;
-      if (let_ctx.function->arity > 255) {
-        compiler_error_at_current(&let_ctx, "Let cannot have more than 255 bindings.");
+    // Process the binding list
+    Value bindings = HEAD(syntax);
+    if (!IS_SYNTAX(bindings) || !IS_EMPTY(AS_SYNTAX(bindings)->value)) {
+      while (!IS_EMPTY(bindings)) {
+        ObjectCons *binding_list;
+        EXPECT_CONS(ctx, bindings, "let: Expected binding pair");
+
+        // Increase the binding (function argument) count
+        let_ctx.function->arity++;
+        if (let_ctx.function->arity > 255) {
+          return compiler_error(&let_ctx, bindings, "Exceeded maximum of 255 let bindings");
+        }
+
+        // Parse the symbol for the binding
+        // TODO: Support binding without value?
+        Value binding = HEAD(bindings);
+        EXPECT_CONS(ctx, binding, "let: Expected binding pair");
+
+        ObjectSymbol *symbol;
+        EXPECT_SYMBOL(ctx, HEAD(binding), symbol, "let: Expected symbol for binding pair");
+
+        uint8_t constant = compiler_resolve_symbol(&let_ctx, HEAD(binding), symbol, false);
+        compiler_define_variable(&let_ctx, HEAD(binding), constant);
+
+        // This is a tricky situation: we are going to parse the next expression
+        // in the parent context and it's possible that another function will be
+        // parsed as a let binding value.  This will cause the current let_ctx to
+        // be removed from the ctx chain so it won't be marked in GC sweeps.  To
+        // avoid the let_ctx function being reclaimed during this time, we need to
+        // push it to the value stack.
+        mesche_vm_stack_push(let_ctx.vm, OBJECT_VAL(let_ctx.function));
+
+        // Parse the binding value into the *original context* where the let
+        // function will be called so that it gets passed as a parameter to the
+        // lambda.
+        MOVE_NEXT(ctx, binding);
+        EXPECT_CONS(ctx, binding, "let: Expected expression for binding value");
+        OK(compiler_parse_expr(ctx, HEAD(binding)));
+
+        // Pop the function back off the stack and restore the correct context
+        mesche_vm_stack_pop(let_ctx.vm);
+        let_ctx.vm->current_compiler = &let_ctx;
+
+        // Reset the tail site count so that the binding expression will not be
+        // treated as a tail call site
+        ctx->tail_site_count = previous_tail_count;
+
+        // Move to the next binding in the list
+        MOVE_NEXT(ctx, bindings)
       }
-
-      // Parse the symbol for the binding
-      // TODO: Support binding without value?
-      ObjectCons *binding;
-      EXPECT_CONS(binding_list->car, binding);
-
-      ObjectSymbol *symbol;
-      EXPECT_SYMBOL(binding->car, symbol);
-
-      uint8_t constant = compiler_parse_symbol(&let_ctx, symbol, false);
-      compiler_define_variable(&let_ctx, constant);
-
-      // This is a tricky situation: we are going to parse the next expression
-      // in the parent context and it's possible that another function will be
-      // parsed as a let binding value.  This will cause the current let_ctx to
-      // be removed from the ctx chain so it won't be marked in GC sweeps.  To
-      // avoid the let_ctx function being reclaimed during this time, we need to
-      // push it to the value stack.
-      mesche_vm_stack_push(let_ctx.vm, OBJECT_VAL(let_ctx.function));
-
-      // Parse the binding value into the *original context* where the let
-      // function will be called so that it gets passed as a parameter to the
-      // lambda.
-      EXPECT_CONS(binding->cdr, binding);
-      compiler_parse_expr(ctx, binding->car);
-
-      // Pop the function back off the stack and restore the correct context
-      mesche_vm_stack_pop(let_ctx.vm);
-      let_ctx.vm->current_compiler = &let_ctx;
-
-      // Reset the tail site count so that the binding expression will not be
-      // treated as a tail call site
-      ctx->tail_site_count = previous_tail_count;
-
-      // Move to the next binding in the list
-      bindings = binding_list->cdr;
     }
+
+    // Move forward to reach the body expressions
+    MOVE_NEXT(ctx, syntax);
   }
 
   // Parse the let body
-  compiler_parse_block(&let_ctx, list->cdr);
+  OK(compiler_parse_block(&let_ctx, syntax, "let"));
 
   // Finish the function and write out its constant and closure back where it
   // needs to go
-  ObjectFunction *function = compiler_end(&let_ctx);
+  Value new_func = compiler_end(&let_ctx);
+  OK(new_func);
+  ObjectFunction *function = AS_FUNCTION(new_func);
 
   // If the let body function has upvalues, we need to extend the size of the
   // chunk to accomodate the upvalue opcodes
@@ -642,12 +685,12 @@ static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
 
   int call_offset = ctx->function->chunk.count;
   ctx->function->chunk.count = func_offset;
-  compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
+  compiler_emit_bytes(ctx, syntax, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
 
   // Write out the references to each upvalue as arguments to OP_CLOSURE
   for (int i = 0; i < function->upvalue_count; i++) {
-    compiler_emit_byte(ctx, let_ctx.upvalues[i].is_local ? 1 : 0);
-    compiler_emit_byte(ctx, let_ctx.upvalues[i].index);
+    compiler_emit_byte(ctx, syntax, let_ctx.upvalues[i].is_local ? 1 : 0);
+    compiler_emit_byte(ctx, syntax, let_ctx.upvalues[i].index);
   }
 
   // Let the VM know we're back to the parent compiler
@@ -655,25 +698,24 @@ static void compiler_parse_let(CompilerContext *ctx, Value syntax) {
 
   // Restore the offset where OP_CALL should be and write it
   ctx->function->chunk.count = call_offset;
-  compiler_emit_call(ctx, let_ctx.function->arity, 0);
+  compiler_emit_call(ctx, let_expr, let_ctx.function->arity, 0);
   compiler_log_tail_site(ctx);
 }
 
 static Value compiler_parse_define_attributes(CompilerContext *ctx, Value syntax,
                                               DefineAttributes *define_attributes) {
-  ObjectCons *list;
   while (!IS_EMPTY(syntax)) {
     // Look for :export keyword
     ObjectKeyword *keyword;
-    EXPECT_CONS(syntax, list);
-    MAYBE_KEYWORD(list->car, keyword);
+    MAYBE_KEYWORD(HEAD(syntax), keyword);
     if (keyword) {
-      syntax = list->cdr;
       if (memcmp(keyword->string.chars, "export", 7) == 0) {
         define_attributes->is_export = true;
       } else {
         // TODO: Warn on unknown keywords?
       }
+
+      MOVE_NEXT(ctx, syntax);
     } else {
       break;
     }
@@ -682,12 +724,11 @@ static Value compiler_parse_define_attributes(CompilerContext *ctx, Value syntax
   // Look for a docstring
   if (!IS_EMPTY(syntax)) {
     ObjectString *string;
-    EXPECT_CONS(syntax, list);
-    MAYBE_STRING(list->car, string);
+    MAYBE_STRING(HEAD(syntax), string);
     if (string) {
       // Store it as the documentation string
       define_attributes->doc_string = string;
-      syntax = list->cdr;
+      MOVE_NEXT(ctx, syntax);
     }
   }
 
@@ -698,251 +739,301 @@ static bool compiler_compare_keyword(Token keyword, const char *expected_name) {
   return memcmp(keyword.start + 1, expected_name, strlen(expected_name)) == 0;
 }
 
-static void compiler_parse_lambda_inner(CompilerContext *ctx, Value formals, Value syntax,
-                                        ObjectString *name) {
-  ObjectCons *body;
-  EXPECT_CONS(syntax, body);
-
+static Value compiler_parse_lambda_inner(CompilerContext *ctx, Value formals, Value syntax,
+                                         ObjectString *name, const char *form_name) {
   // Create a new compiler context for parsing the function body
   CompilerContext func_ctx;
   compiler_init_context(&func_ctx, ctx, TYPE_FUNCTION, NULL);
   compiler_begin_scope(&func_ctx);
 
-  ArgType arg_type = ARG_POSITIONAL;
-
   // Parse the parameter list, one of the following:
-  // - A list of symbols
-  // - An improper list consed with a symbol
-  // - A single symbol as "rest" param
+  // - A list of symbols: (a b c)
+  // - An improper list consed with a symbol: (a b . c)
+  // - A single symbol as "rest" param: a
   ObjectSymbol *param;
-  ObjectCons *formal_list;
-  if (!IS_SYNTAX(formals) || !IS_EMPTY(AS_SYNTAX(formals)->value)) {
+  MAYBE_SYMBOL(formals, param);
+  if (param != NULL) {
+    // The formals list isn't a list, it's a single rest parameter
+    func_ctx.function->rest_arg_index = 1;
+  } else if (!MAYBE_EMPTY(formals)) {
     while (!IS_EMPTY(formals)) {
-      param = NULL;
+      Value this_param;
+      bool is_rest_param = false;
       MAYBE_SYMBOL(formals, param);
-      MAYBE_CONS(formals, formal_list);
+      if (param) {
+        // Now that we've found the rest parameter, exit after processing it
+        this_param = formals;
+        is_rest_param = true;
+        formals = EMPTY_VAL;
+      } else {
+        const char *message = prefix_message(form_name, "Expected symbol in parameter list");
+        EXPECT_CONS(ctx, formals, message);
+        EXPECT_SYMBOL(ctx, HEAD(formals), param, message);
+        this_param = HEAD(formals);
+      }
 
-      if (param || formal_list) {
-        bool is_rest_param = false;
-        if (param) {
-          // Now that we've found the rest parameter, exit after processing it
-          is_rest_param = true;
-          formals = EMPTY_VAL;
-        } else {
-          EXPECT_SYMBOL(formal_list->car, param)
-          formals = formal_list->cdr;
-        }
+      uint8_t constant = compiler_resolve_symbol(&func_ctx, this_param, param, false);
+      compiler_define_variable(&func_ctx, this_param, constant);
 
-        uint8_t constant = compiler_parse_symbol(&func_ctx, param, false);
-        compiler_define_variable(&func_ctx, constant);
+      func_ctx.function->arity++;
+      if (func_ctx.function->arity > 255) {
+        return compiler_error(&func_ctx, syntax,
+                              prefix_message(form_name, "Function has more than 255 parameters"));
+      }
 
-        func_ctx.function->arity++;
-        if (func_ctx.function->arity > 255) {
-          compiler_error_at_current(&func_ctx, "Function cannot have more than 255 parameters.");
-        }
-
-        // Store knowledge of the "rest" parameter
-        if (is_rest_param) {
-          func_ctx.function->rest_arg_index = func_ctx.function->arity;
-        }
+      // Store knowledge of the "rest" parameter
+      if (is_rest_param) {
+        func_ctx.function->rest_arg_index = func_ctx.function->arity;
+      } else {
+        // Move to the next parameter
+        MOVE_NEXT(ctx, formals);
       }
     }
   }
 
   // Parse the body (just pass syntax directly)
-  compiler_parse_block(&func_ctx, syntax);
+  OK(compiler_parse_block(&func_ctx, syntax, form_name));
 
   // Get the parsed function and store it in a constant
   func_ctx.function->name = name;
-  ObjectFunction *function = compiler_end(&func_ctx);
-  compiler_emit_bytes(ctx, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
+  // TODO: Check for error!
+  ObjectFunction *function = AS_FUNCTION(compiler_end(&func_ctx));
+  compiler_emit_bytes(ctx, syntax, OP_CLOSURE, compiler_make_constant(ctx, OBJECT_VAL(function)));
 
   // Write out the references to each upvalue as arguments to OP_CLOSURE
   for (int i = 0; i < function->upvalue_count; i++) {
-    compiler_emit_byte(ctx, func_ctx.upvalues[i].is_local ? 1 : 0);
-    compiler_emit_byte(ctx, func_ctx.upvalues[i].index);
+    compiler_emit_byte(ctx, syntax, func_ctx.upvalues[i].is_local ? 1 : 0);
+    compiler_emit_byte(ctx, syntax, func_ctx.upvalues[i].index);
   }
 
   // Let the VM know we're back to the parent compiler
   ctx->vm->current_compiler = ctx;
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_lambda(CompilerContext *ctx, Value syntax) {
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
-  compiler_parse_lambda_inner(ctx, list->car, list->cdr, NULL);
+static Value compiler_parse_lambda(CompilerContext *ctx, Value syntax) {
+  // Enter the formals list before parsing the lambda.  The inner lambda
+  // function will pop the syntax once it parses the formals list.
+  EXPECT_CONS(ctx, syntax, "lambda: Expected symbol or parameter list");
+
+  Value formals = HEAD(syntax);
+  MOVE_NEXT(ctx, syntax);
+  return compiler_parse_lambda_inner(ctx, formals, syntax, NULL, "lambda");
 }
 
-static void compiler_parse_apply(CompilerContext *ctx, Value syntax) {
-  // Apply is very simple, it just takes two expressions, one for the function and the other
-  // for the list.
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
+static Value compiler_parse_quote(CompilerContext *ctx, Value syntax) {
+  EXPECT_CONS(ctx, syntax, "quote: Expected expression");
+  Value quoted = mesche_syntax_to_datum(ctx->vm, HEAD(syntax));
+  compiler_emit_constant(ctx, syntax, quoted);
 
-  // TODO: Might need to unwrap cdr better
-  Value callee = list->car;
-  EXPECT_CONS(list->cdr, list)
+  MOVE_NEXT(ctx, syntax);
+  EXPECT_EMPTY(ctx, syntax, "quote: Expected end of expression");
 
-  compiler_parse_expr(ctx, callee);
-  compiler_parse_expr(ctx, list->car);
-  compiler_emit_byte(ctx, OP_APPLY);
+  return TRUE_VAL;
 }
 
-static void compiler_parse_reset(CompilerContext *ctx, Value syntax) {
-  // Unwrap the expression to reach the inner lambda
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
-  EXPECT_CONS(list->car, list);
+static Value compiler_parse_apply(CompilerContext *ctx, Value syntax) {
+  // Parse the function expression
+  ObjectSymbol *symbol;
+  EXPECT_CONS(ctx, syntax, "apply: Expected callee expression");
+  OK(compiler_parse_expr(ctx, HEAD(syntax)));
+
+  // Parse the argument list
+  MOVE_NEXT(ctx, syntax);
+  EXPECT_CONS(ctx, syntax, "apply: Expected argument expression");
+  OK(compiler_parse_expr(ctx, HEAD(syntax)));
+
+  compiler_emit_byte(ctx, syntax, OP_APPLY);
+
+  MOVE_NEXT(ctx, syntax);
+  EXPECT_EMPTY(ctx, syntax, "apply: Expected end of expression");
+
+  return TRUE_VAL;
+}
+
+static Value compiler_parse_reset(CompilerContext *ctx, Value syntax) {
+  EXPECT_CONS(ctx, syntax, "reset: Expected lambda expression");
 
   // `reset` requires a lambda expression with no arguments
   ObjectSymbol *symbol;
-  EXPECT_SYMBOL(list->car, symbol);
-  /* compiler_error(ctx, "Expected lambda expression after 'reset'."); */
+  Value lambda = HEAD(syntax);
+  MAYBE_SYMBOL(HEAD(lambda), symbol);
+  if (!symbol || symbol->token_kind != TokenKindLambda) {
+    return compiler_error(ctx, syntax, "reset: Expected lambda expression");
+  }
 
   // Parse the lambda body of the reset expression *after* emitting OP_RESET so
   // that we can set the new reset context before adding the closure to the
   // stack.
-  compiler_emit_byte(ctx, OP_RESET);
-  compiler_parse_lambda(ctx, list->cdr);
-  compiler_emit_call(ctx, 0, 0);
-  compiler_emit_byte(ctx, OP_NOP); // Avoid turning this into a tail call!
+  compiler_emit_byte(ctx, syntax, OP_RESET);
+  MOVE_NEXT(ctx, lambda);
+  OK(compiler_parse_lambda(ctx, lambda));
+  compiler_emit_call(ctx, syntax, 0, 0);
+  compiler_emit_byte(ctx, syntax, OP_NOP); // Avoid turning this into a tail call!
+
+  // End of expression
+  /* MOVE_NEXT(ctx); */
+  /* EXPECT_EMPTY(ctx); */
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_shift(CompilerContext *ctx, Value syntax) {
-  // Unwrap the expression to reach the inner lambda
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
-  EXPECT_CONS(list->car, list);
+static Value compiler_parse_shift(CompilerContext *ctx, Value syntax) {
+  EXPECT_CONS(ctx, syntax, "shift: Expected lambda expression");
 
   // `shift` requires a lambda expression with one argument
   ObjectSymbol *symbol;
-  EXPECT_SYMBOL(list->car, symbol);
-  /* compiler_error(ctx, "Expected lambda expression after 'shift'."); */
+  Value lambda = HEAD(syntax);
+  MAYBE_SYMBOL(HEAD(lambda), symbol);
+  if (!symbol || symbol->token_kind != TokenKindLambda) {
+    return compiler_error(ctx, syntax, "Expected lambda expression after 'shift'");
+  }
 
-  // Parse the lambda body of the reset expression *before* emitting OP_SHIFT so
+  // Parse the lambda body of the shift expression *before* emitting OP_SHIFT so
   // that the shift body will be invoked with the continuation function as its
   // parameter.
-  compiler_parse_lambda(ctx, list->cdr);
-  compiler_emit_byte(ctx, OP_SHIFT);
-  compiler_emit_call(ctx, 1, 0);
-  compiler_emit_byte(ctx, OP_NOP); // Avoid turning this into a tail call!
+  MOVE_NEXT(ctx, lambda);
+  OK(compiler_parse_lambda(ctx, lambda));
+  compiler_emit_byte(ctx, syntax, OP_SHIFT);
+  compiler_emit_call(ctx, syntax, 1, 0);
+  compiler_emit_byte(ctx, syntax, OP_NOP); // Avoid turning this into a tail call!
+
+  // End of expression
+  /* MOVE_NEXT(ctx); */
+  /* EXPECT_EMPTY(ctx); */
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_define(CompilerContext *ctx, Value syntax) {
+static Value compiler_parse_define(CompilerContext *ctx, Value syntax) {
   DefineAttributes define_attributes;
   define_attributes.is_export = false;
   define_attributes.doc_string = NULL;
 
+  // Make sure something comes after `define`
+  EXPECT_CONS(ctx, syntax, "define: Expected symbol or function parameter list");
+
   // TODO: Only allow defines at the top of let/lambda bodies
   // TODO: Check ctx for this!
 
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
+  // There are two paths here:
+  // - Define a variable binding, parse value expression, parse attributes
+  // - Define a function binding, parse first symbol of formals list, parse attributes, parse rest
+  //   as lambda
+  ObjectSymbol *symbol;
+  MAYBE_SYMBOL(HEAD(syntax), symbol);
+  if (symbol == NULL) {
+    Value formals = HEAD(syntax);
+    EXPECT_CONS(ctx, formals, "define: Expected symbol or function parameter list");
 
-  // The next expression should either be a symbol or an open paren to define a
-  // function
-  ObjectSymbol *symbol = NULL;
-  Value formals = FALSE_VAL;
-  Value body = EMPTY_VAL;
-  MAYBE_SYMBOL(list->car, symbol);
-  if (symbol) {
-    body = list->cdr;
-  } else {
-    ObjectCons *formals_list;
-    EXPECT_CONS(list->car, formals_list);
-    EXPECT_SYMBOL(formals_list->car, symbol);
-    formals = formals_list->cdr;
-    body = list->cdr;
-  }
+    // Take the binding's symbol and create a constant for it
+    Value func_name = HEAD(formals);
+    EXPECT_SYMBOL(ctx, func_name, symbol, "define: Expected function name symbol");
+    uint8_t variable_constant = compiler_resolve_symbol(ctx, syntax, symbol, true);
 
-  uint8_t variable_constant = compiler_parse_symbol(ctx, symbol, true);
-  if (!IS_FALSE(formals)) {
-    // Handle define attributes and continue parsing the lambda body where that
-    // leaves off
-    body = compiler_parse_define_attributes(ctx, body, &define_attributes);
-    compiler_parse_lambda_inner(ctx, formals, body, symbol->name);
+    // Parse any binding attributes
+    MOVE_NEXT(ctx, syntax);
+    syntax = compiler_parse_define_attributes(ctx, syntax, &define_attributes);
+    OK(syntax);
+
+    // Parse the remaining function definition
+    MOVE_NEXT(ctx, formals);
+    OK(compiler_parse_lambda_inner(ctx, formals, syntax, symbol->name, "define"));
+
+    // Finish the binding definition
+    OK(compiler_define_variable_ex(ctx, func_name, variable_constant, &define_attributes));
   } else {
-    // Unwrap the body first
-    EXPECT_CONS(body, list);
-    body = list->car;
+    // Create a constant for the binding symbol
+    uint8_t variable_constant = compiler_resolve_symbol(ctx, syntax, symbol, true);
 
     // Parse the value expression for the binding
-    compiler_parse_expr(ctx, body);
+    MOVE_NEXT(ctx, syntax);
+    Value expr = syntax;
+    EXPECT_CONS(ctx, expr, "define: Expected expression for binding");
+    OK(compiler_parse_expr(ctx, HEAD(expr)));
 
-    // Only consider attributes if there's something else in the `define` list
-    if (!IS_EMPTY(list->cdr)) {
-      compiler_parse_define_attributes(ctx, list->cdr, &define_attributes);
-    }
+    // Parse any binding attributes
+    MOVE_NEXT(ctx, syntax);
+    OK(compiler_parse_define_attributes(ctx, syntax, &define_attributes));
+
+    // Finish the binding definition
+    OK(compiler_define_variable_ex(ctx, expr, variable_constant, &define_attributes));
   }
 
-  compiler_define_variable_ex(ctx, variable_constant, &define_attributes);
+  return TRUE_VAL;
 }
 
-static void compiler_parse_module_name(CompilerContext *ctx, Value syntax) {
-  char *module_name = NULL;
+static Value compiler_parse_module_name(CompilerContext *ctx, Value syntax, const char *form_name) {
+  ObjectSymbol *symbol = NULL;
   uint8_t symbol_count = 0;
+  char *module_name = NULL;
+  Value original = syntax;
 
-  // Step in and get access to the real module name symbol list
-  ObjectCons *cons;
-  EXPECT_CONS(syntax, cons);
-  syntax = cons->car;
+  const char *error_msg = prefix_message(form_name, "Expected module specifier (list of symbols)");
+  EXPECT_CONS(ctx, syntax, error_msg);
 
   while (!IS_EMPTY(syntax)) {
-    EXPECT_CONS(syntax, cons);
+    MAYBE_SYMBOL(HEAD(syntax), symbol);
+    if (symbol == NULL) {
+      // Free the current string allocation before exiting
+      if (module_name != NULL)
+        free(module_name);
 
-    ObjectSymbol *symbol;
-    MAYBE_SYMBOL(cons->car, symbol);
-    if (symbol) {
-      if (symbol_count == 0) {
-        module_name = malloc(sizeof(char) * (symbol->name->length + 1));
-        memcpy(module_name, symbol->name->chars, sizeof(char) * symbol->name->length);
-        module_name[symbol->name->length] = '\0';
-      } else {
-        char *prev_name = module_name;
-        module_name = mesche_cstring_join(module_name, strlen(module_name), symbol->name->chars,
-                                          symbol->name->length, " ");
-        free(prev_name);
-      }
-
-      // Move to the next symbol in the list
-      syntax = cons->cdr;
-      symbol_count++;
-    } else {
-      /* compiler_consume(ctx, TokenKindSymbol, "Module names can only be comprised of
-  symbols."); */
+      return compiler_error(ctx, HEAD(syntax), error_msg);
     }
+
+    if (symbol_count == 0) {
+      module_name = malloc(sizeof(char) * (symbol->name->length + 1));
+      memcpy(module_name, symbol->name->chars, sizeof(char) * symbol->name->length);
+      module_name[symbol->name->length] = '\0';
+    } else {
+      char *prev_name = module_name;
+      module_name = mesche_cstring_join(module_name, strlen(module_name), symbol->name->chars,
+                                        symbol->name->length, " ");
+      free(prev_name);
+    }
+
+    // Move to the next symbol in the list
+    MOVE_NEXT(ctx, syntax);
+    symbol_count++;
   }
 
   if (module_name != NULL) {
     // If a module name was parsed, emit the constant module name string
     ObjectString *module_name_str =
         mesche_object_make_string(ctx->vm, module_name, strlen(module_name));
-    compiler_emit_constant(ctx, OBJECT_VAL(module_name_str));
+    compiler_emit_constant(ctx, original, OBJECT_VAL(module_name_str));
 
     // The module name has been copied, so free the temporary string
     free(module_name);
   } else {
-    compiler_error(ctx, "No symbols were found where module name was expected.");
+    return compiler_error(ctx, original, "No symbols were found where module name was expected");
   }
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_module_import(CompilerContext *ctx, Value syntax) {
-  compiler_parse_module_name(ctx, syntax);
-  compiler_emit_byte(ctx, OP_IMPORT_MODULE);
+static Value compiler_parse_module_import(CompilerContext *ctx, Value syntax) {
+  EXPECT_CONS(ctx, syntax, "module-import: Expected module specifier (list of symbols)");
+  OK(compiler_parse_module_name(ctx, HEAD(syntax), "module-import"));
+  compiler_emit_byte(ctx, syntax, OP_IMPORT_MODULE);
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_module_enter(CompilerContext *ctx, Value syntax) {
-  compiler_parse_module_name(ctx, syntax);
-  compiler_emit_byte(ctx, OP_ENTER_MODULE);
+static Value compiler_parse_module_enter(CompilerContext *ctx, Value syntax) {
+  EXPECT_CONS(ctx, syntax, "module-enter: Expected module specifier (list of symbols)");
+  OK(compiler_parse_module_name(ctx, HEAD(syntax), "module-enter"));
+  compiler_emit_byte(ctx, syntax, OP_ENTER_MODULE);
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_define_module(CompilerContext *ctx, Value syntax) {
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
-
+static Value compiler_parse_define_module(CompilerContext *ctx, Value syntax) {
   // Read the symbol list for the module path
-  compiler_parse_module_name(ctx, syntax);
-  compiler_emit_byte(ctx, OP_DEFINE_MODULE);
+  OK(compiler_parse_module_name(ctx, HEAD(syntax), "define-module"));
+  compiler_emit_byte(ctx, syntax, OP_DEFINE_MODULE);
 
   // Store the module name if we're currently parsing a module file
   if (ctx->module) {
@@ -951,110 +1042,117 @@ static void compiler_parse_define_module(CompilerContext *ctx, Value syntax) {
   }
 
   // Check for a possible 'import' expression
-  Value imports = list->cdr;
-  if (!IS_EMPTY(imports)) {
-    // Unwrap the imports list (effectively a cadr)
-    EXPECT_CONS(list->cdr, list);
-    EXPECT_CONS(list->car, list);
-
-    // TODO: ERROR
-    /* compiler_consume_sub(ctx, TokenKindImport, "Expected 'import' inside of
-'define-module'."); */
+  MOVE_NEXT(ctx, syntax);
+  if (!IS_EMPTY(syntax)) {
+    EXPECT_CONS(ctx, syntax, "define-module:  Expected 'import' expression");
 
     // Verify that the first expression is the symbol `import`
     ObjectSymbol *symbol;
-    EXPECT_SYMBOL(list->car, symbol);
+    Value imports = HEAD(syntax);
+    EXPECT_SYMBOL(ctx, HEAD(imports), symbol, "define-module: Expected 'import' expression");
     if (symbol->token_kind != TokenKindImport) {
-      // TODO: Error
-      printf("Expected 'import' inside of 'define-module'.");
-      return;
+      return compiler_error(ctx, HEAD(imports), "define-module: Expected 'import' expression");
     }
 
     // There can be multiple import specifications
-    imports = list->cdr;
+    MOVE_NEXT(ctx, imports);
+    EXPECT_CONS(ctx, imports,
+                "define-module: Expected module specifier (list of symbols) after 'import'.");
     while (!IS_EMPTY(imports)) {
-      /* compiler_parse_module_name(ctx, import_list->car); */
-      EXPECT_CONS(imports, list)
-      compiler_parse_module_import(ctx, imports);
-      compiler_emit_byte(ctx, OP_POP);
-      imports = list->cdr;
+      OK(compiler_parse_module_name(ctx, HEAD(imports), "define-module"));
+      compiler_emit_byte(ctx, syntax, OP_IMPORT_MODULE);
+      compiler_emit_byte(ctx, imports, OP_POP);
+
+      MOVE_NEXT(ctx, imports);
     }
   }
+
+  return TRUE_VAL;
 }
 
 // TODO: This should be replaced with a syntax-case
-static void compiler_parse_define_record_type(CompilerContext *ctx, Value syntax) {
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
+static Value compiler_parse_define_record_type(CompilerContext *ctx, Value syntax) {
+  Value definition = syntax;
 
   // Parse and emit the name symbol
   ObjectSymbol *record_name;
-  EXPECT_SYMBOL(list->car, record_name);
-  compiler_emit_constant(ctx, list->car);
+  EXPECT_SYMBOL(ctx, HEAD(syntax), record_name, "define-record-type: Expected record name");
+  compiler_emit_constant(ctx, syntax, OBJECT_VAL(record_name));
 
-  // Find the fields list (effectively a cadr)
-  EXPECT_CONS(list->cdr, list)
-  EXPECT_CONS(list->car, list);
+  // Move into the field list
+  MOVE_NEXT(ctx, syntax);
+  Value fields = HEAD(syntax);
 
+  // Grab the 'fields' symbol
+  Value sym = HEAD(fields);
   ObjectSymbol *fields_symbol;
-  EXPECT_SYMBOL(list->car, fields_symbol)
+  EXPECT_SYMBOL(ctx, sym, fields_symbol, "define-record-type: Expected 'fields' list");
+
   uint8_t field_count = 0;
-  if (fields_symbol && memcmp(fields_symbol->name->chars, "fields", 6) == 0) {
+  if (fields_symbol && strncmp(fields_symbol->name->chars, "fields", 6) == 0) {
     // Read the key-value pairs inside of the form
-    Value fields = list->cdr;
+    MOVE_NEXT(ctx, fields);
     while (!IS_EMPTY(fields)) {
       ObjectSymbol *field_name;
-      EXPECT_CONS(fields, list);
-      EXPECT_SYMBOL(list->car, field_name);
+      EXPECT_SYMBOL(ctx, HEAD(fields), field_name,
+                    "define-record-type: Expected symbol for field name");
       if (field_name) {
-        compiler_emit_constant(ctx, list->car);
-        compiler_emit_constant(ctx, FALSE_VAL);
+        compiler_emit_constant(ctx, syntax, OBJECT_VAL(field_name));
+        compiler_emit_constant(ctx, syntax, FALSE_VAL);
         field_count++;
       }
 
-      fields = list->cdr;
+      MOVE_NEXT(ctx, fields);
+    }
+
+    if (field_count == 0) {
+      return compiler_error(ctx, definition, "define-record-type: Expected at least one field");
     }
   } else {
-    PANIC("Expected 'fields' after 'define-record-type'.");
-    return;
+    return compiler_error(ctx, sym, "define-record-type: Expected 'fields' list");
   }
 
-  compiler_emit_bytes(ctx, OP_DEFINE_RECORD, field_count);
+  compiler_emit_bytes(ctx, definition, OP_DEFINE_RECORD, field_count);
+
+  // Exit the inner list and ensure we've reach the end of the definition
+  MOVE_NEXT(ctx, syntax);
+  EXPECT_EMPTY(ctx, syntax, "define-record-type: Expected end of expression");
+
+  return TRUE_VAL;
 }
 
-static int compiler_emit_jump(CompilerContext *ctx, uint8_t instruction) {
+static int compiler_emit_jump(CompilerContext *ctx, Value syntax, uint8_t instruction) {
   // Write out the two bytes that will be patched once the jump target location
   // is determined
-  compiler_emit_byte(ctx, instruction);
-  compiler_emit_byte(ctx, 0xff);
-  compiler_emit_byte(ctx, 0xff);
+  compiler_emit_byte(ctx, syntax, instruction);
+  compiler_emit_byte(ctx, syntax, 0xff);
+  compiler_emit_byte(ctx, syntax, 0xff);
 
   return ctx->function->chunk.count - 2;
 }
 
-static void compiler_patch_jump(CompilerContext *ctx, int offset) {
+static Value compiler_patch_jump(CompilerContext *ctx, Value syntax, int offset) {
   // We offset by -2 to adjust for the size of the jump offset itself
   int jump = ctx->function->chunk.count - offset - 2;
 
   if (jump > UINT16_MAX) {
-    compiler_error(ctx, "Attempting to emit jump that is larger than possible jump size.");
+    return compiler_error(ctx, syntax, "Can't emit jump that is larger than possible jump size");
   }
 
   // Place the two bytes with the jump delta
   ctx->function->chunk.code[offset] = (jump >> 8) & 0xff;
   ctx->function->chunk.code[offset + 1] = jump & 0xff;
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_if(CompilerContext *ctx, Value syntax) {
+static Value compiler_parse_if(CompilerContext *ctx, Value syntax) {
   int previous_tail_count = ctx->tail_site_count;
-
-  ObjectCons *cons;
-  EXPECT_CONS(syntax, cons);
 
   // Parse predicate and write out a jump instruction to the else code
   // path if the predicate evaluates to false
-  compiler_parse_expr(ctx, cons->car);
-  int jump_origin = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
+  OK(compiler_parse_expr(ctx, HEAD(syntax)));
+  int jump_origin = compiler_emit_jump(ctx, HEAD(syntax), OP_JUMP_IF_FALSE);
 
   // Restore the tail count because the predicate expression should never
   // produce a tail call
@@ -1062,68 +1160,70 @@ static void compiler_parse_if(CompilerContext *ctx, Value syntax) {
 
   // Include a pop so that the expression value gets removed from the stack in
   // the truth path
-  compiler_emit_byte(ctx, OP_POP);
+  compiler_emit_byte(ctx, HEAD(syntax), OP_POP);
 
   // Parse truth expr and log the tail call if the expression was still in a
   // tail context afterward
-  EXPECT_CONS(cons->cdr, cons);
-  compiler_parse_expr(ctx, cons->car);
+  MOVE_NEXT(ctx, syntax);
+  EXPECT_CONS(ctx, syntax, "if: Expected consequent expression");
+  OK(compiler_parse_expr(ctx, HEAD(syntax)));
   compiler_log_tail_site(ctx);
 
   // Write out a jump from the end of the truth case to the end of the expression
-  int else_jump = compiler_emit_jump(ctx, OP_JUMP);
+  int else_jump = compiler_emit_jump(ctx, syntax, OP_JUMP);
 
   // Patch the jump instruction which leads to the else path
-  compiler_patch_jump(ctx, jump_origin);
+  OK(compiler_patch_jump(ctx, syntax, jump_origin));
 
   // Include a pop so that the predicate expression value gets removed from the stack
-  compiler_emit_byte(ctx, OP_POP);
+  compiler_emit_byte(ctx, syntax, OP_POP);
 
   // Is there an else expression?
-  if (!IS_EMPTY(cons->cdr)) {
-    EXPECT_CONS(cons->cdr, cons);
-    compiler_parse_expr(ctx, cons->car);
+  MOVE_NEXT(ctx, syntax);
+  if (!IS_EMPTY(syntax)) {
+    OK(compiler_parse_expr(ctx, HEAD(syntax)));
     compiler_log_tail_site(ctx);
   } else {
     // Push a '#f' onto the value stack if there was no else
-    compiler_emit_byte(ctx, OP_FALSE);
+    compiler_emit_byte(ctx, syntax, OP_FALSE);
   }
 
   // Patch the jump instruction after the false path has been compiled
-  compiler_patch_jump(ctx, else_jump);
+  OK(compiler_patch_jump(ctx, syntax, else_jump));
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_or(CompilerContext *ctx, Value syntax) {
+static Value compiler_parse_or(CompilerContext *ctx, Value syntax) {
   int prev_jump = -1;
   int expr_count = 0;
   int end_jumps[MAX_AND_OR_EXPRS];
 
-  ObjectCons *list;
-  Value exprs = syntax;
-  while (!IS_EMPTY(exprs)) {
+  while (!IS_EMPTY(syntax)) {
     if (expr_count > 0) {
       // If it evaluates to false, jump to the next expression
-      prev_jump = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
+      prev_jump = compiler_emit_jump(ctx, HEAD(syntax), OP_JUMP_IF_FALSE);
 
       // If it evaluates to true, jump to the end of the expression list
-      end_jumps[expr_count - 1] = compiler_emit_jump(ctx, OP_JUMP);
+      end_jumps[expr_count - 1] = compiler_emit_jump(ctx, HEAD(syntax), OP_JUMP);
 
       // Patch the previous expression's jump
-      compiler_patch_jump(ctx, prev_jump);
+      OK(compiler_patch_jump(ctx, HEAD(syntax), prev_jump));
 
       // Emit a pop to remove the previous expression value from the stack
-      compiler_emit_byte(ctx, OP_POP);
+      compiler_emit_byte(ctx, HEAD(syntax), OP_POP);
     }
 
     // Parse the expression
-    EXPECT_CONS(exprs, list);
-    compiler_parse_expr(ctx, list->car);
+    OK(compiler_parse_expr(ctx, HEAD(syntax)));
     expr_count++;
-    exprs = list->cdr;
 
     if (expr_count == MAX_AND_OR_EXPRS) {
-      compiler_error(ctx, "Exceeded the maximum number of expressions in an `and`.");
+      return compiler_error(ctx, syntax, "Exceeded the maximum number of expressions in an `and`.");
     }
+
+    // Consume the next operand in the list
+    MOVE_NEXT(ctx, syntax);
   }
 
   // The last expression is a tail site
@@ -1131,93 +1231,97 @@ static void compiler_parse_or(CompilerContext *ctx, Value syntax) {
 
   for (int i = 0; i < expr_count - 1; i++) {
     // Patch all the jumps to the end location
-    compiler_patch_jump(ctx, end_jumps[i]);
+    OK(compiler_patch_jump(ctx, syntax, end_jumps[i]));
   }
+
+  return TRUE_VAL;
 }
 
-static void compiler_parse_and(CompilerContext *ctx, Value syntax) {
+static Value compiler_parse_and(CompilerContext *ctx, Value syntax) {
   int prev_jump = -1;
   int expr_count = 0;
   int end_jumps[MAX_AND_OR_EXPRS];
 
-  ObjectCons *list;
-  Value exprs = syntax;
-  while (!IS_EMPTY(exprs)) {
+  while (!IS_EMPTY(syntax)) {
     if (expr_count > 0) {
       // If it evaluates to false, jump to the end of the expression list
-      end_jumps[expr_count - 1] = compiler_emit_jump(ctx, OP_JUMP_IF_FALSE);
+      end_jumps[expr_count - 1] = compiler_emit_jump(ctx, syntax, OP_JUMP_IF_FALSE);
 
       // Emit a pop to remove the previous expression value from the stack
-      compiler_emit_byte(ctx, OP_POP);
+      compiler_emit_byte(ctx, syntax, OP_POP);
     }
 
     // Parse the expression
-    EXPECT_CONS(exprs, list);
-    compiler_parse_expr(ctx, list->car);
+    OK(compiler_parse_expr(ctx, HEAD(syntax)));
     expr_count++;
-    exprs = list->cdr;
 
     if (expr_count == MAX_AND_OR_EXPRS) {
-      compiler_error(ctx, "Exceeded the maximum number of expressions in an `and`.");
+      return compiler_error(ctx, syntax, "Exceeded the maximum number of expressions in an `and`");
+    }
+
+    MOVE_NEXT(ctx, syntax);
+  }
+
+  if (expr_count > 0) {
+    // The last expression is a tail site
+    compiler_log_tail_site(ctx);
+
+    for (int i = 0; i < expr_count - 1; i++) {
+      // Patch all the jumps to the end location
+      OK(compiler_patch_jump(ctx, syntax, end_jumps[i]));
     }
   }
 
-  // The last expression is a tail site
-  compiler_log_tail_site(ctx);
-
-  for (int i = 0; i < expr_count - 1; i++) {
-    // Patch all the jumps to the end location
-    compiler_patch_jump(ctx, end_jumps[i]);
-  }
+  return TRUE_VAL;
 }
 
-static bool compiler_parse_operator_call(CompilerContext *ctx, ObjectSymbol *symbol,
-                                         uint8_t operand_count) {
+static bool compiler_emit_operator_call(CompilerContext *ctx, Value syntax, ObjectSymbol *symbol,
+                                        uint8_t operand_count) {
   switch (symbol->token_kind) {
   case TokenKindPlus:
-    compiler_emit_byte(ctx, OP_ADD);
+    compiler_emit_byte(ctx, syntax, OP_ADD);
     break;
   case TokenKindMinus:
-    compiler_emit_byte(ctx, OP_SUBTRACT);
+    compiler_emit_byte(ctx, syntax, OP_SUBTRACT);
     break;
   case TokenKindStar:
-    compiler_emit_byte(ctx, OP_MULTIPLY);
+    compiler_emit_byte(ctx, syntax, OP_MULTIPLY);
     break;
   case TokenKindSlash:
-    compiler_emit_byte(ctx, OP_DIVIDE);
+    compiler_emit_byte(ctx, syntax, OP_DIVIDE);
     break;
   case TokenKindPercent:
-    compiler_emit_byte(ctx, OP_MODULO);
+    compiler_emit_byte(ctx, syntax, OP_MODULO);
     break;
   case TokenKindNot:
-    compiler_emit_byte(ctx, OP_NOT);
+    compiler_emit_byte(ctx, syntax, OP_NOT);
     break;
   case TokenKindGreaterThan:
-    compiler_emit_byte(ctx, OP_GREATER_THAN);
+    compiler_emit_byte(ctx, syntax, OP_GREATER_THAN);
     break;
   case TokenKindGreaterEqual:
-    compiler_emit_byte(ctx, OP_GREATER_EQUAL);
+    compiler_emit_byte(ctx, syntax, OP_GREATER_EQUAL);
     break;
   case TokenKindLessThan:
-    compiler_emit_byte(ctx, OP_LESS_THAN);
+    compiler_emit_byte(ctx, syntax, OP_LESS_THAN);
     break;
   case TokenKindLessEqual:
-    compiler_emit_byte(ctx, OP_LESS_EQUAL);
+    compiler_emit_byte(ctx, syntax, OP_LESS_EQUAL);
     break;
   case TokenKindList:
-    compiler_emit_bytes(ctx, OP_LIST, operand_count);
+    compiler_emit_bytes(ctx, syntax, OP_LIST, operand_count);
     break;
   case TokenKindCons:
-    compiler_emit_byte(ctx, OP_CONS);
+    compiler_emit_byte(ctx, syntax, OP_CONS);
     break;
   case TokenKindEqv:
-    compiler_emit_byte(ctx, OP_EQV);
+    compiler_emit_byte(ctx, syntax, OP_EQV);
     break;
   case TokenKindEqual:
-    compiler_emit_byte(ctx, OP_EQUAL);
+    compiler_emit_byte(ctx, syntax, OP_EQUAL);
     break;
   case TokenKindDisplay:
-    compiler_emit_byte(ctx, OP_DISPLAY);
+    compiler_emit_byte(ctx, syntax, OP_DISPLAY);
     break;
   default:
     return false;
@@ -1226,14 +1330,16 @@ static bool compiler_parse_operator_call(CompilerContext *ctx, ObjectSymbol *sym
   return true;
 }
 
-static void compiler_parse_load_file(CompilerContext *ctx, Value syntax) {
-  ObjectCons *cons;
-  EXPECT_CONS(syntax, cons);
-  compiler_parse_expr(ctx, cons->car);
-  compiler_emit_byte(ctx, OP_LOAD_FILE);
+// TODO: This should be in `core`?
+static Value compiler_parse_load_file(CompilerContext *ctx, Value syntax) {
+  OK(compiler_parse_expr(ctx, syntax));
+  compiler_emit_byte(ctx, syntax, OP_LOAD_FILE);
+
+  MOVE_NEXT(ctx, syntax);
+  EXPECT_EMPTY(ctx, syntax, "load-file: Expected end of expression");
 }
 
-static void compiler_parse_list(CompilerContext *ctx, Value syntax) {
+static Value compiler_parse_list(CompilerContext *ctx, Value syntax) {
   // Possibilities
   // - Primitive command with its own opcode
   // - Special form that has non-standard call semantics
@@ -1242,77 +1348,59 @@ static void compiler_parse_list(CompilerContext *ctx, Value syntax) {
   // - Expression that evaluates to lambda
   // In the latter 3 cases, compiler the callee before the arguments
 
-  // Get the pair that starts the list
-  ObjectCons *list;
-  EXPECT_CONS(syntax, list);
+  Value call_expr = syntax;
 
-  // Get the expression in the call position
-  Value callee = list->car;
-  Value args = list->cdr;
+  // Store the callee expression and move the syntax forward to the arguments
+  Value callee = HEAD(syntax);
+  MOVE_NEXT(ctx, syntax);
 
+  // Peek at the first element to see if it's a symbol
   ObjectSymbol *symbol;
   MAYBE_SYMBOL(callee, symbol);
   if (symbol) {
     // Is the first item a symbol that refers to a core syntax or special form?
     switch (symbol->token_kind) {
     case TokenKindOr:
-      compiler_parse_or(ctx, args);
-      return;
+      return compiler_parse_or(ctx, syntax);
     case TokenKindAnd:
-      compiler_parse_and(ctx, args);
-      return;
+      return compiler_parse_and(ctx, syntax);
     case TokenKindLambda:
-      compiler_parse_lambda(ctx, args);
-      return;
+      return compiler_parse_lambda(ctx, syntax);
     case TokenKindLet:
-      compiler_parse_let(ctx, args);
-      return;
+      return compiler_parse_let(ctx, syntax);
     case TokenKindDefine:
-      compiler_parse_define(ctx, args);
-      return;
+      return compiler_parse_define(ctx, syntax);
     case TokenKindSet:
-      compiler_parse_set(ctx, args);
-      return;
+      return compiler_parse_set(ctx, syntax);
     case TokenKindIf:
-      compiler_parse_if(ctx, args);
-      return;
+      return compiler_parse_if(ctx, syntax);
     case TokenKindBegin:
-      compiler_parse_block(ctx, args);
-      return;
-    case TokenKindQuote: {
-      ObjectCons *cons;
-      EXPECT_CONS(args, cons);
-      compiler_emit_constant(ctx, cons->car);
-      return;
-    }
+      return compiler_parse_block(ctx, syntax, "begin");
+    case TokenKindQuote:
+      return compiler_parse_quote(ctx, syntax);
     case TokenKindApply:
-      compiler_parse_apply(ctx, args);
-      return;
+      return compiler_parse_apply(ctx, syntax);
     case TokenKindShift:
-      compiler_parse_shift(ctx, args);
-      return;
+      return compiler_parse_shift(ctx, syntax);
     case TokenKindReset:
-      compiler_parse_reset(ctx, args);
-      return;
+      return compiler_parse_reset(ctx, syntax);
     case TokenKindDefineModule:
-      compiler_parse_define_module(ctx, args);
-      return;
+      return compiler_parse_define_module(ctx, syntax);
     case TokenKindModuleImport:
-      compiler_parse_module_import(ctx, args);
-      return;
+      return compiler_parse_module_import(ctx, syntax);
     case TokenKindModuleEnter:
-      compiler_parse_module_enter(ctx, args);
-      return;
+      return compiler_parse_module_enter(ctx, syntax);
     case TokenKindDefineRecordType:
-      compiler_parse_define_record_type(ctx, args);
-      return;
+      return compiler_parse_define_record_type(ctx, syntax);
     case TokenKindLoadFile:
-      compiler_parse_load_file(ctx, args);
-      return;
+      return compiler_parse_load_file(ctx, syntax);
     case TokenKindBreak:
       // Just emit OP_BREAK and be done
-      compiler_emit_byte(ctx, OP_BREAK);
-      return;
+      compiler_emit_byte(ctx, syntax, OP_BREAK);
+      return TRUE_VAL;
+    default:
+      // Not all token types are handled
+      break;
     }
   }
 
@@ -1320,70 +1408,75 @@ static void compiler_parse_list(CompilerContext *ctx, Value syntax) {
   // procedure we need to invoke
   bool is_operator = symbol && symbol->token_kind != TokenKindNone;
   if (!is_operator) {
-    compiler_parse_expr(ctx, callee);
+    OK(compiler_parse_expr(ctx, callee));
   }
 
-  // Parse argument expressions until we reach a right paren
+  // Parse argument expressions until we reach the end of the list
   uint8_t arg_count = 0;
-  while (!IS_EMPTY(args)) {
-    ObjectCons *cons;
-    EXPECT_CONS(args, cons);
-
+  while (!IS_EMPTY(syntax)) {
     // Compile next positional parameter
-    compiler_parse_expr(ctx, cons->car);
-    args = cons->cdr;
+    OK(compiler_parse_expr(ctx, HEAD(syntax)));
 
     arg_count++;
     if (arg_count == 255) {
-      compiler_error(ctx, "Cannot pass more than 255 arguments in a function call.");
+      return compiler_error(ctx, syntax, "Cannot pass more than 255 arguments in a function call");
     }
+
+    MOVE_NEXT(ctx, syntax);
   }
 
   // Finally, emit the OP_CALL if we're invoking a procedure
   if (is_operator) {
     // Emit the operator call
-    is_operator = compiler_parse_operator_call(ctx, symbol, arg_count);
+    is_operator = compiler_emit_operator_call(ctx, call_expr, symbol, arg_count);
   }
 
   // One last chance to decide that this should be an OP_CALL
   if (!is_operator) {
-    compiler_emit_call(ctx, arg_count, 0);
+    compiler_emit_call(ctx, syntax, arg_count, 0);
   }
 }
 
-static void compiler_parse_syntax(CompilerContext *ctx, ObjectSyntax *syntax) {
+static Value compiler_parse_expr(CompilerContext *ctx, Value syntax) {
+  if (IS_EMPTY(syntax)) {
+    PANIC("Parser function did not catch empty when parsing expression!")
+  }
+
   // Try expanding the expression before parsing it.  This enables syntax
   // transformers which return a single value like `(and 3)`.
-  if (ctx->vm->expander && IS_CONS(syntax->value)) {
+  if (ctx->vm->expander && IS_CONS(AS_SYNTAX(syntax)->value)) {
     /* printf("BEFORE EXPAND:\n"); */
     /* mesche_value_print(OBJECT_VAL(syntax)); */
     /* printf("\n\n"); */
 
     // Execute the expander function on top of the existing VM stack, if any
-    if (mesche_vm_call_closure(ctx->vm, ctx->vm->expander, 1, (Value[]){OBJECT_VAL(syntax)}) !=
-        INTERPRET_OK) {
+    if (mesche_vm_call_closure(ctx->vm, ctx->vm->expander, 1, (Value[]){syntax}) != INTERPRET_OK) {
       PANIC("FAILED TO EXECUTE EXPANDER\n");
     }
 
     // TODO: Ensure that we don't need any special GC/stack mechanics here
     // TODO: Verify that we get a syntax value back
-    syntax = AS_SYNTAX(mesche_vm_stack_pop(ctx->vm));
+    syntax = mesche_vm_stack_pop(ctx->vm);
 
     /* printf("AFTER EXPAND:\n"); */
     /* mesche_value_print(OBJECT_VAL(syntax)); */
     /* printf("\n\n"); */
   }
 
+  // At this point, the current expression can be:
+  // - A syntax containing a list (cons)
+  // - A syntax containing a value or other object
+  // - An empty list value
   // Most types are literals and should be stored as constants
-  Value value = syntax->value;
+  Value value = AS_SYNTAX(syntax)->value;
   if (IS_NUMBER(value) || IS_STRING(value) || IS_KEYWORD(value)) {
-    compiler_emit_constant(ctx, OBJECT_VAL(syntax));
+    compiler_emit_constant(ctx, syntax, value);
   } else if (IS_FALSE(value) || IS_TRUE(value) || IS_EMPTY(value)) {
-    compiler_parse_literal(ctx, OBJECT_VAL(syntax));
+    compiler_emit_literal(ctx, syntax);
   } else if (IS_SYMBOL(value)) {
-    compiler_parse_identifier(ctx, OBJECT_VAL(syntax));
+    return compiler_emit_identifier(ctx, syntax);
   } else if (IS_CONS(value)) {
-    compiler_parse_list(ctx, OBJECT_VAL(syntax));
+    return compiler_parse_list(ctx, syntax);
   } else {
     // TODO: Write an error
     // TODO: Use the syntax object directly
@@ -1395,41 +1488,31 @@ static void compiler_parse_syntax(CompilerContext *ctx, ObjectSyntax *syntax) {
   }
 }
 
-// TODO: Eventually get rid of this or merge with compiler_parse_syntax
-static void compiler_parse_expr(CompilerContext *ctx, Value expr) {
-  // Ensure that the expression is a syntax
-  if (IS_SYNTAX(expr)) {
-    compiler_parse_syntax(ctx, AS_SYNTAX(expr));
-  } else {
-    PANIC("Received something other than a syntax!")
-  }
-}
-
-ObjectFunction *compile_all(CompilerContext *ctx, Reader *reader) {
+Value compile_all(CompilerContext *ctx, Reader *reader) {
   // Read all expressions and compile them individually
   // TODO: Catch and report errors!
   bool pop_previous = false;
   for (;;) {
-    // Read the next expression
-    ObjectSyntax *next_expr = mesche_reader_read_next(reader);
-    mesche_vm_stack_push(ctx->vm, OBJECT_VAL(next_expr));
+    // Read the next expression and push it to the stack to avoid GC
+    Value next_expr = mesche_reader_read_next(reader);
+    mesche_vm_stack_push(ctx->vm, next_expr);
 
-    // TODO: This is temporary to make it so we can get a reasonable
-    // triangulation for line numbers
-    ctx->current_syntax = next_expr;
-    ctx->current_file = next_expr->file_name;
+    // Ensure that the expression is a syntax
+    if (!IS_SYNTAX(next_expr)) {
+      PANIC("Received something other than a syntax!")
+    }
 
-    /* PRINT_VALUE("EXPR: ", OBJECT_VAL(next_expr)); */
+    /* PRINT_VALUE(ctx->vm, "-- COMPILE EXPR: ", next_expr); */
 
-    if (!IS_EOF(next_expr->value)) {
+    if (!IS_EOF(AS_SYNTAX(next_expr)->value)) {
       // Should we pop the previous result before compiling the next expression?
       if (pop_previous) {
         // When reading all expressions in a file, pop the intermediate results
-        compiler_emit_byte(ctx, OP_POP);
+        compiler_emit_byte(ctx, next_expr, OP_POP);
       }
 
       // Parse the expression
-      compiler_parse_syntax(ctx, next_expr);
+      OK(compiler_parse_expr(ctx, next_expr));
 
       // Pop the result previous result before the next expression
       pop_previous = true;
@@ -1447,7 +1530,7 @@ ObjectFunction *compile_all(CompilerContext *ctx, Reader *reader) {
   return compiler_end(ctx);
 }
 
-ObjectFunction *mesche_compile_source(VM *vm, Reader *reader) {
+Value mesche_compile_source(VM *vm, Reader *reader) {
   // Set up the context
   CompilerContext ctx = {.vm = vm};
 
@@ -1455,29 +1538,31 @@ ObjectFunction *mesche_compile_source(VM *vm, Reader *reader) {
   compiler_init_context(&ctx, NULL, TYPE_SCRIPT, NULL);
 
   // Compile the whole source
-  ObjectFunction *function = compile_all(&ctx, reader);
+  Value result = compile_all(&ctx, reader);
 
   // Clear the VM's pointer to this compiler
   vm->current_compiler = NULL;
 
-  // TODO: What kind of errors can occur?
-  return function;
+  return result;
 }
 
-ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, Reader *reader) {
+Value mesche_compile_module(VM *vm, ObjectModule *module, Reader *reader) {
   // Set up the context
   CompilerContext ctx = {.vm = vm};
 
   // Set up the compilation context
   compiler_init_context(&ctx, NULL, TYPE_SCRIPT, module);
 
-  // Compile the whole source
-  ObjectFunction *function = compile_all(&ctx, reader);
+  // Compile the module contents
+  Value compile_result = compile_all(&ctx, reader);
+  OK(compile_result);
+  ObjectFunction *function = AS_FUNCTION(compile_result);
 
   // Ensure the user defined a module in the file
   // TODO: How can we tell if the name is already set?
   if (ctx.module->name == NULL) {
-    compiler_error(&ctx, "A valid module definition was not found in the source file.");
+    return compiler_error(&ctx, FALSE_VAL,
+                          "A valid module definition was not found in the source file");
   }
 
   // Assign the function as the module's top-level body
@@ -1486,5 +1571,5 @@ ObjectModule *mesche_compile_module(VM *vm, ObjectModule *module, Reader *reader
   // Clear the VM's pointer to this compiler
   vm->current_compiler = NULL;
 
-  return ctx.module;
+  return OBJECT_VAL(ctx.module);
 }
