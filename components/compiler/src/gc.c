@@ -1,6 +1,7 @@
 #include "array.h"
 #include "compiler.h"
 #include "continuation.h"
+#include "error.h"
 #include "native.h"
 #include "object.h"
 #include "record.h"
@@ -129,6 +130,11 @@ static void gc_darken_object(VM *vm, Object *object) {
     ObjectSyntax *syntax = (ObjectSyntax *)object;
     gc_mark_value(vm, syntax->value);
     mesche_gc_mark_object(vm, (Object *)syntax->file_name);
+    break;
+  }
+  case ObjectKindError: {
+    MescheError *error = (MescheError *)object;
+    mesche_gc_mark_object(vm, (Object *)error->message);
     break;
   }
   case ObjectKindArray: {

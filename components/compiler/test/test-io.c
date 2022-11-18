@@ -157,6 +157,8 @@ static void writes_chars_to_string_port() {
     FAIL("Failed due to error: %s", AS_ERROR(result)->message->chars);
   }
 
+  mesche_vm_stack_push(&vm, result);
+
   MeschePort *port = AS_PORT(result);
   WRITE_CHAR(port, 'W');
   WRITE_CHAR(port, 'o');
@@ -174,6 +176,8 @@ static void writes_chars_to_string_port() {
     FAIL("Couldn't get output string due to error: %s", AS_ERROR(result)->message->chars);
   }
 
+  mesche_vm_stack_push(&vm, result);
+
   // Verify that the string was written!
   ObjectString *str = AS_STRING(result);
   result = mesche_io_make_string_port(&vm, MeschePortKindInput, str->chars, str->length);
@@ -181,6 +185,8 @@ static void writes_chars_to_string_port() {
   if (IS_ERROR(result)) {
     FAIL("Failed due to error: %s", AS_ERROR(result)->message->chars);
   }
+
+  mesche_vm_stack_push(&vm, result);
 
   port = AS_PORT(result);
   EXPECT_CHAR(port, 'W');
@@ -204,6 +210,8 @@ static void writes_strings_to_file_port() {
     FAIL("Failed due to error: %s", AS_ERROR(result)->message->chars);
   }
 
+  mesche_vm_stack_push(&vm, result);
+
   MeschePort *port = AS_PORT(result);
   WRITE_STRING(port, "Hello\n");
   WRITE_STRING(port, "World");
@@ -219,6 +227,8 @@ static void writes_strings_to_file_port() {
   if (IS_ERROR(result)) {
     FAIL("Failed due to error: %s", AS_ERROR(result)->message->chars);
   }
+
+  mesche_vm_stack_push(&vm, result);
 
   port = AS_PORT(result);
   EXPECT_STRING(port, "Hello");
@@ -236,6 +246,8 @@ static void writes_strings_to_string_port() {
     FAIL("Failed due to error: %s", AS_ERROR(result)->message->chars);
   }
 
+  mesche_vm_stack_push(&vm, result);
+
   MeschePort *port = AS_PORT(result);
   WRITE_STRING(port, "Hello\n");
   WRITE_STRING(port, "World");
@@ -250,6 +262,8 @@ static void writes_strings_to_string_port() {
     FAIL("Couldn't get output string due to error: %s", AS_ERROR(result)->message->chars);
   }
 
+  mesche_vm_stack_push(&vm, result);
+
   // Verify that the string was written!
   ObjectString *str = AS_STRING(result);
   result = mesche_io_make_string_port(&vm, MeschePortKindInput, str->chars, str->length);
@@ -257,6 +271,8 @@ static void writes_strings_to_string_port() {
   if (IS_ERROR(result)) {
     FAIL("Failed due to error: %s", AS_ERROR(result)->message->chars);
   }
+
+  mesche_vm_stack_push(&vm, result);
 
   port = AS_PORT(result);
   EXPECT_STRING(port, "Hello");

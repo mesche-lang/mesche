@@ -30,8 +30,10 @@ Value mesche_error(VM *vm, const char *format, ...) {
 
   // Allocate the error and the string for the message
   ObjectString *message = mesche_object_make_string(vm, buffer, ERROR_MAX_LENGTH - remaining);
+  mesche_vm_stack_push(vm, OBJECT_VAL(message));
   MescheError *error = ALLOC_OBJECT(vm, MescheError, ObjectKindError);
   error->message = message;
+  mesche_vm_stack_pop(vm);
 
   return OBJECT_VAL(error);
 }
