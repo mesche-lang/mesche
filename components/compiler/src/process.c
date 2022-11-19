@@ -12,36 +12,19 @@
 #include "util.h"
 #include "vm-impl.h"
 
-typedef enum { PROCESS_NOT_STARTED, PROCESS_RUNNING, PROCESS_FINISHED } MescheProcessState;
-
-typedef struct {
-  pid_t id;
-  int exit_code;
-  MescheProcessState state;
-  MeschePort *stdout_fp;
-  MeschePort *stderr_fp;
-} MescheProcess;
-
-void process_free_func(MescheMemory *mem, void *obj) {
-  // TODO: Close streams
-  MescheProcess *process = (MescheProcess *)obj;
-  free(process);
-}
-
-const ObjectPointerType MescheProcessType = {.name = "process", .free_func = process_free_func};
-
 void process_init(MescheProcess *process) {
   process->id = 0;
   process->state = PROCESS_NOT_STARTED;
   process->exit_code = -1;
-  process->stdout_fp = NULL;
-  process->stderr_fp = NULL;
+  process->stdout_port = NULL;
+  process->stderr_port = NULL;
 }
 
 #define PIPE_FD 0
 #define PIPE_INHERIT 1
 
-MescheProcess *mesche_process_start(char *program_path, char *const argv[], char pipe_config[3]) {
+MescheProcess *mesche_process_start(VM *vm, char *program_path, char *const argv[],
+                                    char pipe_config[3]) {
   pid_t child_pid;
 
   // Flush output streams before forking
@@ -59,9 +42,10 @@ MescheProcess *mesche_process_start(char *program_path, char *const argv[], char
     return NULL;
   }
 
-  MescheProcess *process = malloc(sizeof(MescheProcess));
+  MescheProcess *process = ALLOC_OBJECT(vm, MescheProcess, ObjectKindProcess);
   process_init(process);
   process->id = child_pid;
+  process->state = PROCESS_RUNNING;
 
   // We're inside the child process
   if (child_pid == 0) {
@@ -83,17 +67,28 @@ MescheProcess *mesche_process_start(char *program_path, char *const argv[], char
     // Execute the program
     execvp(program_path, argv);
   } else {
+    // Add the process before we start allocating ports so that we avoid GC
+    // sweeps
+    mesche_vm_stack_push(vm, OBJECT_VAL(process));
+
     // Set up a file pointer for reading child process stdout
     close(stdout_fd[1]);
     if (pipe_config[STDOUT_FILENO] == PIPE_FD) {
-      process->stdout_fp = fdopen(stdout_fd[0], "r");
+      FILE *fp = fdopen(stdout_fd[0], "r");
+      process->stdout_port =
+          AS_PORT(mesche_io_make_file_port(vm, MeschePortKindInput, fp, "stdout", 0));
     }
 
     // Set up a file pointer for reading child process stderr
     close(stderr_fd[1]);
     if (pipe_config[STDERR_FILENO] == PIPE_FD) {
-      process->stderr_fp = fdopen(stderr_fd[0], "r");
+      FILE *fp = fdopen(stderr_fd[0], "r");
+      process->stderr_port =
+          AS_PORT(mesche_io_make_file_port(vm, MeschePortKindInput, fp, "stderr", 0));
     }
+
+    // Remove the process from the stack
+    mesche_vm_stack_pop(vm);
 
     return process;
   }
@@ -125,16 +120,31 @@ int mesche_process_result(MescheProcess *process) {
   return WEXITSTATUS(status);
 }
 
-void mesche_process_free(MescheProcess *process) {
-  // Close file descriptors
-  if (process->stdout_fp) {
-    fclose(process->stdout_fp);
-  }
-  if (process->stderr_fp) {
-    fclose(process->stderr_fp);
+void mesche_process_print(MeschePort *output_port, MescheProcess *process, MeschePrintStyle style) {
+  fputs("#<process ", output_port->data.file.fp);
+
+  typedef enum { PROCESS_NOT_STARTED, PROCESS_RUNNING, PROCESS_FINISHED } MescheProcessState;
+  switch (process->state) {
+  case PROCESS_NOT_STARTED:
+    fputs("not started", output_port->data.file.fp);
+    break;
+  case PROCESS_RUNNING:
+    fputs("running", output_port->data.file.fp);
+    break;
+  case PROCESS_FINISHED:
+    fprintf(output_port->data.file.fp, "finished, code: %d", process->exit_code);
+    break;
   }
 
-  free(process);
+  fputs(">", output_port->data.file.fp);
+}
+
+void mesche_free_process(VM *vm, MescheProcess *process) {
+  // Release handles to ports, they will clean themselves up once freed
+  process->stdout_port = NULL;
+  process->stderr_port = NULL;
+
+  FREE(vm, MescheProcess, process);
 }
 
 char *mesche_process_executable_path(void) {
@@ -151,12 +161,11 @@ char *mesche_process_executable_path(void) {
   }
 }
 
-Value process_arguments_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value process_arguments_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 0) {
     PANIC("Function does not accept arguments.");
   }
 
-  VM *vm = (VM *)mem;
   Value first = EMPTY_VAL;
   for (int i = vm->arg_count - 1; i >= 0; i--) {
     ObjectString *arg_string =
@@ -182,17 +191,17 @@ Value process_arguments_msc(MescheMemory *mem, int arg_count, Value *args) {
   return first;
 }
 
-Value process_directory_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value process_directory_msc(VM *vm, int arg_count, Value *args) {
   char cwd[512];
   char *current_path = getcwd(cwd, sizeof(cwd));
-  return OBJECT_VAL(mesche_object_make_string((VM *)mem, current_path, strlen(current_path)));
+  return OBJECT_VAL(mesche_object_make_string(vm, current_path, strlen(current_path)));
 }
 
-Value process_directory_set_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value process_directory_set_msc(VM *vm, int arg_count, Value *args) {
   return chdir(AS_CSTRING(args[0])) == 0 ? TRUE_VAL : FALSE_VAL;
 }
 
-MescheProcess *process_start_inner(int arg_count, Value *args) {
+MescheProcess *process_start_inner(VM *vm, int arg_count, Value *args) {
   // char **argv = malloc(sizeof(char *) * (arg_count + 1));
   char *argv[100];
 
@@ -270,42 +279,41 @@ MescheProcess *process_start_inner(int arg_count, Value *args) {
     }
   }
 
-  MescheProcess *process = mesche_process_start(argv[0], argv, pipe_config);
+  MescheProcess *process = mesche_process_start(vm, argv[0], argv, pipe_config);
   free(command_str);
 
   return process;
 }
 
-Value process_start_msc(MescheMemory *mem, int arg_count, Value *args) {
-  MescheProcess *process = process_start_inner(arg_count, args);
-  return OBJECT_VAL(mesche_object_make_pointer_type((VM *)mem, process, &MescheProcessType));
+Value process_start_msc(VM *vm, int arg_count, Value *args) {
+  MescheProcess *process = process_start_inner(vm, arg_count, args);
+  return OBJECT_VAL(process);
 }
 
-Value process_start_sync_msc(MescheMemory *mem, int arg_count, Value *args) {
-  MescheProcess *process = process_start_inner(arg_count, args);
-
+Value process_start_sync_msc(VM *vm, int arg_count, Value *args) {
+  MescheProcess *process = process_start_inner(vm, arg_count, args);
   int exit_code = mesche_process_result(process);
-  return OBJECT_VAL(mesche_object_make_pointer_type((VM *)mem, process, &MescheProcessType));
+  return OBJECT_VAL(process);
 }
 
-Value process_exit_code_msc(MescheMemory *mem, int arg_count, Value *args) {
-  MescheProcess *process = (MescheProcess *)AS_POINTER(args[0])->ptr;
+Value process_exit_code_msc(VM *vm, int arg_count, Value *args) {
+  MescheProcess *process = (MescheProcess *)AS_PROCESS(args[0]);
   return NUMBER_VAL(process->exit_code);
 }
 
-Value process_stdout_msc(MescheMemory *mem, int arg_count, Value *args) {
-  MescheProcess *process = (MescheProcess *)AS_POINTER(args[0])->ptr;
-  if (process->stdout_fp) {
-    return OBJECT_VAL(mesche_object_make_pointer((VM *)mem, process->stdout_fp, false));
+Value process_stdout_msc(VM *vm, int arg_count, Value *args) {
+  MescheProcess *process = (MescheProcess *)AS_PROCESS(args[0]);
+  if (process->stdout_port) {
+    return OBJECT_VAL(process->stdout_port);
   }
 
   return FALSE_VAL;
 }
 
-Value process_stderr_msc(MescheMemory *mem, int arg_count, Value *args) {
-  MescheProcess *process = (MescheProcess *)AS_POINTER(args[0])->ptr;
-  if (process->stderr_fp) {
-    return OBJECT_VAL(mesche_object_make_pointer((VM *)mem, process->stderr_fp, false));
+Value process_stderr_msc(VM *vm, int arg_count, Value *args) {
+  MescheProcess *process = (MescheProcess *)AS_PROCESS(args[0]);
+  if (process->stderr_port) {
+    return OBJECT_VAL(process->stderr_port);
   }
 
   return FALSE_VAL;

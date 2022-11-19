@@ -40,6 +40,7 @@ typedef enum {
   ObjectKindPointer,
   ObjectKindModule,
   ObjectKindPort,
+  ObjectKindProcess,
   ObjectKindRecord,
   ObjectKindRecordInstance,
   ObjectKindRecordPredicate,

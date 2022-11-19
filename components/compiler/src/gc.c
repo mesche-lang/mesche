@@ -4,6 +4,7 @@
 #include "error.h"
 #include "native.h"
 #include "object.h"
+#include "process.h"
 #include "record.h"
 #include "util.h"
 #include "vm-impl.h"
@@ -195,6 +196,16 @@ static void gc_darken_object(VM *vm, Object *object) {
     gc_mark_array(vm, &module->imports);
     gc_mark_array(vm, &module->exports);
     mesche_gc_mark_object(vm, (Object *)module->init_function);
+    break;
+  }
+  case ObjectKindProcess: {
+    MescheProcess *process = (MescheProcess *)object;
+    if (process->stdout_port) {
+      mesche_gc_mark_object(vm, (Object *)process->stdout_port);
+    }
+    if (process->stderr_port) {
+      mesche_gc_mark_object(vm, (Object *)process->stderr_port);
+    }
     break;
   }
   case ObjectKindRecord: {

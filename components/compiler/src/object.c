@@ -10,6 +10,7 @@
 #include "mem.h"
 #include "native.h"
 #include "object.h"
+#include "process.h"
 #include "record.h"
 #include "string.h"
 #include "symbol.h"
@@ -105,6 +106,9 @@ void mesche_object_free(VM *vm, Object *object) {
     break;
   case ObjectKindPort:
     mesche_free_port(vm, (MeschePort *)object);
+    break;
+  case ObjectKindProcess:
+    mesche_free_process(vm, (MescheProcess *)object);
     break;
   case ObjectKindRecord: {
     mesche_free_record(vm, (ObjectRecord *)object);
@@ -235,6 +239,9 @@ void mesche_object_print_ex(MeschePort *port, Value value, MeschePrintStyle styl
   }
   case ObjectKindPort:
     mesche_io_port_print(port, AS_PORT(value), style);
+    break;
+  case ObjectKindProcess:
+    mesche_process_print(port, AS_PROCESS(value), style);
     break;
   case ObjectKindRecord: {
     ObjectRecord *record = (ObjectRecord *)AS_OBJECT(value);
