@@ -16,7 +16,7 @@ void mesche_gc_mark_object(VM *vm, Object *object) {
 
 #ifdef DEBUG_LOG_GC
   printf("%p    mark    ", object);
-  mesche_value_print(OBJECT_VAL(object));
+  mesche_value_print(vm->output_port, OBJECT_VAL(object));
   printf("\n");
 #endif
 
@@ -110,7 +110,7 @@ static void gc_mark_roots(void *target) {
 static void gc_darken_object(VM *vm, Object *object) {
 #ifdef DEBUG_LOG_GC
   printf("%p    darken ", (void *)object);
-  mesche_value_print(OBJECT_VAL(object));
+  mesche_value_print(vm->output_port, OBJECT_VAL(object));
   printf("\n");
 #endif
 

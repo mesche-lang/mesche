@@ -161,7 +161,17 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->expander = NULL;
   vm->quote_symbol = NULL;
   vm->current_reset_marker = NULL;
+  vm->open_upvalues = NULL;
+  vm->input_port = NULL;
+  vm->output_port = NULL;
+  vm->error_port = NULL;
   vm->stack_top = vm->stack;
+
+  // Initialize the interned string, symbol, and keyword tables
+  mesche_table_init(&vm->strings);
+  mesche_table_init(&vm->symbols);
+  mesche_table_init(&vm->keywords);
+  mesche_table_init(&vm->modules);
 
   // Set up ports for standard file descriptors
   vm->input_port = AS_PORT(mesche_io_make_file_port(vm, MeschePortKindInput, stdin, "stdin", 0));
@@ -171,12 +181,6 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
   vm->output_port->can_close = false;
   vm->error_port = AS_PORT(mesche_io_make_file_port(vm, MeschePortKindOutput, stderr, "stderr", 0));
   vm->error_port->can_close = false;
-
-  // Initialize the interned string, symbol, and keyword tables
-  mesche_table_init(&vm->strings);
-  mesche_table_init(&vm->symbols);
-  mesche_table_init(&vm->keywords);
-  mesche_table_init(&vm->modules);
 
   // Initialize reusable symbols
   vm->quote_symbol = mesche_object_make_symbol(vm, "quote", 5);

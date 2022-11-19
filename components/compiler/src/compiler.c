@@ -754,7 +754,10 @@ static Value compiler_parse_lambda_inner(CompilerContext *ctx, Value formals, Va
   MAYBE_SYMBOL(formals, param);
   if (param != NULL) {
     // The formals list isn't a list, it's a single rest parameter
+    uint8_t constant = compiler_resolve_symbol(&func_ctx, formals, param, false);
+    compiler_define_variable(&func_ctx, formals, constant);
     func_ctx.function->rest_arg_index = 1;
+    func_ctx.function->arity++;
   } else if (!MAYBE_EMPTY(formals)) {
     while (!IS_EMPTY(formals)) {
       Value this_param;
@@ -1332,7 +1335,8 @@ static bool compiler_emit_operator_call(CompilerContext *ctx, Value syntax, Obje
 
 // TODO: This should be in `core`?
 static Value compiler_parse_load_file(CompilerContext *ctx, Value syntax) {
-  OK(compiler_parse_expr(ctx, syntax));
+  EXPECT_CONS(ctx, syntax, "load-file: Expected expression");
+  OK(compiler_parse_expr(ctx, HEAD(syntax)));
   compiler_emit_byte(ctx, syntax, OP_LOAD_FILE);
 
   MOVE_NEXT(ctx, syntax);

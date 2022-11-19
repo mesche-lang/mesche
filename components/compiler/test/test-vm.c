@@ -57,9 +57,11 @@ static void calls_function_with_rest_args() {
   VM_INIT();
   Value value;
 
-  VM_EVAL("(module-import (mesche list))"
-          "(define (with-rest x . args)"
-          "  (car (cdr (cdr args))))"
+  VM_EVAL("(define-module (test call)\n"
+          "  (import (mesche list)\n"
+          "          (mesche string)))\n"
+          "(define (with-rest x . args)\n"
+          "  (car (cdr (cdr args))))\n"
           "(with-rest 1 2 3 4)",
           INTERPRET_OK);
 
