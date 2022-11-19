@@ -13,7 +13,7 @@ typedef struct {
 } MescheStringPortData;
 
 typedef struct {
-  char *name;
+  ObjectString *name;
   FILE *fp;
 } MescheFilePortData;
 

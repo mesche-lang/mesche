@@ -74,11 +74,17 @@ Value mesche_io_make_string_port(VM *vm, MeschePortKind kind, char *input_string
 
 Value mesche_io_make_file_port(VM *vm, MeschePortKind kind, FILE *fp, char *port_name, int flags) {
   MeschePort *port = ALLOC_OBJECT(vm, MeschePort, ObjectKindPort);
+  mesche_vm_stack_push(vm, OBJECT_VAL(port));
+
   port_common_init(port, kind);
   port->kind = kind;
   port->data_kind = MeschePortDataKindFile;
-  port->data.file.name = strdup(port_name);
   port->data.file.fp = fp;
+
+  ObjectString *name_str = mesche_object_make_string(vm, port_name, strlen(port_name));
+  port->data.file.name = name_str;
+
+  mesche_vm_stack_pop(vm);
 
   return OBJECT_VAL(port);
 }
@@ -128,11 +134,6 @@ void mesche_free_port(VM *vm, MeschePort *port) {
     port->data.string.buffer = realloc(port->data.string.buffer, 0);
     port->data.string.size = 0;
     port->data.string.index = 0;
-  } else if (port->data_kind == MeschePortDataKindFile) {
-    // We duplicated the original port name so free it
-    if (port->data.file.name) {
-      free(port->data.file.name);
-    }
   }
 
   FREE(vm, MeschePort, port);
@@ -292,7 +293,7 @@ void mesche_io_port_print(MeschePort *output_port, MeschePort *port, MeschePrint
 
     if (port->data_kind == MeschePortDataKindFile) {
       fprintf(output_port->data.file.fp, "file %s",
-              port->data.file.name ? port->data.file.name : "(unnamed)");
+              port->data.file.name ? port->data.file.name->chars : "(unnamed)");
     } else {
       fprintf(output_port->data.file.fp, "string");
       /* fprintf(output_port->data.file.fp, "string %s", */
