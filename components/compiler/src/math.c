@@ -7,12 +7,12 @@
 #include "object.h"
 #include "util.h"
 
-Value math_floor_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value math_floor_msc(VM *vm, int arg_count, Value *args) {
   // TODO: Add type check
   return NUMBER_VAL(floor(AS_NUMBER(args[0])));
 }
 
-Value math_rand_int_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value math_rand_int_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
@@ -21,7 +21,7 @@ Value math_rand_int_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(rand() % (int)AS_NUMBER(args[0]));
 }
 
-Value math_sin_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value math_sin_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
@@ -30,7 +30,7 @@ Value math_sin_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(sin(AS_NUMBER(args[0])));
 }
 
-Value math_abs_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value math_abs_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 1) {
     PANIC("Function requires 1 parameter.");
   }
@@ -39,7 +39,7 @@ Value math_abs_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(fabs(AS_NUMBER(args[0])));
 }
 
-Value math_min_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value math_min_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 2) {
     PANIC("Function requires 2 parameters.");
   }
@@ -48,7 +48,7 @@ Value math_min_msc(MescheMemory *mem, int arg_count, Value *args) {
   return NUMBER_VAL(fmin(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
 }
 
-Value math_max_msc(MescheMemory *mem, int arg_count, Value *args) {
+Value math_max_msc(VM *vm, int arg_count, Value *args) {
   if (arg_count != 2) {
     PANIC("Function requires 2 parameters.");
   }
