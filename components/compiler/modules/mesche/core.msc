@@ -30,7 +30,7 @@
   (let loop ((rest list))
     (if (pair? rest)
         (if (test (car rest))
-            (cdr rest)
+            rest
             (loop (cdr rest))))))
 
 (define (assq key alist)
