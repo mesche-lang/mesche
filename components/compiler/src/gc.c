@@ -130,7 +130,9 @@ static void gc_darken_object(VM *vm, Object *object) {
   case ObjectKindSyntax: {
     ObjectSyntax *syntax = (ObjectSyntax *)object;
     gc_mark_value(vm, syntax->value);
-    mesche_gc_mark_object(vm, (Object *)syntax->file_name);
+    if (syntax->file_name) {
+      mesche_gc_mark_object(vm, (Object *)syntax->file_name);
+    }
     break;
   }
   case ObjectKindError: {
@@ -172,6 +174,11 @@ static void gc_darken_object(VM *vm, Object *object) {
     ObjectFunction *function = (ObjectFunction *)object;
     mesche_gc_mark_object(vm, (Object *)function->name);
     gc_mark_array(vm, &function->chunk.constants);
+
+    // Mark the file name string
+    if (function->chunk.file_name) {
+      mesche_gc_mark_object(vm, (Object *)function->chunk.file_name);
+    }
 
     // Mark strings associated with keyword arguments
     for (int i = 0; i < function->keyword_args.count; i++) {

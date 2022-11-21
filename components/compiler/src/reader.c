@@ -31,7 +31,6 @@ void mesche_reader_from_file(ReaderContext *context, Reader *reader, const char 
 
 void mesche_reader_from_string(ReaderContext *context, Reader *reader, const char *source) {
   reader->context = context;
-  reader->file_name = NULL;
   mesche_scanner_init(&reader->scanner, source);
 }
 

@@ -131,6 +131,7 @@ typedef struct CompilerContext {
   ObjectModule *module; // NOTE: Might be null if not compiling module
   ObjectFunction *function;
   FunctionType function_type;
+  ObjectString *file_name;
 
   Local locals[UINT8_COUNT];
   int local_count;
@@ -172,10 +173,12 @@ static void compiler_init_context(CompilerContext *ctx, CompilerContext *parent,
   if (parent != NULL) {
     ctx->parent = parent;
     ctx->vm = parent->vm;
+    ctx->file_name = parent->file_name;
   }
 
   // Set up the compiler state for this scope
   ctx->function = mesche_object_make_function(ctx->vm, type);
+  ctx->function->chunk.file_name = ctx->file_name;
   ctx->function_type = type;
   ctx->module = module;
   ctx->local_count = 0;
@@ -201,7 +204,7 @@ static void compiler_emit_byte(CompilerContext *ctx, Value syntax, uint8_t byte)
     file_name = AS_SYNTAX(syntax)->file_name;
   }
 
-  ctx->function->chunk.file_name = file_name;
+  /* ctx->function->chunk.file_name = file_name; */
   mesche_chunk_write(ctx->mem, &ctx->function->chunk, byte, line);
 }
 
@@ -1536,7 +1539,7 @@ Value compile_all(CompilerContext *ctx, Reader *reader) {
 
 Value mesche_compile_source(VM *vm, Reader *reader) {
   // Set up the context
-  CompilerContext ctx = {.vm = vm};
+  CompilerContext ctx = {.vm = vm, .file_name = reader->file_name};
 
   // Set up the compilation context
   compiler_init_context(&ctx, NULL, TYPE_SCRIPT, NULL);
@@ -1552,7 +1555,7 @@ Value mesche_compile_source(VM *vm, Reader *reader) {
 
 Value mesche_compile_module(VM *vm, ObjectModule *module, Reader *reader) {
   // Set up the context
-  CompilerContext ctx = {.vm = vm};
+  CompilerContext ctx = {.vm = vm, .file_name = reader->file_name};
 
   // Set up the compilation context
   compiler_init_context(&ctx, NULL, TYPE_SCRIPT, module);
