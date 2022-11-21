@@ -45,6 +45,17 @@ void mesche_io_module_init(VM *vm);
   }                                                                                                \
   printf("\n");
 
+#define PRINT_CALL_STACK()                                                                         \
+  printf("\nCall Stack:\n");                                                                       \
+  for (int i = 0; i < vm->frame_count; i++) {                                                      \
+    printf("  %3d: ", i);                                                                          \
+    mesche_value_print(vm->output_port, OBJECT_VAL(vm->frames[i].closure));                        \
+    if (i == vm->current_reset_marker->frame_index) {                                              \
+      printf(" [reset]");                                                                          \
+    }                                                                                              \
+    printf("\n");                                                                                  \
+  }
+
 void mesche_vm_stack_push(VM *vm, Value value) {
   *vm->stack_top = value;
   vm->stack_top++;
@@ -84,6 +95,8 @@ void mesche_vm_raise_error(VM *vm, const char *format, ...) {
   int line = frame->closure->function->chunk.lines[instruction];
   ObjectString *file_name = frame->closure->function->chunk.file_name;
   fprintf(stderr, "[line %d] in %s\n", line, file_name ? file_name->chars : "script");
+
+  PRINT_CALL_STACK();
 
   // TODO: Start debugger if necessary
   vm_reset_stack(vm);
