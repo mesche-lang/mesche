@@ -28,4 +28,6 @@ ObjectModule *mesche_module_resolve_by_name(VM *vm, ObjectString *module_name, b
 ObjectModule *mesche_module_resolve_by_name_string(VM *vm, const char *module_name, bool run_init);
 void mesche_module_import(VM *vm, ObjectModule *from_module, ObjectModule *to_module);
 
+void mesche_module_module_init(VM *vm);
+
 #endif

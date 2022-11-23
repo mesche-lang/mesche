@@ -3,6 +3,7 @@
 
 #include "fs.h"
 #include "module.h"
+#include "native.h"
 #include "object.h"
 #include "string.h"
 #include "table.h"
@@ -147,4 +148,26 @@ void mesche_module_import(VM *vm, ObjectModule *from_module, ObjectModule *to_mo
     mesche_table_get(&from_module->locals, export_name, &export_value);
     mesche_table_set((MescheMemory *)vm, &to_module->locals, export_name, export_value);
   }
+}
+
+Value module_current_msc(VM *vm, int arg_count, Value *args) {
+  EXPECT_ARG_COUNT(0);
+  return vm->current_module ? OBJECT_VAL(vm->current_module) : FALSE_VAL;
+}
+
+Value module_name_msc(VM *vm, int arg_count, Value *args) {
+  ObjectModule *module = NULL;
+  EXPECT_ARG_COUNT(1);
+  EXPECT_OBJECT_KIND(ObjectKindModule, 0, AS_MODULE, module);
+
+  // TODO: Return the list of symbols!
+  return OBJECT_VAL(module->name);
+}
+
+void mesche_module_module_init(VM *vm) {
+  mesche_vm_define_native_funcs(
+      vm, "mesche module",
+      (MescheNativeFuncDetails[]){{"current-module", module_current_msc, true},
+                                  {"module-name", module_name_msc, true},
+                                  {NULL, NULL, false}});
 }

@@ -155,6 +155,7 @@ void mesche_vm_register_core_modules(VM *vm, char *module_path) {
   mesche_array_module_init(vm);
   mesche_string_module_init(vm);
   mesche_reader_module_init(vm);
+  mesche_module_module_init(vm);
   mesche_compiler_module_init(vm);
   mesche_process_module_init(vm);
 }
