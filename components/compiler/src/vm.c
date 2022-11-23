@@ -21,6 +21,7 @@
 #include "native.h"
 #include "object.h"
 #include "op.h"
+#include "port.h"
 #include "process.h"
 #include "record.h"
 #include "string.h"
@@ -218,9 +219,6 @@ void mesche_vm_init(VM *vm, int arg_count, char **arg_array) {
 
   // Reset the stack
   vm_reset_stack(vm);
-
-  // Set up the reader context
-  mesche_reader_init(&vm->reader_context, vm);
 }
 
 void mesche_vm_free(VM *vm) {
@@ -1517,10 +1515,19 @@ static InterpretResult vm_eval_internal(VM *vm, const char *script_string, const
     mesche_vm_stack_push(vm, OBJECT_VAL(file_name_str));
   }
 
+  // Create a port to read the file
+  // TODO: This function should receive a port directly!
+  MeschePort *port = AS_PORT(
+      mesche_io_make_string_port(vm, MeschePortKindInput, script_string, strlen(script_string)));
+  mesche_vm_stack_push(vm, OBJECT_VAL(port));
+
   // Create a new reader for this input and compile it
   Reader reader;
-  mesche_reader_from_file(&vm->reader_context, &reader, script_string, file_name_str);
+  mesche_reader_init(&reader, vm, port, file_name_str);
   Value compile_result = mesche_compile_source(vm, &reader);
+
+  // Pop the port
+  mesche_vm_stack_pop(vm);
 
   // The file name should have been used for syntaxes now so pop it from the stack
   if (file_name) {
@@ -1567,7 +1574,9 @@ InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *
 
   // Create a new reader for this input
   Reader reader;
-  mesche_reader_from_file(&vm->reader_context, &reader, source, module_path_str);
+  MeschePort *port =
+      AS_PORT(mesche_io_make_string_port(vm, MeschePortKindInput, source, strlen(source)));
+  mesche_reader_init(&reader, vm, port, module_path_str);
 
   // Compile the module source
   Value compile_result = mesche_compile_module(vm, module, &reader);

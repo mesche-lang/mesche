@@ -9,9 +9,13 @@ static Reader reader;
 
 #define READER_INIT(source)                                                                        \
   ObjectSyntax *current_syntax;                                                                    \
+  MeschePort *input_port;                                                                          \
   InterpretResult result;                                                                          \
   mesche_vm_init(&vm, 0, NULL);                                                                    \
-  mesche_reader_from_string(&vm.reader_context, &reader, source);
+  input_port =                                                                                     \
+      AS_PORT(mesche_io_make_string_port(&vm, MeschePortKindInput, source, strlen(source)));       \
+  mesche_vm_stack_push(&vm, OBJECT_VAL(input_port));                                               \
+  mesche_reader_init(&reader, &vm, input_port, NULL);
 
 #define READ_NEXT()                                                                                \
   current_syntax = AS_SYNTAX(mesche_reader_read_next(&reader));                                    \

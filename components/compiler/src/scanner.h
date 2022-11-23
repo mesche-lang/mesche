@@ -1,6 +1,11 @@
 #ifndef mesche_scanner_h
 #define mesche_scanner_h
 
+#include "io.h"
+#include "vm.h"
+
+#define SCANNER_BUFFER_MAX 1024
+
 typedef enum {
   TokenKindNone,
   TokenKindLeftParen,
@@ -56,7 +61,11 @@ typedef enum {
 
 typedef struct {
   const char *start;
-  const char *current;
+  VM *vm;
+  MeschePort *port;
+  char buffer[SCANNER_BUFFER_MAX];
+  char peeks[2];
+  int count;
   int line;
   int column;
   const char *file_name;
@@ -70,7 +79,7 @@ typedef struct {
   int line;
 } Token;
 
-void mesche_scanner_init(Scanner *scanner, const char *source);
+void mesche_scanner_init(Scanner *scanner, VM *vm, MeschePort *port);
 Token mesche_scanner_next_token(Scanner *scanner);
 
 #endif

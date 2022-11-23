@@ -14,24 +14,11 @@
 // The Mesche reader loosely follows the specification in R7RS section 7.1.2,
 // "External representations" and adds some extra datums like keywords.
 
-void mesche_reader_init(ReaderContext *context, struct VM *vm) { context->vm = vm; }
-
-void mesche_reader_from_port(ReaderContext *context, Reader *reader, MeschePort *port) {
-  // TODO: Support from string too!
-  reader->context = context;
-  reader->file_name = port->data.file.name;
-  /* mesche_reader_from_string(context, reader, source); */
-}
-
-void mesche_reader_from_file(ReaderContext *context, Reader *reader, const char *source,
-                             ObjectString *file_name) {
+void mesche_reader_init(Reader *reader, VM *vm, MeschePort *port, ObjectString *file_name) {
+  // TODO: Pick the file name from a file port if given one
+  reader->vm = vm;
   reader->file_name = file_name;
-  mesche_reader_from_string(context, reader, source);
-}
-
-void mesche_reader_from_string(ReaderContext *context, Reader *reader, const char *source) {
-  reader->context = context;
-  mesche_scanner_init(&reader->scanner, source);
+  mesche_scanner_init(&reader->scanner, vm, port);
 }
 
 Value mesche_reader_read_next(Reader *reader) {
@@ -43,10 +30,9 @@ Value mesche_reader_read_next(Reader *reader) {
   bool is_quoted = false;
 
 #define SYNTAX(out_var, value, token)                                                              \
-  mesche_vm_stack_push(reader->context->vm, value);                                                \
-  out_var = mesche_object_make_syntax(reader->context->vm, token.line, 0, 0, 0, reader->file_name, \
-                                      value);                                                      \
-  mesche_vm_stack_pop(reader->context->vm);
+  mesche_vm_stack_push(reader->vm, value);                                                         \
+  out_var = mesche_object_make_syntax(reader->vm, token.line, 0, 0, 0, reader->file_name, value);  \
+  mesche_vm_stack_pop(reader->vm);
 
   // TODO: It seems like all cons pairs created in FINISH should have their
   // syntaxes updated to include the full range of their portion of the list...
@@ -61,20 +47,19 @@ Value mesche_reader_read_next(Reader *reader) {
      */                                                                                            \
     ObjectSyntax *quote_syntax, *cons_syntax, *value_syntax;                                       \
     SYNTAX(value_syntax, value, token)                                                             \
-    mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(value_syntax));                           \
-    SYNTAX(quote_syntax, OBJECT_VAL(reader->context->vm->quote_symbol), token)                     \
-    mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(quote_syntax));                           \
-    ObjectCons *cons =                                                                             \
-        mesche_object_make_cons(reader->context->vm, OBJECT_VAL(value_syntax), EMPTY_VAL);         \
-    mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(quote_syntax));                           \
+    mesche_vm_stack_push(reader->vm, OBJECT_VAL(value_syntax));                                    \
+    SYNTAX(quote_syntax, OBJECT_VAL(reader->vm->quote_symbol), token)                              \
+    mesche_vm_stack_push(reader->vm, OBJECT_VAL(quote_syntax));                                    \
+    ObjectCons *cons = mesche_object_make_cons(reader->vm, OBJECT_VAL(value_syntax), EMPTY_VAL);   \
+    mesche_vm_stack_push(reader->vm, OBJECT_VAL(quote_syntax));                                    \
     SYNTAX(cons_syntax, OBJECT_VAL(cons), token)                                                   \
-    mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(cons_syntax));                            \
-    value = OBJECT_VAL(mesche_object_make_cons(reader->context->vm, OBJECT_VAL(quote_syntax),      \
-                                               OBJECT_VAL(cons_syntax)));                          \
-    mesche_vm_stack_pop(reader->context->vm);                                                      \
-    mesche_vm_stack_pop(reader->context->vm);                                                      \
-    mesche_vm_stack_pop(reader->context->vm);                                                      \
-    mesche_vm_stack_pop(reader->context->vm);                                                      \
+    mesche_vm_stack_push(reader->vm, OBJECT_VAL(cons_syntax));                                     \
+    value = OBJECT_VAL(                                                                            \
+        mesche_object_make_cons(reader->vm, OBJECT_VAL(quote_syntax), OBJECT_VAL(cons_syntax)));   \
+    mesche_vm_stack_pop(reader->vm);                                                               \
+    mesche_vm_stack_pop(reader->vm);                                                               \
+    mesche_vm_stack_pop(reader->vm);                                                               \
+    mesche_vm_stack_pop(reader->vm);                                                               \
     is_quoted = false;                                                                             \
   }                                                                                                \
   if (current_cons != NULL) {                                                                      \
@@ -90,15 +75,15 @@ Value mesche_reader_read_next(Reader *reader) {
       ObjectSyntax *value_syntax, *cons_syntax;                                                    \
       SYNTAX(value_syntax, value, token)                                                           \
       /* Push the value_syntax so that it doesn't get reclaimed early! */                          \
-      mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(value_syntax));                         \
+      mesche_vm_stack_push(reader->vm, OBJECT_VAL(value_syntax));                                  \
       ObjectCons *next_cons =                                                                      \
-          mesche_object_make_cons(reader->context->vm, OBJECT_VAL(value_syntax), EMPTY_VAL);       \
-      mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(next_cons));                            \
+          mesche_object_make_cons(reader->vm, OBJECT_VAL(value_syntax), EMPTY_VAL);                \
+      mesche_vm_stack_push(reader->vm, OBJECT_VAL(next_cons));                                     \
       SYNTAX(cons_syntax, OBJECT_VAL(next_cons), token)                                            \
       current_cons->cdr = OBJECT_VAL(cons_syntax);                                                 \
       current_cons = next_cons;                                                                    \
-      mesche_vm_stack_pop(reader->context->vm);                                                    \
-      mesche_vm_stack_pop(reader->context->vm);                                                    \
+      mesche_vm_stack_pop(reader->vm);                                                             \
+      mesche_vm_stack_pop(reader->vm);                                                             \
     }                                                                                              \
   } else if (current_head != NULL) {                                                               \
     /* A non-null current_head indicates a new list so populate car with the value. */             \
@@ -150,12 +135,12 @@ Value mesche_reader_read_next(Reader *reader) {
       Value number = NUMBER_VAL(strtod(current.start, NULL));
       FINISH(number, current);
     } else if (current.kind == TokenKindString) {
-      Value str = OBJECT_VAL(
-          mesche_object_make_string(reader->context->vm, current.start + 1, current.length - 2));
+      Value str =
+          OBJECT_VAL(mesche_object_make_string(reader->vm, current.start + 1, current.length - 2));
       FINISH(str, current);
     } else if (current.kind == TokenKindKeyword) {
-      Value keyword = OBJECT_VAL(
-          mesche_object_make_keyword(reader->context->vm, current.start + 1, current.length - 1));
+      Value keyword =
+          OBJECT_VAL(mesche_object_make_keyword(reader->vm, current.start + 1, current.length - 1));
       FINISH(keyword, current);
     } else if (current.kind == TokenKindSymbol) {
       // Is the symbol a dot?
@@ -163,8 +148,7 @@ Value mesche_reader_read_next(Reader *reader) {
         // Treat this as a dotted list
         is_cons_dotted = true;
       } else {
-        ObjectSymbol *symbol =
-            mesche_object_make_symbol(reader->context->vm, current.start, current.length);
+        ObjectSymbol *symbol = mesche_object_make_symbol(reader->vm, current.start, current.length);
         symbol->token_kind = current.sub_kind;
 
         Value symbol_val = OBJECT_VAL(symbol);
@@ -174,19 +158,19 @@ Value mesche_reader_read_next(Reader *reader) {
       // Create a new list
       if (current_head) {
         // Push the current conses to the value stack to prevent GC
-        mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(current_head));
-        mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(current_cons));
+        mesche_vm_stack_push(reader->vm, OBJECT_VAL(current_head));
+        mesche_vm_stack_push(reader->vm, OBJECT_VAL(current_cons));
       }
 
       // Creating a new head and leaving current_cons empty signifies that we
       // created a new list.
-      current_head = mesche_object_make_cons(reader->context->vm, UNSPECIFIED_VAL, EMPTY_VAL);
+      current_head = mesche_object_make_cons(reader->vm, UNSPECIFIED_VAL, EMPTY_VAL);
       current_cons = NULL;
-      mesche_vm_stack_push(reader->context->vm, OBJECT_VAL(current_head));
+      mesche_vm_stack_push(reader->vm, OBJECT_VAL(current_head));
 
       // Push the quote state to the stack too so that everything inside the
       // list doesn't become explicitly quoted
-      mesche_vm_stack_push(reader->context->vm, BOOL_VAL(is_quoted));
+      mesche_vm_stack_push(reader->vm, BOOL_VAL(is_quoted));
       is_quoted = false;
 
       // Increase the list depth
@@ -197,17 +181,17 @@ Value mesche_reader_read_next(Reader *reader) {
       Value list = IS_UNSPECIFIED(current_head->car) ? EMPTY_VAL : OBJECT_VAL(current_head);
 
       // Restore the quote state
-      is_quoted = AS_BOOL(mesche_vm_stack_pop(reader->context->vm));
+      is_quoted = AS_BOOL(mesche_vm_stack_pop(reader->vm));
 
       // Pop the head of the list off the stack and let it go because we don't
       // need it right now
-      mesche_vm_stack_pop(reader->context->vm);
+      mesche_vm_stack_pop(reader->vm);
 
       // Do we have remaining lists to process?
       if (--list_depth > 0) {
         // Restore the previous conses so that this list is added to them
-        current_cons = AS_CONS(mesche_vm_stack_pop(reader->context->vm));
-        current_head = AS_CONS(mesche_vm_stack_pop(reader->context->vm));
+        current_cons = AS_CONS(mesche_vm_stack_pop(reader->vm));
+        current_head = AS_CONS(mesche_vm_stack_pop(reader->vm));
       } else {
         // Clear the conses so that we return the current list as result
         current_cons = NULL;
@@ -232,9 +216,7 @@ static Value reader_read_internal(VM *vm, MeschePort *port) {
   }
 
   Reader reader;
-  ReaderContext context;
-  mesche_reader_init(&context, vm);
-  mesche_reader_from_port(&context, &reader, port);
+  mesche_reader_init(&reader, vm, port, NULL);
   return mesche_reader_read_next(&reader);
 }
 
@@ -248,8 +230,11 @@ Value reader_read_msc(VM *vm, int arg_count, Value *args) {
 
 Value reader_read_syntax_msc(VM *vm, int arg_count, Value *args) {
   MeschePort *port = NULL;
-  EXPECT_ARG_COUNT(1);
-  EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+  if (arg_count == 1) {
+    EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+  } else {
+    port = vm->input_port;
+  }
 
   return reader_read_internal(vm, port);
 }

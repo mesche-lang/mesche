@@ -2,15 +2,21 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "io.h"
+#include "port.h"
 #include "scanner.h"
+#include "value.h"
 
 static Token scanner_make_token(Scanner *scanner, TokenKind kind) {
   Token token;
   token.kind = kind;
   token.sub_kind = kind;
-  token.start = scanner->start;
-  token.length = (int)(scanner->current - scanner->start);
+  token.start = scanner->buffer;
+  token.length = scanner->count;
   token.line = scanner->line;
+
+  // Reset buffer tracking
+  scanner->count = 0;
 
   return token;
 }
@@ -26,18 +32,68 @@ static Token scanner_make_error_token(Scanner *scanner, const char *message) {
 }
 
 static char scanner_next_char(Scanner *scanner) {
-  scanner->current++;
-  return scanner->current[-1];
+  // Return the peeked char
+  char c = 0;
+  if (scanner->peeks[0] > 0) {
+    c = scanner->peeks[0];
+    scanner->peeks[0] = scanner->peeks[1];
+    scanner->peeks[1] = 0;
+  } else {
+    Value next = mesche_port_read_char(scanner->vm, scanner->port);
+    c = AS_CHAR(next);
+  }
+
+  scanner->buffer[scanner->count] = c;
+  scanner->buffer[scanner->count + 1] = 0;
+  scanner->count++;
+
+  return c;
 }
 
-static bool scanner_at_end(Scanner *scanner) { return *scanner->current == '\0'; }
+static void scanner_skip_char(Scanner *scanner) {
+  // Read the next char but don't increment the count, effectively overwriting
+  // this character when reading the following character
+  int count = scanner->count;
+  scanner_next_char(scanner);
+  scanner->count = count;
+}
 
-static char scanner_peek(Scanner *scanner) { return *scanner->current; }
+static bool scanner_at_end(Scanner *scanner) {
+  // We're not at the end if we have any peek chars
+  if (scanner->peeks[0] > 0 || scanner->peeks[1] > 0)
+    return false;
+
+  Value next = mesche_port_peek_char(scanner->vm, scanner->port);
+  return IS_EOF(next);
+}
+
+static char scanner_peek(Scanner *scanner) {
+  if (scanner->peeks[0] > 0) {
+    return scanner->peeks[0];
+  }
+
+  Value next = mesche_port_read_char(scanner->vm, scanner->port);
+  if (IS_CHAR(next)) {
+    scanner->peeks[0] = AS_CHAR(next);
+    return AS_CHAR(next);
+  }
+
+  return '\0';
+}
 
 static char scanner_peek_next(Scanner *scanner) {
-  if (scanner_at_end(scanner))
-    return '\0';
-  return scanner->current[1];
+  // Handle the case where there is no previous peeked char
+  if (scanner->peeks[0] == 0) {
+    return scanner_peek(scanner);
+  }
+
+  Value next = mesche_port_read_char(scanner->vm, scanner->port);
+  if (IS_CHAR(next)) {
+    scanner->peeks[1] = AS_CHAR(next);
+    return AS_CHAR(next);
+  }
+
+  return '\0';
 }
 
 static Token scanner_read_string(Scanner *scanner) {
@@ -86,7 +142,7 @@ static Token scanner_read_number(Scanner *scanner) {
 
 static TokenKind scanner_check_keyword(Scanner *scanner, int start, int length, const char *rest,
                                        TokenKind kind) {
-  if (scanner->current - scanner->start == start + length &&
+  if (scanner->count == start + length &&
       (length == 0 || memcmp(scanner->start + start, rest, length) == 0)) {
     return kind;
   }
@@ -326,18 +382,23 @@ static void scanner_skip_whitespace(Scanner *scanner) {
   }
 }
 
-void mesche_scanner_init(Scanner *scanner, const char *source) {
-  scanner->start = source;
-  scanner->current = source;
+void mesche_scanner_init(Scanner *scanner, VM *vm, MeschePort *port) {
+  scanner->start = scanner->buffer;
+  scanner->count = 0;
+  scanner->port = port;
+  scanner->vm = vm;
   scanner->line = 1;
   scanner->file_name = NULL;
+
+  scanner->peeks[0] = 0;
+  scanner->peeks[1] = 0;
 }
 
 Token mesche_scanner_next_token(Scanner *scanner) {
   scanner_skip_whitespace(scanner);
 
   // Start the lexeme from the first real character
-  scanner->start = scanner->current;
+  scanner->count = 0;
 
   if (scanner_at_end(scanner)) {
     return scanner_make_token(scanner, TokenKindEOF);

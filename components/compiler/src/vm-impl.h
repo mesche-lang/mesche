@@ -66,9 +66,6 @@ typedef struct VM {
   int gray_capacity;
   Object **gray_stack;
 
-  // The context for running the reader
-  ReaderContext reader_context;
-
   // An application-specific context object
   void *app_context;
 

@@ -33,8 +33,7 @@ typedef struct MeschePort {
     MescheFilePortData file;
   } data;
 
-  char peek_byte;
-  bool is_peeked;
+  char peeked_char;
   bool can_close;
   bool is_closed;
 } MeschePort;
@@ -49,6 +48,7 @@ Value mesche_io_make_file_port(VM *vm, MeschePortKind kind, FILE *fp, char *name
 Value mesche_io_make_file_port_from_path(VM *vm, MeschePortKind kind, char *file_path, int flags);
 Value mesche_port_close(VM *vm, MeschePort *port);
 
+Value mesche_port_peek_char(VM *vm, MeschePort *port);
 Value mesche_port_read_char(VM *vm, MeschePort *port);
 Value mesche_port_read_string(VM *vm, MeschePort *port);
 Value mesche_port_write_char(VM *vm, MeschePort *port, char c);

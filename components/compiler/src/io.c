@@ -48,8 +48,7 @@
 
 static void port_common_init(MeschePort *port, MeschePortKind kind) {
   port->kind = kind;
-  port->peek_byte = 0;
-  port->is_peeked = false;
+  port->peeked_char = 0;
   port->can_close = true;
   port->is_closed = false;
 }
@@ -423,6 +422,12 @@ Value mesche_port_read_char(VM *vm, MeschePort *port) {
   EXPECT_TEXT_PORT(port, "read-char can only read from textual input ports.")
   EXPECT_INPUT_PORT(port, "read-char can only read from textual input ports.")
 
+  if (port->peeked_char > 0) {
+    Value peeked_char = CHAR_VAL(port->peeked_char);
+    port->peeked_char = 0;
+    return peeked_char;
+  }
+
   if (port->data_kind == MeschePortDataKindString) {
     return string_port_read_char(port);
   }
@@ -434,23 +439,24 @@ Value mesche_port_peek_char(VM *vm, MeschePort *port) {
   EXPECT_TEXT_PORT(port, "read-char can only read from textual input ports.")
   EXPECT_INPUT_PORT(port, "read-char can only read from textual input ports.")
 
+  char c = 0;
   if (port->data_kind == MeschePortDataKindString) {
     if (port->data.string.index >= port->data.string.size) {
       return EOF_VAL;
     }
 
-    char c = port->data.string.buffer[port->data.string.index];
+    c = port->data.string.buffer[port->data.string.index];
     port->data.string.index++;
-    return CHAR_VAL(c);
   } else {
     if (feof(port->data.file.fp)) {
       return EOF_VAL;
     }
 
-    return CHAR_VAL(fgetc(port->data.file.fp));
+    c = fgetc(port->data.file.fp);
   }
 
-  return mesche_port_close(vm, port);
+  port->peeked_char = c;
+  return CHAR_VAL(c);
 }
 
 Value read_char_msc(VM *vm, int arg_count, Value *args) {

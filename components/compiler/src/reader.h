@@ -7,20 +7,13 @@
 #include "value.h"
 #include "vm.h"
 
-typedef struct ReaderContext {
-  struct VM *vm;
-} ReaderContext;
-
 typedef struct Reader {
+  VM *vm;
   Scanner scanner;
   ObjectString *file_name;
-  ReaderContext *context;
 } Reader;
 
-void mesche_reader_init(ReaderContext *context, struct VM *vm);
-void mesche_reader_from_string(ReaderContext *context, Reader *reader, const char *source);
-void mesche_reader_from_file(ReaderContext *context, Reader *reader, const char *source,
-                             ObjectString *file_name);
+void mesche_reader_init(Reader *reader, struct VM *vm, MeschePort *port, ObjectString *file_name);
 Value mesche_reader_read_next(Reader *reader);
 void mesche_reader_module_init(VM *vm);
 

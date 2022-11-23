@@ -12,6 +12,7 @@ static Value read_value;
 static Value compile_result;
 static Reader reader;
 static ObjectFunction *out_func;
+static MeschePort *input_port;
 static int byte_idx = 0;
 static uint16_t jump_val;
 
@@ -23,7 +24,10 @@ static uint16_t jump_val;
 
 #define COMPILE(source)                                                                            \
   byte_idx = 0;                                                                                    \
-  mesche_reader_from_string(&vm.reader_context, &reader, source);                                  \
+  input_port =                                                                                     \
+      AS_PORT(mesche_io_make_string_port(&vm, MeschePortKindInput, source, strlen(source)));       \
+  mesche_vm_stack_push(&vm, OBJECT_VAL(input_port));                                               \
+  mesche_reader_init(&reader, &vm, input_port, NULL);                                              \
   compile_result = mesche_compile_source(&vm, &reader);                                            \
   if (IS_ERROR(compile_result)) {                                                                  \
     out_func = NULL;                                                                               \

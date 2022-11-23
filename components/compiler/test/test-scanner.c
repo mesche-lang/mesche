@@ -1,10 +1,20 @@
+#include "../src/io.h"
+#include "../src/port.h"
 #include "../src/scanner.h"
+#include "../src/vm-impl.h"
 #include "test.h"
+
+static VM vm;
 
 #define INIT_SCANNER(source)                                                                       \
   Scanner test_scanner;                                                                            \
   Token next_token;                                                                                \
-  mesche_scanner_init(&test_scanner, source);
+  MeschePort *input_port;                                                                          \
+  mesche_vm_init(&vm, 0, NULL);                                                                    \
+  input_port =                                                                                     \
+      AS_PORT(mesche_io_make_string_port(&vm, MeschePortKindInput, source, strlen(source)));       \
+  mesche_vm_stack_push(&vm, OBJECT_VAL(input_port));                                               \
+  mesche_scanner_init(&test_scanner, &vm, input_port);
 
 #define ASSERT_KIND(actual_kind, expected_kind)                                                    \
   if (actual_kind != expected_kind) {                                                              \
@@ -93,8 +103,12 @@ static void scanner_finds_distinguishes_operators() {
   PASS();
 }
 
+static void scanner_suite_cleanup() { mesche_vm_free(&vm); }
+
 void test_scanner_suite() {
   SUITE();
+
+  test_suite_cleanup_func = scanner_suite_cleanup;
 
   scanner_finds_literals();
   scanner_finds_lists_and_symbols();
