@@ -1,6 +1,7 @@
 (define-module (mesche cli main)
   (import (mesche fs)
           (mesche list)
+          (mesche repl)
           (mesche test)
           (mesche build)
           (mesche string)
@@ -23,7 +24,7 @@
   (display "TODO: This would return the version of Mesche!\n"))
 
 (define (repl-command)
-  (display "TODO: This would run the REPL!\n"))
+  (start-repl))
 
 (define-record-type cli-command
   (fields name

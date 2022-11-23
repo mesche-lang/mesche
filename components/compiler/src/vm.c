@@ -485,6 +485,15 @@ static bool vm_call_value(VM *vm, Value callee, uint8_t arg_count, uint8_t keywo
                           bool is_tail_call) {
   if (IS_OBJECT(callee)) {
     switch (OBJECT_KIND(callee)) {
+    case ObjectKindFunction: {
+      // We're likely invoking a script function from the REPL so wrap it in a closure an execute it
+      ObjectClosure *closure =
+          mesche_object_make_closure(vm, AS_FUNCTION(callee), vm->current_module);
+      mesche_vm_stack_push(vm, OBJECT_VAL(closure));
+
+      // Invoke the new closure as a normal call, not a tail call
+      return vm_call(vm, closure, arg_count, keyword_count, false);
+    }
     case ObjectKindClosure:
       return vm_call(vm, AS_CLOSURE(callee), arg_count, keyword_count, is_tail_call);
     case ObjectKindNativeFunction: {

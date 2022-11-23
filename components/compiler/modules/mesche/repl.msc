@@ -1,0 +1,19 @@
+(define-module (mesche repl)
+  (import (mesche module)
+          (mesche reader)
+          (mesche compiler)))
+
+(define (repl-prompt)
+  (display "\e[1;92mmesche:\e[0m")
+  (display (module-name (current-module)))
+  (display "> ")
+  (let ((result (compile (read-syntax))))
+    (if (function? result)
+        (begin
+          (display (result))
+          (display "\n"))
+        (display "Not a function!\n"))
+    (repl-prompt)))
+
+(define (start-repl) :export
+  (repl-prompt))
