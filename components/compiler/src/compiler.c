@@ -10,6 +10,7 @@
 #include "keyword.h"
 #include "mem.h"
 #include "module.h"
+#include "native.h"
 #include "object.h"
 #include "op.h"
 #include "reader.h"
@@ -1495,6 +1496,19 @@ static Value compiler_parse_expr(CompilerContext *ctx, Value syntax) {
   }
 }
 
+Value compile_expr(CompilerContext *ctx, Value expr) {
+  // Ensure that the expression is a syntax
+  if (!IS_SYNTAX(expr)) {
+    PANIC("Received something other than a syntax!")
+  }
+
+  // Parse the expression
+  OK(compiler_parse_expr(ctx, expr));
+
+  // Retrieve the final function
+  return compiler_end(ctx);
+}
+
 Value compile_all(CompilerContext *ctx, Reader *reader) {
   // Read all expressions and compile them individually
   // TODO: Catch and report errors!
@@ -1579,4 +1593,30 @@ Value mesche_compile_module(VM *vm, ObjectModule *module, Reader *reader) {
   vm->current_compiler = NULL;
 
   return OBJECT_VAL(ctx.module);
+}
+
+Value compiler_compile_msc(VM *vm, int arg_count, Value *args) {
+  ObjectSyntax *syntax = NULL;
+  EXPECT_ARG_COUNT(1);
+  EXPECT_OBJECT_KIND(ObjectKindSyntax, 0, AS_SYNTAX, syntax);
+
+  // Set up the context
+  CompilerContext ctx = {.vm = vm};
+
+  // Set up the compilation context
+  compiler_init_context(&ctx, NULL, TYPE_SCRIPT, vm->current_module);
+
+  // Compile the expression
+  Value result = compile_expr(&ctx, OBJECT_VAL(syntax));
+
+  // Clear the VM's pointer to this compiler
+  vm->current_compiler = NULL;
+
+  return result;
+}
+
+void mesche_compiler_module_init(VM *vm) {
+  mesche_vm_define_native_funcs(
+      vm, "mesche compiler",
+      (MescheNativeFuncDetails[]){{"compile", compiler_compile_msc, true}, {NULL, NULL, false}});
 }

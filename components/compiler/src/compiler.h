@@ -9,5 +9,6 @@
 Value mesche_compile_source(VM *vm, Reader *reader);
 Value mesche_compile_module(VM *vm, ObjectModule *module, Reader *reader);
 void mesche_compiler_mark_roots(void *target);
+void mesche_compiler_module_init(VM *vm);
 
 #endif
