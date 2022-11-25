@@ -37,7 +37,9 @@ void mesche_value_print(MeschePort *port, Value value) {
 void mesche_value_print_ex(MeschePort *port, Value value, MeschePrintStyle style) {
   switch (value.kind) {
   case VALUE_UNSPECIFIED:
-    fprintf(port->data.file.fp, "#<unspecified>");
+    if (style == PrintStyleData) {
+      fprintf(port->data.file.fp, "#<unspecified>");
+    }
     break;
   case VALUE_NUMBER:
     fprintf(port->data.file.fp, "%g", AS_NUMBER(value));
@@ -79,6 +81,8 @@ bool mesche_value_eqv_p(Value a, Value b) {
     return true;
   case VALUE_NUMBER:
     return AS_NUMBER(a) == AS_NUMBER(b);
+  case VALUE_CHAR:
+    return AS_CHAR(a) == AS_CHAR(b);
   case VALUE_OBJECT: {
     // Compare the names of the two symbols since they are interned
     if (IS_SYMBOL(a) && IS_SYMBOL(b)) {

@@ -1091,7 +1091,8 @@ InterpretResult mesche_vm_run(VM *vm) {
       return INTERPRET_RUNTIME_ERROR;
     case OP_DISPLAY:
       // Peek at the value on the stack
-      mesche_value_print(vm->output_port, vm_stack_peek(vm, 0));
+      mesche_value_print(vm->output_port, mesche_vm_stack_pop(vm));
+      mesche_vm_stack_push(vm, UNSPECIFIED_VAL);
       break;
     case OP_LOAD_FILE: {
       ObjectString *path = AS_STRING(vm_stack_peek(vm, 0));

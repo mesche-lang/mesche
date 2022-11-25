@@ -1,19 +1,80 @@
 (define-module (mesche repl)
-  (import (mesche module)
+  (import (mesche io)
+          (mesche module)
           (mesche reader)
           (mesche compiler)))
 
-(define (repl-prompt)
+(define (print-prompt)
   (display "\e[1;92mmesche:\e[0m")
   (display (module-name (current-module)))
   (display "> ")
-  (let ((result (compile (read-syntax))))
+  (flush-output-port (current-output-port)))
+
+(define (read-eval-print port)
+  (let ((result (compile (read-syntax port))))
     (if (function? result)
         (begin
           (display (result))
-          (display "\n"))
-        (display "Not a function!\n"))
-    (repl-prompt)))
+          (display "\n")
+          ;; Continue looping
+          #t)
+        (display "Not a function!\n"))))
+
+(define (repl-loop)
+  (print-prompt)
+  (if (read-eval-print (current-input-port))
+      (repl-loop)))
 
 (define (start-repl) :export
-  (repl-prompt))
+  (repl-loop))
+
+;; A simple example of using start-repl-async:
+;; (let loop ((poll (start-repl-async (current-input-port))))
+;;     (poll #t)
+;;     (loop poll))
+
+(define (start-repl-async port) :export
+  ;; Print the prompt for the first time
+  (print-prompt)
+
+  ;; Create a delimited continuation context
+  (reset (lambda ()
+           ;; Loop for input and execute when we have a full expression
+           (let loop ((c #f)
+                      (str (open-output-string)))
+             (if (char-ready? (current-input-port))
+                 (begin
+                   ;; Read the character and store it in the buffer
+                   (set! c (read-char port))
+                   (write-char c str)
+
+                   ;; If we've reached a newline after a complete expression, run it!
+                   ;; Should we also check for balanced parens?
+                   (if (equal? c #\newline)
+                       (begin
+                         (if (read-eval-print (open-input-string
+                                               (get-output-string str)))
+                             (begin
+                               (print-prompt)
+                               ;; TODO: This is actually a bug in how delimited
+                               ;; continuations operate!  We should be able to
+                               ;; set or replace the existing `str` variable but
+                               ;; it appears that setting it does not update the
+                               ;; captured value stack in the original
+                               ;; continuation function.
+                               ;;
+                               ;; Is that how it's supposed to work in practice?
+                               (clear-output-string! str)
+                               (loop c str))))
+
+                       ;; Continue looping
+                       (loop c str)))
+
+                 ;; Return the continuation that will continue the loop and
+                 ;; check if its return value indicates that the loop should
+                 ;; continue
+                 (if (shift (lambda (k) k))
+                     ;; Resume the loop if requested
+                     (loop c str)
+                     (begin
+                       (display "Exit loop!\n"))))))))

@@ -1,11 +1,14 @@
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "error.h"
 #include "io.h"
 #include "native.h"
 #include "object.h"
 #include "port.h"
+#include "util.h"
 #include "value.h"
 #include "vm-impl.h"
 
@@ -91,7 +94,7 @@ Value mesche_io_make_file_port(VM *vm, MeschePortKind kind, FILE *fp, char *port
 Value mesche_io_make_file_port_from_path(VM *vm, MeschePortKind kind, char *file_path, int flags) {
   char *mode = "r";
   if (kind == MeschePortKindOutput) {
-    mode = (flags & MeschePortFileFlagsAppend) == MeschePortFileFlagsAppend ? "a" : "w";
+    mode = (flags & MeschePortFileFlagsWriteAppend) == MeschePortFileFlagsWriteAppend ? "a" : "w";
   }
 
   FILE *fp = fopen(file_path, mode);
@@ -162,6 +165,7 @@ Value mesche_port_write_char(VM *vm, MeschePort *port, char c) {
   if (port->data_kind == MeschePortDataKindFile) {
     if (c != fputc(c, port->data.file.fp)) {
       // TODO: REPORT ERROR
+      PANIC("Error while writing to port");
     }
   } else {
     string_port_write_char(port, c);
@@ -200,12 +204,14 @@ static Value string_port_read_char(MeschePort *port) {
 
 static Value file_port_read_char(MeschePort *port) {
   // Read from the file descriptor
-  char c = fgetc(port->data.file.fp);
-  if (c == EOF) {
+  char c[1];
+
+  // TODO: Check for other errors!
+  if (read(fileno(port->data.file.fp), &c, 1) == 0) {
     return EOF_VAL;
   }
 
-  return CHAR_VAL(c);
+  return CHAR_VAL(c[0]);
 }
 
 Value mesche_port_read_string(VM *vm, MeschePort *port) {
@@ -375,13 +381,26 @@ Value open_output_string_msc(VM *vm, int arg_count, Value *args) {
   ObjectString *file_path = NULL;
   EXPECT_ARG_COUNT(0);
 
-  return mesche_io_make_string_port(vm, MeschePortKindOutput, "", 0);
+  return mesche_io_make_string_port(vm, MeschePortKindOutput, NULL, 0);
 }
 
 Value get_output_string_msc(VM *vm, int arg_count, Value *args) {
   MeschePort *port = NULL;
   EXPECT_ARG_COUNT(1);
   EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+
+  return mesche_port_output_string(vm, port);
+}
+
+Value clear_output_string_msc(VM *vm, int arg_count, Value *args) {
+  MeschePort *port = NULL;
+  EXPECT_ARG_COUNT(1);
+  EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+  EXPECT_STRING_PORT(port, "clear-output-string: A string output port is required.");
+
+  // Reset the current string bufer
+  port->data.string.index = 0;
+  port->data.string.buffer[0] = 0;
 
   return mesche_port_output_string(vm, port);
 }
@@ -467,6 +486,23 @@ Value read_char_msc(VM *vm, int arg_count, Value *args) {
   return mesche_port_read_char(vm, port);
 }
 
+Value char_ready_msc(VM *vm, int arg_count, Value *args) {
+  MeschePort *port = NULL;
+  EXPECT_ARG_COUNT(1);
+  EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+  EXPECT_FILE_PORT(port, "char-ready? can only read from textual file input ports.");
+  EXPECT_TEXT_PORT(port, "char-ready? can only read from textual file input ports.");
+  EXPECT_INPUT_PORT(port, "char-ready? can only read from textual file input ports.");
+
+  struct pollfd pfd[1];
+  pfd[0].fd = fileno(port->data.file.fp);
+  pfd[0].events = POLLIN;
+  pfd[0].revents = 0;
+
+  // TODO: Check for POLLERR?
+  return poll(pfd, 1, 0) > 0 ? TRUE_VAL : FALSE_VAL;
+}
+
 Value read_line_msc(VM *vm, int arg_count, Value *args) {
   MeschePort *port = NULL;
   EXPECT_ARG_COUNT(1);
@@ -477,13 +513,16 @@ Value read_line_msc(VM *vm, int arg_count, Value *args) {
 
 Value write_char_msc(VM *vm, int arg_count, Value *args) {
   MeschePort *port = NULL;
-  ObjectString *char_string = NULL;
   EXPECT_ARG_COUNT(2);
-  EXPECT_OBJECT_KIND(ObjectKindString, 0, AS_STRING, char_string);
-  // TODO: Port is not required, use the current port
   EXPECT_OBJECT_KIND(ObjectKindPort, 1, AS_PORT, port);
 
-  return mesche_port_write_char(vm, port, char_string->chars[0]);
+  if (!IS_CHAR(args[0])) {
+    mesche_vm_raise_error(vm, "Expected character for argument %d.", index);
+  }
+
+  // TODO: Port is not required, use the current port
+
+  return mesche_port_write_char(vm, port, AS_CHAR(args[0]));
 }
 
 Value write_string_msc(VM *vm, int arg_count, Value *args) {
@@ -496,6 +535,38 @@ Value write_string_msc(VM *vm, int arg_count, Value *args) {
   return mesche_port_write_string(vm, port, char_string, 0, char_string->length);
 }
 
+Value current_input_port_msc(VM *vm, int arg_count, Value *args) {
+  EXPECT_ARG_COUNT(0);
+
+  // TODO: Return value from dynamic scope
+  return OBJECT_VAL(vm->input_port);
+}
+
+Value current_output_port_msc(VM *vm, int arg_count, Value *args) {
+  EXPECT_ARG_COUNT(0);
+
+  // TODO: Return value from dynamic scope
+  return OBJECT_VAL(vm->output_port);
+}
+
+Value current_error_port_msc(VM *vm, int arg_count, Value *args) {
+  EXPECT_ARG_COUNT(0);
+
+  // TODO: Return value from dynamic scope
+  return OBJECT_VAL(vm->error_port);
+}
+
+Value flush_output_port_msc(VM *vm, int arg_count, Value *args) {
+  MeschePort *port = NULL;
+  EXPECT_ARG_COUNT(1);
+  EXPECT_OBJECT_KIND(ObjectKindPort, 0, AS_PORT, port);
+  EXPECT_OUTPUT_PORT(port, "flush-output-port: Can only flush output ports.");
+
+  fflush(port->data.file.fp);
+
+  return UNSPECIFIED_VAL;
+}
+
 void mesche_io_module_init(VM *vm) {
   mesche_vm_define_native_funcs(
       vm, "mesche io",
@@ -504,16 +575,22 @@ void mesche_io_module_init(VM *vm) {
                                   {"open-input-string", open_input_string_msc, true},
                                   {"open-output-string", open_output_string_msc, true},
                                   {"get-output-string", get_output_string_msc, true},
+                                  {"clear-output-string!", clear_output_string_msc, true},
                                   {"close-port", close_port_msc, true},
                                   {"close-input-port", close_input_port_msc, true},
                                   {"close-output-port", close_output_port_msc, true},
                                   {"read-char", read_char_msc, true},
                                   {"write-char", write_char_msc, true},
+                                  {"char-ready?", char_ready_msc, true},
                                   {"read-line", read_line_msc, true},
                                   {"write-string", write_string_msc, true},
                                   /* {"peek-char", peek_char_msc, true}, */
                                   /* {"read-u8", read_u8_msc, true}, */
                                   /* {"peek-u8", peek_u8_msc, true}, */
+                                  {"current-input-port", current_input_port_msc, true},
+                                  {"current-output-port", current_output_port_msc, true},
+                                  {"current-error-port", current_error_port_msc, true},
+                                  {"flush-output-port", flush_output_port_msc, true},
                                   {"read-all-text", read_all_text_msc, true},
                                   {NULL, NULL, false}});
 }
