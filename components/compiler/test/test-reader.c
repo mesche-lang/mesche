@@ -23,6 +23,14 @@ static Reader reader;
     FAIL("Reader could not parse input!");                                                         \
   }
 
+#define READ_CHAR(expected_char)                                                                   \
+  READ_NEXT();                                                                                     \
+  if (AS_CHAR(current_syntax->value) != expected_char) {                                           \
+    char exp[2] = {expected_char, 0};                                                              \
+    FAIL("Expected char '%s', got '%c'", expected_char == 0 ? "(null)" : exp,                      \
+         AS_CHAR(current_syntax->value));                                                          \
+  }
+
 #define READ_STRING(expected_str)                                                                  \
   READ_NEXT();                                                                                     \
   if (memcmp(AS_CSTRING(current_syntax->value), expected_str, strlen(expected_str)) != 0) {        \
@@ -75,6 +83,22 @@ static Reader reader;
   } else {                                                                                         \
     current_syntax = AS_SYNTAX(AS_CONS(current_syntax->value)->cdr);                               \
   }
+
+static void reads_character_literals() {
+  READER_INIT("#\\a #\\A #\\( #\\ #\\space #\\null #\\tab #\\return #\\newline");
+
+  READ_CHAR('a');
+  READ_CHAR('A');
+  READ_CHAR('(');
+  READ_CHAR(' ');
+  READ_CHAR(' ');
+  READ_CHAR(0);
+  READ_CHAR('\t');
+  READ_CHAR('\r');
+  READ_CHAR('\n');
+
+  PASS();
+}
 
 static void reads_escaped_strings() {
   READER_INIT("\"ab\" "
@@ -214,6 +238,7 @@ void test_reader_suite() {
 
   test_suite_cleanup_func = reader_suite_cleanup;
 
+  reads_character_literals();
   reads_escaped_strings();
   reads_symbols();
   reads_lists_and_pairs();

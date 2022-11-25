@@ -20,6 +20,7 @@ typedef enum {
   TokenKindSplice,
   TokenKindFalse,
   TokenKindTrue,
+  TokenKindCharacter,
   TokenKindString,
   TokenKindSymbol,
   TokenKindKeyword,

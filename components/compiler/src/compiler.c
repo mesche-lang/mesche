@@ -1477,7 +1477,7 @@ static Value compiler_parse_expr(CompilerContext *ctx, Value syntax) {
   // - An empty list value
   // Most types are literals and should be stored as constants
   Value value = AS_SYNTAX(syntax)->value;
-  if (IS_NUMBER(value) || IS_STRING(value) || IS_KEYWORD(value)) {
+  if (IS_NUMBER(value) || IS_CHAR(value) || IS_STRING(value) || IS_KEYWORD(value)) {
     compiler_emit_constant(ctx, syntax, value);
   } else if (IS_FALSE(value) || IS_TRUE(value) || IS_EMPTY(value)) {
     compiler_emit_literal(ctx, syntax);

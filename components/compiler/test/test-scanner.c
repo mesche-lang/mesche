@@ -31,11 +31,14 @@ static VM vm;
   ASSERT_KIND(next_token.sub_kind, _sub_kind);
 
 static void scanner_finds_literals() {
-  INIT_SCANNER("#t #f -1 2.2 \"three\"");
+  INIT_SCANNER("#t #f -1 2.2 #\\a #\\ #\\newline \"three\"");
   CHECK_TOKEN(TokenKindTrue);
   CHECK_TOKEN(TokenKindFalse);
   CHECK_TOKEN(TokenKindNumber);
   CHECK_TOKEN(TokenKindNumber);
+  CHECK_TOKEN(TokenKindCharacter);
+  CHECK_TOKEN(TokenKindCharacter);
+  CHECK_TOKEN(TokenKindCharacter);
   CHECK_TOKEN(TokenKindString);
 
   CHECK_TOKEN(TokenKindEOF);

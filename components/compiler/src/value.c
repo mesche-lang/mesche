@@ -42,6 +42,9 @@ void mesche_value_print_ex(MeschePort *port, Value value, MeschePrintStyle style
   case VALUE_NUMBER:
     fprintf(port->data.file.fp, "%g", AS_NUMBER(value));
     break;
+  case VALUE_CHAR:
+    fprintf(port->data.file.fp, "%c", AS_CHAR(value));
+    break;
   case VALUE_FALSE:
     fprintf(port->data.file.fp, "#f");
     break;

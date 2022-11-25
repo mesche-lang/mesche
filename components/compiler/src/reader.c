@@ -21,6 +21,38 @@ void mesche_reader_init(Reader *reader, VM *vm, MeschePort *port, ObjectString *
   mesche_scanner_init(&reader->scanner, vm, port);
 }
 
+Value reader_interpret_char_literal(Token token) {
+  char result = 0;
+  char *literal = token.start + 2;
+
+  if (literal[0] == 'x') {
+    // TODO: Implement this
+    PANIC("Cannot interpret hex literal %s", literal);
+  } else if (token.length > 3) {
+    // Interpret the string name of the character
+    // TODO: This should be a loop over a mapping table
+    if (strncmp(literal, "newline", token.length - 2) == 0) {
+      result = '\n';
+    } else if (strncmp(literal, "return", token.length - 2) == 0) {
+      result = '\r';
+    } else if (strncmp(literal, "tab", token.length - 2) == 0) {
+      result = '\t';
+    } else if (strncmp(literal, "space", token.length - 2) == 0) {
+      result = ' ';
+    } else if (strncmp(literal, "null", token.length - 2) == 0) {
+      result = 0;
+    } else {
+      // TODO: Return a syntax error
+      PANIC("Cannot interpret character literal %s", literal);
+    }
+  } else {
+    // Return the character directly
+    result = literal[0];
+  }
+
+  return CHAR_VAL(result);
+}
+
 Value mesche_reader_read_next(Reader *reader) {
   ObjectCons *current_head = NULL;
   ObjectCons *current_cons = NULL;
@@ -123,7 +155,7 @@ Value mesche_reader_read_next(Reader *reader) {
     }
 
     // Things left to parse:
-    // - Atoms: #\char, #b11010010
+    // - Literals: #xFF, #b11010010
     // - Vectors: #(1 2 3)
 
     // Which kind of token is it?
@@ -134,6 +166,9 @@ Value mesche_reader_read_next(Reader *reader) {
     } else if (current.kind == TokenKindNumber) {
       Value number = NUMBER_VAL(strtod(current.start, NULL));
       FINISH(number, current);
+    } else if (current.kind == TokenKindCharacter) {
+      Value character = reader_interpret_char_literal(current);
+      FINISH(character, current);
     } else if (current.kind == TokenKindString) {
       Value str =
           OBJECT_VAL(mesche_object_make_string(reader->vm, current.start + 1, current.length - 2));

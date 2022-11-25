@@ -359,6 +359,30 @@ static Token scanner_read_identifier(Scanner *scanner) {
   return token;
 }
 
+static Token scanner_read_char_literal(Scanner *scanner) {
+  // Skip the first backslash
+  scanner_next_char(scanner);
+
+  // Read all valid characters.  Any ASCII character is valid for the first char
+  // after the backslash but additional alphanumeric chars can only follow an
+  // alphabetic char.
+  char c = scanner_peek(scanner);
+  while (scanner->count == 2 || isalnum(c)) {
+    // Consume the character
+    scanner_next_char(scanner);
+
+    // If this is non-alphabetic character, exit directly after
+    // TODO: Should this be a syntax error instead?
+    if (!isalpha(c))
+      break;
+
+    // Get the next character
+    c = scanner_peek(scanner);
+  }
+
+  return scanner_make_token(scanner, TokenKindCharacter);
+}
+
 static void scanner_skip_whitespace(Scanner *scanner) {
   for (;;) {
     char c = scanner_peek(scanner);
@@ -433,6 +457,12 @@ Token mesche_scanner_next_token(Scanner *scanner) {
 
     return scanner_read_identifier(scanner);
   }
+  case '#': {
+    // TODO: Support vector literals
+    if (scanner_peek(scanner) == '\\') {
+      return scanner_read_char_literal(scanner);
+    }
+  }
   case '!':
   case '$':
   case '%':
@@ -449,7 +479,6 @@ Token mesche_scanner_next_token(Scanner *scanner) {
   case '^':
   case '_':
   case '~':
-  case '#':
     return scanner_read_identifier(scanner);
   }
 
