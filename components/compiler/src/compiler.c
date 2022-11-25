@@ -1441,7 +1441,7 @@ static Value compiler_parse_list(CompilerContext *ctx, Value syntax) {
 
   // One last chance to decide that this should be an OP_CALL
   if (!is_operator) {
-    compiler_emit_call(ctx, syntax, arg_count, 0);
+    compiler_emit_call(ctx, call_expr, arg_count, 0);
   }
 }
 
