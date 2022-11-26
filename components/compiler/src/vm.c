@@ -1588,6 +1588,7 @@ InterpretResult mesche_vm_load_module(VM *vm, ObjectModule *module, const char *
   Reader reader;
   MeschePort *port =
       AS_PORT(mesche_io_make_string_port(vm, MeschePortKindInput, source, strlen(source)));
+  mesche_vm_stack_push(vm, OBJECT_VAL(port));
   mesche_reader_init(&reader, vm, port, module_path_str);
 
   // Compile the module source
