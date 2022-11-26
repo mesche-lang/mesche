@@ -1246,6 +1246,8 @@ InterpretResult mesche_vm_run(VM *vm) {
     case OP_ENTER_MODULE: {
       ObjectString *module_name = AS_STRING(mesche_vm_stack_pop(vm));
       ObjectModule *module = mesche_module_resolve_by_name(vm, module_name, true);
+      // TODO: This might cause unexpected behavior!
+      frame->closure->module = module;
       vm->current_module = module;
       mesche_vm_stack_push(vm, OBJECT_VAL(module));
       break;
