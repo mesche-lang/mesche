@@ -1,0 +1,14 @@
+(define-module (mesche geiser))
+
+(define (geiser:add-to-load-path path)
+  (add-to-load-path path))
+
+(define (geiser:eval module form . rest)
+  (let ((output (open-output-string)))
+    (display "FORM: ")
+    (display form)
+    (display "\n")
+    (if module
+        (module-enter module)
+        (module-enter (mesche-user))))
+  )
