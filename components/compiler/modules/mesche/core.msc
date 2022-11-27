@@ -132,6 +132,21 @@
                   (append new-items
                           (list (car items))))))))
 
+(define (delp pred lst)
+  (let loop ((items lst)
+             (new-items '()))
+    (if (null? items)
+        new-items
+        (if (pred (car items))
+            (if (null? (cdr items))
+                new-items
+                (if (null? new-items)
+                    (cdr items)
+                    (cons new-items (cdr items))))
+            (loop (cdr items)
+                  (append new-items
+                          (list (car items))))))))
+
 ;; TODO: Implement merge sort!
 (define (sort items compare-fn)
   items)
