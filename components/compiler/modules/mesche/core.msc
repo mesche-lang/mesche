@@ -10,6 +10,9 @@
 (define (cadr obj)
   (car (cdr obj)))
 
+(define (caddr obj)
+  (car (cdr (cdr obj))))
+
 (define (length list)
   (let loop ((remaining list)
              (count 0))
