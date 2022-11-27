@@ -57,6 +57,24 @@ Value math_max_msc(VM *vm, int arg_count, Value *args) {
   return NUMBER_VAL(fmax(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
 }
 
+Value math_sqrt_msc(VM *vm, int arg_count, Value *args) {
+  if (arg_count != 1) {
+    PANIC("Function requires 1 parameter.");
+  }
+
+  // TODO: Add type checks
+  return NUMBER_VAL(sqrt(AS_NUMBER(args[0])));
+}
+
+Value math_expt_msc(VM *vm, int arg_count, Value *args) {
+  if (arg_count != 2) {
+    PANIC("Function requires 2 parameters.");
+  }
+
+  // TODO: Add type checks
+  return NUMBER_VAL(pow(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
+}
+
 void mesche_math_module_init(VM *vm) {
   // TODO: Add an API for setting the seed
   srand(time(NULL));
@@ -65,6 +83,8 @@ void mesche_math_module_init(VM *vm) {
                                 (MescheNativeFuncDetails[]){{"floor", math_floor_msc, true},
                                                             {"sin", math_sin_msc, true},
                                                             {"abs", math_abs_msc, true},
+                                                            {"sqrt", math_sqrt_msc, true},
+                                                            {"expt", math_expt_msc, true},
                                                             {"min", math_min_msc, true},
                                                             {"max", math_max_msc, true},
                                                             {"rand-int", math_rand_int_msc, true},
